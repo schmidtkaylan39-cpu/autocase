@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { createRunHandoffs, runProject, updateRunTask } from "../src/lib/commands.mjs";
 import { dispatchHandoffs } from "../src/lib/dispatch.mjs";
 import { writeJson } from "../src/lib/fs-utils.mjs";
+import { getLauncherMetadata } from "../src/lib/handoffs.mjs";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const validSpecPath = path.join(projectRoot, "examples", "project-spec.valid.json");
@@ -49,24 +50,36 @@ function toPowerShellLiteral(value) {
   throw new Error(`Unsupported PowerShell literal: ${typeof value}`);
 }
 
+function escapeShellSingleQuoted(value) {
+  return String(value).replace(/'/g, `'"'"'`);
+}
+
 function buildResultArtifactScript(resultPath, artifact) {
-  const escapedResultPath = escapePowerShellSingleQuoted(resultPath);
   const completeArtifact = {
     runId: "{{RUN_ID}}",
     taskId: "{{TASK_ID}}",
     handoffId: "{{HANDOFF_ID}}",
     ...artifact
   };
-  const lines = ["$result = @{"];
 
-  for (const [key, value] of Object.entries(completeArtifact)) {
-    lines.push(`  ${key} = ${toPowerShellLiteral(value)}`);
+  if (process.platform === "win32") {
+    const escapedResultPath = escapePowerShellSingleQuoted(resultPath);
+    const lines = ["$result = @{"];
+
+    for (const [key, value] of Object.entries(completeArtifact)) {
+      lines.push(`  ${key} = ${toPowerShellLiteral(value)}`);
+    }
+
+    lines.push("} | ConvertTo-Json -Depth 5");
+    lines.push(`$result | Set-Content -Path '${escapedResultPath}' -Encoding utf8`);
+
+    return `${lines.join("\n")}\n`;
   }
 
-  lines.push("} | ConvertTo-Json -Depth 5");
-  lines.push(`$result | Set-Content -Path '${escapedResultPath}' -Encoding utf8`);
-
-  return `${lines.join("\n")}\n`;
+  return `cat > '${escapeShellSingleQuoted(resultPath)}' <<'JSON'
+${JSON.stringify(completeArtifact, null, 2)}
+JSON
+`;
 }
 
 function bindArtifactScriptIdentity(script, descriptor) {
@@ -77,36 +90,70 @@ function bindArtifactScriptIdentity(script, descriptor) {
 }
 
 function buildRawResultScript(resultPath, rawContent) {
-  const escapedResultPath = escapePowerShellSingleQuoted(resultPath);
-  const escapedRawContent = escapePowerShellSingleQuoted(rawContent);
-  return `Set-Content -Path '${escapedResultPath}' -Value '${escapedRawContent}' -Encoding utf8\n`;
+  if (process.platform === "win32") {
+    const escapedResultPath = escapePowerShellSingleQuoted(resultPath);
+    const escapedRawContent = escapePowerShellSingleQuoted(rawContent);
+    return `Set-Content -Path '${escapedResultPath}' -Value '${escapedRawContent}' -Encoding utf8\n`;
+  }
+
+  return `cat > '${escapeShellSingleQuoted(resultPath)}' <<'RAW'
+${rawContent}
+RAW
+`;
 }
 
 function buildBarrierResultArtifactScript(resultPath, artifact, syncDirectory, markerName, expectedCount) {
-  const escapedSyncDirectory = escapePowerShellSingleQuoted(syncDirectory);
-  const escapedMarkerName = escapePowerShellSingleQuoted(markerName);
+  if (process.platform === "win32") {
+    const escapedSyncDirectory = escapePowerShellSingleQuoted(syncDirectory);
+    const escapedMarkerName = escapePowerShellSingleQuoted(markerName);
+    const barrierLines = [
+      `$syncDirectory = '${escapedSyncDirectory}'`,
+      "New-Item -ItemType Directory -Force -Path $syncDirectory | Out-Null",
+      `$markerPath = Join-Path $syncDirectory '${escapedMarkerName}.started'`,
+      "Set-Content -Path $markerPath -Value 'ready' -Encoding utf8",
+      `$expectedCount = ${expectedCount}`,
+      "while ((Get-ChildItem -LiteralPath $syncDirectory -Filter '*.started' | Measure-Object).Count -lt $expectedCount) {",
+      "  Start-Sleep -Milliseconds 25",
+      "}"
+    ];
+
+    return `${barrierLines.join("\n")}\n${buildResultArtifactScript(resultPath, artifact)}`;
+  }
+
   const barrierLines = [
-    `$syncDirectory = '${escapedSyncDirectory}'`,
-    "New-Item -ItemType Directory -Force -Path $syncDirectory | Out-Null",
-    `$markerPath = Join-Path $syncDirectory '${escapedMarkerName}.started'`,
-    "Set-Content -Path $markerPath -Value 'ready' -Encoding utf8",
-    `$expectedCount = ${expectedCount}`,
-    "while ((Get-ChildItem -LiteralPath $syncDirectory -Filter '*.started' | Measure-Object).Count -lt $expectedCount) {",
-    "  Start-Sleep -Milliseconds 25",
-    "}"
+    `syncDirectory='${escapeShellSingleQuoted(syncDirectory)}'`,
+    'mkdir -p "$syncDirectory"',
+    `markerPath="$syncDirectory/${markerName}.started"`,
+    'printf "ready\n" > "$markerPath"',
+    `expectedCount=${expectedCount}`,
+    'while [ "$(find "$syncDirectory" -maxdepth 1 -name "*.started" | wc -l | tr -d " ")" -lt "$expectedCount" ]; do',
+    '  sleep 0.025',
+    'done'
   ];
 
   return `${barrierLines.join("\n")}\n${buildResultArtifactScript(resultPath, artifact)}`;
 }
 
 function buildMarkerResultArtifactScript(resultPath, artifact, markerDirectory) {
-  const escapedMarkerDirectory = escapePowerShellSingleQuoted(markerDirectory);
+  if (process.platform === "win32") {
+    const escapedMarkerDirectory = escapePowerShellSingleQuoted(markerDirectory);
+    const markerLines = [
+      `$markerDirectory = '${escapedMarkerDirectory}'`,
+      "New-Item -ItemType Directory -Force -Path $markerDirectory | Out-Null",
+      "$markerPath = Join-Path $markerDirectory ([guid]::NewGuid().ToString() + '.txt')",
+      "Set-Content -Path $markerPath -Value 'ran' -Encoding utf8",
+      "Start-Sleep -Milliseconds 300"
+    ];
+
+    return `${markerLines.join("\n")}\n${buildResultArtifactScript(resultPath, artifact)}`;
+  }
+
   const markerLines = [
-    `$markerDirectory = '${escapedMarkerDirectory}'`,
-    "New-Item -ItemType Directory -Force -Path $markerDirectory | Out-Null",
-    "$markerPath = Join-Path $markerDirectory ([guid]::NewGuid().ToString() + '.txt')",
-    "Set-Content -Path $markerPath -Value 'ran' -Encoding utf8",
-    "Start-Sleep -Milliseconds 300"
+    `markerDirectory='${escapeShellSingleQuoted(markerDirectory)}'`,
+    'mkdir -p "$markerDirectory"',
+    'markerPath="$markerDirectory/$(date +%s%N).txt"',
+    'printf "ran\n" > "$markerPath"',
+    'sleep 0.3'
   ];
 
   return `${markerLines.join("\n")}\n${buildResultArtifactScript(resultPath, artifact)}`;
@@ -386,7 +433,7 @@ async function main() {
     const scenario = await runSingleDescriptorDispatchScenario({
       tempPrefix: "ai-factory-matrix-missing-",
       runtimeId: "codex",
-      launcherScript: "Write-Output 'no artifact generated'\n"
+      launcherScript: process.platform === "win32" ? "Write-Output 'no artifact generated'\n" : "printf 'no artifact generated\\n'\n"
     });
     const { descriptor, dispatchResult, report, task } = scenario;
     const result = dispatchResult.results[0];
@@ -420,7 +467,13 @@ async function main() {
       verification: ["npm test"],
       notes: ["old result"]
     });
-    await writeFile(descriptor.launcherPath, "Write-Output 'launcher produced no new artifact'\n", "utf8");
+    await writeFile(
+      descriptor.launcherPath,
+      process.platform === "win32"
+        ? "Write-Output 'launcher produced no new artifact'\n"
+        : "printf 'launcher produced no new artifact\\n'\n",
+      "utf8"
+    );
 
     const dispatchResult = await dispatchHandoffs(handoffResult.indexPath, "execute");
     const runState = JSON.parse(await readFile(runResult.statePath, "utf8"));
@@ -495,7 +548,7 @@ async function main() {
       const scenario = await runSingleDescriptorDispatchScenario({
         tempPrefix: "ai-factory-matrix-timeout-",
         runtimeId: "codex",
-        launcherScript: "Start-Sleep -Milliseconds 300\n"
+        launcherScript: process.platform === "win32" ? "Start-Sleep -Milliseconds 300\n" : "sleep 0.3\n"
       });
       const { descriptor, dispatchResult, report, task } = scenario;
       const result = dispatchResult.results[0];
@@ -521,7 +574,7 @@ async function main() {
     const scenario = await runSingleDescriptorDispatchScenario({
       tempPrefix: "ai-factory-matrix-manual-",
       runtimeId: "manual",
-      launcherScript: "throw 'manual runtime should not auto execute'\n"
+      launcherScript: process.platform === "win32" ? "throw 'manual runtime should not auto execute'\n" : "exit 1\n"
     });
     const { descriptor, dispatchResult, report, task } = scenario;
     const result = dispatchResult.results[0];
@@ -537,7 +590,7 @@ async function main() {
     const scenario = await runSingleDescriptorDispatchScenario({
       tempPrefix: "ai-factory-matrix-hybrid-",
       runtimeId: "cursor",
-      launcherScript: "throw 'cursor runtime should not auto execute'\n"
+      launcherScript: process.platform === "win32" ? "throw 'cursor runtime should not auto execute'\n" : "exit 1\n"
     });
     const { descriptor, dispatchResult, report, task } = scenario;
     const result = dispatchResult.results[0];
@@ -553,7 +606,7 @@ async function main() {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-matrix-nosync-"));
     const handoffDir = path.join(tempDir, "handoffs");
     const indexPath = path.join(handoffDir, "index.json");
-    const launcherPath = path.join(handoffDir, "standalone.launch.ps1");
+    const launcherPath = path.join(handoffDir, `standalone.launch${getLauncherMetadata().extension}`);
     const resultPath = path.join(handoffDir, "results", "standalone.result.json");
 
     await mkdir(path.join(handoffDir, "results"), { recursive: true });

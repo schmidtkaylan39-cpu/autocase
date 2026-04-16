@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { ensureDirectory, readJson, writeJson } from "./fs-utils.mjs";
-import { buildHandoffDescriptor, renderHandoffMarkdown } from "./handoffs.mjs";
+import { buildHandoffDescriptor, getLauncherMetadata, renderHandoffMarkdown } from "./handoffs.mjs";
 import { mergeFactoryConfig, roleDirectoryFromConfig, defaultFactoryConfig } from "./roles.mjs";
 import {
   createArtifactPaths,
@@ -41,6 +41,15 @@ function resolveWorkspaceRelativePath(workspaceRoot, targetPath) {
 function resolveRunRelativePath(runDirectory, targetPath, fallbackPath) {
   const effectivePath = targetPath ?? fallbackPath;
   return path.isAbsolute(effectivePath) ? path.resolve(effectivePath) : path.resolve(runDirectory, effectivePath);
+}
+
+function clearActiveHandoffFields(task) {
+  return {
+    ...task,
+    activeHandoffId: null,
+    activeResultPath: null,
+    activeHandoffOutputDir: null
+  };
 }
 
 function inferWorkspaceRootFromRunState(runState, resolvedRunStatePath) {
@@ -471,9 +480,15 @@ export async function applyTaskResult(runStatePath, taskId, resultPath) {
         : undefined
   });
   const nextStatus = mapArtifactStatusToTaskStatus(artifact.status);
+  const preparedRunState = {
+    ...existingRunState,
+    taskLedger: existingRunState.taskLedger.map((task) =>
+      task.id === taskId ? clearActiveHandoffFields(task) : task
+    )
+  };
 
   const nextRunState = updateTaskInRunState(
-    existingRunState,
+    preparedRunState,
     taskId,
     nextStatus,
     `result:${artifact.status}`
@@ -508,6 +523,7 @@ export async function createRunHandoffs(
   const spec = await readJson(path.join(runDirectory, "spec.snapshot.json"));
   const { report: doctorReport } = await loadDoctorReport(doctorReportPath, workspaceRoot);
   const resultsDirectory = path.join(resolvedOutputDir, "results");
+  const launcherMetadata = getLauncherMetadata();
 
   await ensureDirectory(resolvedOutputDir);
   await ensureDirectory(resultsDirectory);
@@ -538,7 +554,7 @@ export async function createRunHandoffs(
 
     const handoffJsonPath = path.join(resolvedOutputDir, `${task.id}.handoff.json`);
     const handoffMarkdownPath = path.join(resolvedOutputDir, `${task.id}.handoff.md`);
-    const launcherPath = path.join(resolvedOutputDir, `${task.id}.launch.ps1`);
+    const launcherPath = path.join(resolvedOutputDir, `${task.id}.launch${launcherMetadata.extension}`);
 
     await writeFile(promptPath, `${descriptor.promptText}\n`, "utf8");
     await writeJson(handoffJsonPath, descriptor);

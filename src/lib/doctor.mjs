@@ -272,25 +272,41 @@ async function checkLocalCi() {
   }
 }
 
-function applyPowerShellLauncherRequirement(check, powerShellStatus) {
+async function checkLauncherRuntimeAvailability() {
+  if (process.platform === "win32") {
+    return checkPowerShellAvailability();
+  }
+
+  const resolution = await resolveCommand("bash");
+
+  return {
+    installed: resolution.installed,
+    ok: resolution.installed,
+    command: "bash",
+    source: resolution.source,
+    error: resolution.installed ? null : "command not found"
+  };
+}
+
+function applyLauncherRuntimeRequirement(check, launcherStatus) {
   if (!["openclaw", "codex", "local-ci"].includes(check.id)) {
     return check;
   }
 
   const details = {
     ...(check.details ?? {}),
-    launcherShell: powerShellStatus.command,
-    launcherShellReady: powerShellStatus.ok
+    launcherShell: launcherStatus.command,
+    launcherShellReady: launcherStatus.ok
   };
 
-  if (powerShellStatus.ok) {
+  if (launcherStatus.ok) {
     return {
       ...check,
       details
     };
   }
 
-  const dependencyMessage = `PowerShell launcher runtime is unavailable: ${powerShellStatus.command}`;
+  const dependencyMessage = `Launcher shell runtime is unavailable: ${launcherStatus.command}`;
 
   return {
     ...check,
@@ -352,12 +368,12 @@ function renderDoctorReport(checks) {
 }
 
 export async function runRuntimeDoctor(outputDir = "reports") {
-  const powerShellStatus = await checkPowerShellAvailability();
+  const launcherStatus = await checkLauncherRuntimeAvailability();
   const checks = [
-    applyPowerShellLauncherRequirement(await checkOpenClaw(), powerShellStatus),
+    applyLauncherRuntimeRequirement(await checkOpenClaw(), launcherStatus),
     await checkCursor(),
-    applyPowerShellLauncherRequirement(await checkCodex(), powerShellStatus),
-    applyPowerShellLauncherRequirement(await checkLocalCi(), powerShellStatus)
+    applyLauncherRuntimeRequirement(await checkCodex(), launcherStatus),
+    applyLauncherRuntimeRequirement(await checkLocalCi(), launcherStatus)
   ];
 
   const resolvedOutputDir = path.resolve(outputDir);

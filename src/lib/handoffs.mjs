@@ -9,6 +9,20 @@ function relativeLabel(baseDir, targetPath) {
   return path.relative(baseDir, targetPath) || ".";
 }
 
+function escapeShellLiteral(value) {
+  return String(value).replace(/'/g, `'"'"'`);
+}
+
+function toShellSingleQuotedLiteral(value) {
+  return `'${escapeShellLiteral(value)}'`;
+}
+
+export function getLauncherMetadata(platform = process.platform) {
+  return platform === "win32"
+    ? { extension: ".ps1", language: "powershell" }
+    : { extension: ".sh", language: "bash" };
+}
+
 function titleForRole(role) {
   switch (role) {
     case "planner":
@@ -86,33 +100,57 @@ export function buildPromptDocument({
   ].join("\n");
 }
 
-function buildOpenClawLauncher(promptPath) {
-  const promptLiteral = toPowerShellSingleQuotedLiteral(promptPath);
+function buildOpenClawLauncher(promptPath, platform = process.platform) {
+  if (platform === "win32") {
+    const promptLiteral = toPowerShellSingleQuotedLiteral(promptPath);
+    return [
+      `$message = Get-Content -Raw -LiteralPath ${promptLiteral}`,
+      "& openclaw agent --local --json --thinking medium --message $message"
+    ].join("\n");
+  }
+
+  const promptLiteral = toShellSingleQuotedLiteral(promptPath);
   return [
-    `$message = Get-Content -Raw -LiteralPath ${promptLiteral}`,
-    "& openclaw agent --local --json --thinking medium --message $message"
+    `message=$(cat ${promptLiteral})`,
+    'openclaw agent --local --json --thinking medium --message "$message"'
   ].join("\n");
 }
 
-function buildCursorLauncher(workspacePath, briefPath, promptPath, modelSelection) {
-  const workspaceLiteral = toPowerShellSingleQuotedLiteral(workspacePath);
-  const briefLiteral = toPowerShellSingleQuotedLiteral(briefPath);
-  const promptLiteral = toPowerShellSingleQuotedLiteral(promptPath);
-  const preferredModelLiteral = toPowerShellSingleQuotedLiteral(modelSelection.preferredModel);
-  const selectionReasonLiteral = toPowerShellSingleQuotedLiteral(modelSelection.selectionReason);
+function buildCursorLauncher(workspacePath, briefPath, promptPath, modelSelection, platform = process.platform) {
+  if (platform === "win32") {
+    const workspaceLiteral = toPowerShellSingleQuotedLiteral(workspacePath);
+    const briefLiteral = toPowerShellSingleQuotedLiteral(briefPath);
+    const promptLiteral = toPowerShellSingleQuotedLiteral(promptPath);
+    const preferredModelLiteral = toPowerShellSingleQuotedLiteral(modelSelection.preferredModel);
+    const selectionReasonLiteral = toPowerShellSingleQuotedLiteral(modelSelection.selectionReason);
+
+    return [
+      `Write-Host ('Preferred model: ' + ${preferredModelLiteral})`,
+      `Write-Host ('Model reason: ' + ${selectionReasonLiteral})`,
+      `& cursor -n ${workspaceLiteral} ${briefLiteral} ${promptLiteral}`,
+      "",
+      "# Cursor is currently treated as a planning or review surface.",
+      "# Open the prompt and brief files inside Cursor for guided handling."
+    ].join("\n");
+  }
+
+  const workspaceLiteral = toShellSingleQuotedLiteral(workspacePath);
+  const briefLiteral = toShellSingleQuotedLiteral(briefPath);
+  const promptLiteral = toShellSingleQuotedLiteral(promptPath);
+  const preferredModelLiteral = toShellSingleQuotedLiteral(modelSelection.preferredModel);
+  const selectionReasonLiteral = toShellSingleQuotedLiteral(modelSelection.selectionReason);
 
   return [
-    `Write-Host ('Preferred model: ' + ${preferredModelLiteral})`,
-    `Write-Host ('Model reason: ' + ${selectionReasonLiteral})`,
-    `& cursor -n ${workspaceLiteral} ${briefLiteral} ${promptLiteral}`,
+    `printf 'Preferred model: %s\\n' ${preferredModelLiteral}`,
+    `printf 'Model reason: %s\\n' ${selectionReasonLiteral}`,
+    `cursor -n ${workspaceLiteral} ${briefLiteral} ${promptLiteral}`,
     "",
     "# Cursor is currently treated as a planning or review surface.",
     "# Open the prompt and brief files inside Cursor for guided handling."
   ].join("\n");
 }
 
-function buildLocalCiLauncher(workspacePath, mandatoryGates = []) {
-  const workspaceLiteral = toPowerShellSingleQuotedLiteral(workspacePath);
+function buildLocalCiLauncher(workspacePath, mandatoryGates = [], platform = process.platform) {
   const gateToCommand = {
     build: "npm run build",
     lint: "npm run lint",
@@ -126,36 +164,73 @@ function buildLocalCiLauncher(workspacePath, mandatoryGates = []) {
     .map((gate) => gateToCommand[gate])
     .filter(Boolean);
 
+  if (platform === "win32") {
+    const workspaceLiteral = toPowerShellSingleQuotedLiteral(workspacePath);
+    return [
+      `Set-Location -LiteralPath ${workspaceLiteral}`,
+      ...(commands.length > 0 ? commands : ["npm test"])
+    ].join("\n");
+  }
+
+  const workspaceLiteral = toShellSingleQuotedLiteral(workspacePath);
   return [
-    `Set-Location -LiteralPath ${workspaceLiteral}`,
+    `cd ${workspaceLiteral}`,
     ...(commands.length > 0 ? commands : ["npm test"])
   ].join("\n");
 }
 
-function buildCodexLauncher(promptPath, workspacePath, modelSelection) {
-  const promptLiteral = toPowerShellSingleQuotedLiteral(promptPath);
-  const workspaceLiteral = toPowerShellSingleQuotedLiteral(workspacePath);
-  const preferredModelLiteral = toPowerShellSingleQuotedLiteral(modelSelection.preferredModel);
+function buildCodexLauncher(promptPath, workspacePath, modelSelection, platform = process.platform) {
+  if (platform === "win32") {
+    const promptLiteral = toPowerShellSingleQuotedLiteral(promptPath);
+    const workspaceLiteral = toPowerShellSingleQuotedLiteral(workspacePath);
+    const preferredModelLiteral = toPowerShellSingleQuotedLiteral(modelSelection.preferredModel);
+
+    return [
+      `Set-Location -LiteralPath ${workspaceLiteral}`,
+      `Write-Host ('Preferred model: ' + ${preferredModelLiteral})`,
+      `$prompt = Get-Content -Raw -LiteralPath ${promptLiteral}`,
+      "$prompt | & codex -a never exec -C . -s workspace-write -"
+    ].join("\n");
+  }
+
+  const promptLiteral = toShellSingleQuotedLiteral(promptPath);
+  const workspaceLiteral = toShellSingleQuotedLiteral(workspacePath);
+  const preferredModelLiteral = toShellSingleQuotedLiteral(modelSelection.preferredModel);
 
   return [
-    `Set-Location -LiteralPath ${workspaceLiteral}`,
-    `Write-Host ('Preferred model: ' + ${preferredModelLiteral})`,
-    `$prompt = Get-Content -Raw -LiteralPath ${promptLiteral}`,
-    "$prompt | & codex -a never exec -C . -s workspace-write -"
+    `cd ${workspaceLiteral}`,
+    `printf 'Preferred model: %s\\n' ${preferredModelLiteral}`,
+    `prompt=$(cat ${promptLiteral})`,
+    'printf "%s" "$prompt" | codex -a never exec -C . -s workspace-write -'
   ].join("\n");
 }
 
-function buildManualLauncher(promptPath, briefPath, modelSelection) {
-  const promptLiteral = toPowerShellSingleQuotedLiteral(promptPath);
-  const briefLiteral = toPowerShellSingleQuotedLiteral(briefPath);
-  const preferredModelLiteral = toPowerShellSingleQuotedLiteral(modelSelection.preferredModel);
-  const selectionReasonLiteral = toPowerShellSingleQuotedLiteral(modelSelection.selectionReason);
+function buildManualLauncher(promptPath, briefPath, modelSelection, platform = process.platform) {
+  if (platform === "win32") {
+    const promptLiteral = toPowerShellSingleQuotedLiteral(promptPath);
+    const briefLiteral = toPowerShellSingleQuotedLiteral(briefPath);
+    const preferredModelLiteral = toPowerShellSingleQuotedLiteral(modelSelection.preferredModel);
+    const selectionReasonLiteral = toPowerShellSingleQuotedLiteral(modelSelection.selectionReason);
+    return [
+      "Write-Host 'Please handle this task manually.'",
+      `Write-Host ('Preferred model: ' + ${preferredModelLiteral})`,
+      `Write-Host ('Model reason: ' + ${selectionReasonLiteral})`,
+      `Write-Host ('Prompt: ' + ${promptLiteral})`,
+      `Write-Host ('Brief: ' + ${briefLiteral})`
+    ].join("\n");
+  }
+
+  const promptLiteral = toShellSingleQuotedLiteral(promptPath);
+  const briefLiteral = toShellSingleQuotedLiteral(briefPath);
+  const preferredModelLiteral = toShellSingleQuotedLiteral(modelSelection.preferredModel);
+  const selectionReasonLiteral = toShellSingleQuotedLiteral(modelSelection.selectionReason);
+
   return [
-    "Write-Host 'Please handle this task manually.'",
-    `Write-Host ('Preferred model: ' + ${preferredModelLiteral})`,
-    `Write-Host ('Model reason: ' + ${selectionReasonLiteral})`,
-    `Write-Host ('Prompt: ' + ${promptLiteral})`,
-    `Write-Host ('Brief: ' + ${briefLiteral})`
+    "echo 'Please handle this task manually.'",
+    `printf 'Preferred model: %s\\n' ${preferredModelLiteral}`,
+    `printf 'Model reason: %s\\n' ${selectionReasonLiteral}`,
+    `printf 'Prompt: %s\\n' ${promptLiteral}`,
+    `printf 'Brief: %s\\n' ${briefLiteral}`
   ].join("\n");
 }
 
@@ -170,7 +245,8 @@ export function buildHandoffDescriptor({
   promptPath,
   briefPath,
   resultPath,
-  doctorReport
+  doctorReport,
+  platform = process.platform
 }) {
   const runtimeChecks = normalizeRuntimeChecks(doctorReport);
   const selected = pickRuntimeForRole(task.role, runtimeChecks);
@@ -192,17 +268,18 @@ export function buildHandoffDescriptor({
     resultPath,
     runState
   });
+  const launcher = getLauncherMetadata(platform);
 
-  let launcherScript = buildManualLauncher(promptPath, briefPath, modelSelection);
+  let launcherScript = buildManualLauncher(promptPath, briefPath, modelSelection, platform);
 
   if (selected.runtimeId === "openclaw") {
-    launcherScript = buildOpenClawLauncher(promptPath);
+    launcherScript = buildOpenClawLauncher(promptPath, platform);
   } else if (selected.runtimeId === "cursor") {
-    launcherScript = buildCursorLauncher(workspacePath, briefPath, promptPath, modelSelection);
+    launcherScript = buildCursorLauncher(workspacePath, briefPath, promptPath, modelSelection, platform);
   } else if (selected.runtimeId === "local-ci") {
-    launcherScript = buildLocalCiLauncher(workspacePath, runState.mandatoryGates);
+    launcherScript = buildLocalCiLauncher(workspacePath, runState.mandatoryGates, platform);
   } else if (selected.runtimeId === "codex") {
-    launcherScript = buildCodexLauncher(promptPath, workspacePath, modelSelection);
+    launcherScript = buildCodexLauncher(promptPath, workspacePath, modelSelection, platform);
   }
 
   return {
@@ -238,6 +315,7 @@ export function buildHandoffDescriptor({
       briefPath,
       resultPath
     },
+    launcher,
     alternatives,
     promptText,
     launcherScript
@@ -250,6 +328,7 @@ export function renderHandoffMarkdown(descriptor, baseDir) {
     "",
     `- runId: ${descriptor.runId}`,
     `- taskId: ${descriptor.taskId}`,
+    `- handoffId: ${descriptor.handoffId}`,
     `- role: ${titleForRole(descriptor.role)}`,
     `- recommended runtime: ${descriptor.runtime.label}`,
     `- selection reason: ${descriptor.runtime.selectionReason}`,
@@ -271,7 +350,7 @@ export function renderHandoffMarkdown(descriptor, baseDir) {
     `- result: ${relativeLabel(baseDir, descriptor.paths.resultPath)}`,
     "",
     "## Suggested Launcher",
-    "```powershell",
+    `\`\`\`${descriptor.launcher?.language ?? "powershell"}`,
     descriptor.launcherScript,
     "```"
   ].join("\n");

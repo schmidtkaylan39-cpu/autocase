@@ -18,6 +18,7 @@ import {
 } from "../src/lib/commands.mjs";
 import { dispatchHandoffs } from "../src/lib/dispatch.mjs";
 import { writeJson } from "../src/lib/fs-utils.mjs";
+import { getLauncherMetadata } from "../src/lib/handoffs.mjs";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const knownRuntimeIds = ["cursor", "openclaw", "codex", "local-ci"];
@@ -60,24 +61,35 @@ function toPowerShellLiteral(value) {
   throw new Error(`Unsupported PowerShell literal: ${typeof value}`);
 }
 
+function escapeShellSingleQuoted(value) {
+  return String(value).replace(/'/g, `'"'"'`);
+}
+
 function buildResultArtifactScript(resultPath, artifact) {
-  const escapedResultPath = escapePowerShellSingleQuoted(resultPath);
   const completeArtifact = {
     runId: "{{RUN_ID}}",
     taskId: "{{TASK_ID}}",
     handoffId: "{{HANDOFF_ID}}",
     ...artifact
   };
-  const lines = ["$result = @{"];
 
-  for (const [key, value] of Object.entries(completeArtifact)) {
-    lines.push(`  ${key} = ${toPowerShellLiteral(value)}`);
+  if (process.platform === "win32") {
+    const escapedResultPath = escapePowerShellSingleQuoted(resultPath);
+    const lines = ["$result = @{"];
+
+    for (const [key, value] of Object.entries(completeArtifact)) {
+      lines.push(`  ${key} = ${toPowerShellLiteral(value)}`);
+    }
+
+    lines.push("} | ConvertTo-Json -Depth 5");
+    lines.push(`$result | Set-Content -Path '${escapedResultPath}' -Encoding utf8`);
+
+    return lines.join("\n");
   }
 
-  lines.push("} | ConvertTo-Json -Depth 5");
-  lines.push(`$result | Set-Content -Path '${escapedResultPath}' -Encoding utf8`);
-
-  return lines.join("\n");
+  return `cat > '${escapeShellSingleQuoted(resultPath)}' <<'JSON'
+${JSON.stringify(completeArtifact, null, 2)}
+JSON`;
 }
 
 function withArtifactIdentity(artifact, identity = {}) {
@@ -327,7 +339,9 @@ async function main() {
     await stat(path.join(tempDir, "handoff-run", "handoffs", "implement-spec-intake.prompt.md"));
     await stat(path.join(tempDir, "handoff-run", "handoffs", "implement-spec-intake.handoff.json"));
     await stat(path.join(tempDir, "handoff-run", "handoffs", "implement-spec-intake.handoff.md"));
-    await stat(path.join(tempDir, "handoff-run", "handoffs", "implement-spec-intake.launch.ps1"));
+    await stat(
+      path.join(tempDir, "handoff-run", "handoffs", `implement-spec-intake.launch${getLauncherMetadata().extension}`)
+    );
     await stat(path.join(tempDir, "handoff-run", "handoffs", "results"));
     assert.match(handoffDescriptor.handoffId ?? "", /^[0-9a-f-]{36}$/i);
     assert.match(handoffDescriptor.paths.resultPath, /implement-spec-intake\.[0-9a-f-]{36}\.result\.json$/i);
@@ -1025,7 +1039,11 @@ async function main() {
     const [descriptor] = handoffResult.descriptors;
 
     await limitDispatchToDescriptors(handoffResult.indexPath, handoffResult.runId, [descriptor]);
-    await writeFile(descriptor.launcherPath, "Write-Output 'noop'\n", "utf8");
+    await writeFile(
+      descriptor.launcherPath,
+      process.platform === "win32" ? "Write-Output 'noop'\n" : "printf 'noop\\n'\n",
+      "utf8"
+    );
 
     const dispatchResult = await dispatchHandoffs(handoffResult.indexPath, "execute");
     const runState = JSON.parse(await readFile(runResult.statePath, "utf8"));
@@ -1152,6 +1170,51 @@ async function main() {
 
     assert.match(report, /- Completed: 3/);
     assert.match(report, /- Ready: 2/);
+  });
+
+  await runTest("dispatch execute skips stale descriptors after handoff regeneration", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-dispatch-stale-handoff-"));
+    const runResult = await runProject(validSpecPath, tempDir, "dispatch-stale-handoff-run");
+    const doctorReportPath = path.join(tempDir, "dispatch-stale-handoff-run.doctor.json");
+    const firstHandoffDir = path.join(tempDir, "handoff-a");
+    const secondHandoffDir = path.join(tempDir, "handoff-b");
+
+    await updateRunTask(runResult.statePath, "planning-brief", "completed", "planner finished");
+    await writeFakeDoctorReport(doctorReportPath, {
+      codex: { ok: true }
+    });
+
+    const firstHandoff = await createRunHandoffs(runResult.statePath, firstHandoffDir, doctorReportPath);
+    const secondHandoff = await createRunHandoffs(runResult.statePath, secondHandoffDir, doctorReportPath);
+    const firstDescriptor = firstHandoff.descriptors.find((descriptor) => descriptor.taskId === "implement-spec-intake");
+    const secondDescriptor = secondHandoff.descriptors.find((descriptor) => descriptor.taskId === "implement-spec-intake");
+
+    if (!firstDescriptor || !secondDescriptor) {
+      throw new Error("Expected regenerated implementation descriptors.");
+    }
+
+    await limitDispatchToDescriptors(firstHandoff.indexPath, firstHandoff.runId, [firstDescriptor]);
+    await writeFile(
+      firstDescriptor.launcherPath,
+      bindArtifactScriptIdentity(buildResultArtifactScript(firstDescriptor.resultPath, {
+        status: "completed",
+        summary: "stale handoff should not execute",
+        changedFiles: ["src/stale-dispatch.mjs"],
+        verification: ["npm test"],
+        notes: ["stale descriptor"]
+      }), firstDescriptor),
+      "utf8"
+    );
+
+    const dispatchResult = await dispatchHandoffs(firstHandoff.indexPath, "execute");
+    const runState = JSON.parse(await readFile(runResult.statePath, "utf8"));
+    const task = runState.taskLedger.find((item) => item.id === firstDescriptor.taskId);
+
+    assert.equal(dispatchResult.results[0]?.status, "skipped");
+    assert.match(dispatchResult.results[0]?.note ?? "", /stale/i);
+    assert.equal(task?.status, "ready");
+    assert.equal(task?.activeHandoffId, secondDescriptor.handoffId);
+    assert.equal(path.resolve(task?.activeResultPath ?? ""), path.resolve(secondDescriptor.resultPath));
   });
 
   console.log("All tests passed.");

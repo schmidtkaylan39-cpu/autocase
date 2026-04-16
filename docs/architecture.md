@@ -145,7 +145,7 @@ For each `ready` task it writes:
 - `<task-id>.prompt.md`
 - `<task-id>.handoff.json`
 - `<task-id>.handoff.md`
-- `<task-id>.launch.ps1`
+- `<task-id>.launch.ps1` on Windows or `<task-id>.launch.sh` on non-Windows
 - `results/<task-id>.<handoff-id>.result.json` as the expected output location
 - `index.json` as the handoff index
 

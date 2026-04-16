@@ -61,7 +61,7 @@ For each ready task, `handoff` writes:
 - `<taskId>.prompt.md`
 - `<taskId>.handoff.json`
 - `<taskId>.handoff.md`
-- `<taskId>.launch.ps1`
+- `<taskId>.launch.ps1` on Windows or `<taskId>.launch.sh` on non-Windows
 
 It also reserves a result path under:
 

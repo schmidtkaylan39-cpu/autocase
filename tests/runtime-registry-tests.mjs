@@ -5,7 +5,7 @@ import path from "node:path";
 
 import { dispatchHandoffs } from "../src/lib/dispatch.mjs";
 import { ensureDirectory, writeJson } from "../src/lib/fs-utils.mjs";
-import { buildHandoffDescriptor } from "../src/lib/handoffs.mjs";
+import { buildHandoffDescriptor, getLauncherMetadata } from "../src/lib/handoffs.mjs";
 import { normalizeRuntimeChecks, pickRuntimeForRole } from "../src/lib/runtime-registry.mjs";
 
 async function runTest(name, fn) {
@@ -190,7 +190,8 @@ async function main() {
         {
           taskId: descriptor.taskId,
           runtime: descriptor.runtime,
-          launcherPath: path.join(handoffDir, `${descriptor.taskId}.launch.ps1`),
+          handoffId: descriptor.handoffId,
+          launcherPath: path.join(handoffDir, `${descriptor.taskId}.launch${getLauncherMetadata().extension}`),
           resultPath: path.join(handoffDir, "results", `${descriptor.taskId}.result.json`)
         }
       ]
@@ -295,13 +296,36 @@ async function main() {
 
     assert.equal(descriptor.runtime.id, "codex");
     assert.equal(descriptor.model.preferredModel, "codex");
-    assert.match(descriptor.launcherScript, /Set-Location -LiteralPath 'C:\/workspace\/\$demo & path'/);
     assert.match(descriptor.launcherScript, /Preferred model: /);
-    assert.match(
-      descriptor.launcherScript,
-      /Get-Content -Raw -LiteralPath 'C:\/handoffs\/prompt ''\$demo'' & work\.md'/
-    );
-    assert.match(descriptor.launcherScript, /\$prompt \| & codex -a never exec -C \. -s workspace-write -/);
+
+    if (process.platform === "win32") {
+      assert.equal(descriptor.launcher.language, "powershell");
+      assert.match(descriptor.launcherScript, /Set-Location -LiteralPath 'C:\/workspace\/\$demo & path'/);
+      assert.match(
+        descriptor.launcherScript,
+        /Get-Content -Raw -LiteralPath 'C:\/handoffs\/prompt ''\$demo'' & work\.md'/
+      );
+      assert.match(descriptor.launcherScript, /\$prompt \| & codex -a never exec -C \. -s workspace-write -/);
+    } else {
+      assert.equal(descriptor.launcher.language, "bash");
+      assert.match(descriptor.launcherScript, /cd 'C:\/workspace\/\$demo & path'/);
+      assert.match(
+        descriptor.launcherScript,
+        /prompt=\$\(cat 'C:\/handoffs\/prompt '"'"'\$demo'"'"' & work\.md'\)/
+      );
+      assert.match(descriptor.launcherScript, /printf "%s" "\$prompt" \| codex -a never exec -C \. -s workspace-write -/);
+    }
+  });
+
+  await runTest("launcher metadata matches the requested platform", async () => {
+    assert.deepEqual(getLauncherMetadata("win32"), {
+      extension: ".ps1",
+      language: "powershell"
+    });
+    assert.deepEqual(getLauncherMetadata("linux"), {
+      extension: ".sh",
+      language: "bash"
+    });
   });
 
   console.log("All runtime-registry tests passed.");

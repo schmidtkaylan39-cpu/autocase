@@ -92,6 +92,54 @@ async function runPowerShellScript(scriptPath) {
   }
 }
 
+async function runShellScript(scriptPath) {
+  if (!(await fileExists(scriptPath))) {
+    throw new Error(`Launcher script not found: ${scriptPath}`);
+  }
+
+  const shellTimeoutMs = getPowerShellTimeoutMs();
+
+  try {
+    return await execFileAsync("bash", [scriptPath], {
+      encoding: "utf8",
+      timeout: shellTimeoutMs
+    });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const shellMissing =
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      error.code === "ENOENT";
+    const timedOut =
+      (typeof error === "object" &&
+        error !== null &&
+        (("code" in error && error.code === "ETIMEDOUT") ||
+          ("killed" in error && error.killed === true && "signal" in error && error.signal === "SIGTERM"))) ||
+      /timed out/i.test(errorMessage);
+
+    if (shellMissing) {
+      throw new Error("Launcher shell is not available: bash", {
+        cause: error
+      });
+    }
+
+    if (timedOut) {
+      throw new Error(`Launcher timed out after ${shellTimeoutMs / 1000} seconds: ${scriptPath}`, {
+        cause: error
+      });
+    }
+
+    throw error;
+  }
+}
+
+async function runLauncherScript(scriptPath) {
+  return path.extname(scriptPath).toLowerCase() === ".sh"
+    ? runShellScript(scriptPath)
+    : runPowerShellScript(scriptPath);
+}
+
 function shouldAutoExecute(runtimeId) {
   return runtimeId === "openclaw" || runtimeId === "local-ci" || runtimeId === "codex";
 }
@@ -293,6 +341,154 @@ function mapDispatchResultToTaskStatus(result) {
   return null;
 }
 
+function clearActiveHandoffFields(task) {
+  return {
+    ...task,
+    activeHandoffId: null,
+    activeResultPath: null,
+    activeHandoffOutputDir: null
+  };
+}
+
+async function prepareTaskForExecution(runStatePath, planPath, reportPath, descriptor) {
+  if (!(await fileExists(runStatePath))) {
+    return { shouldExecute: true, note: null };
+  }
+
+  return withDispatchLock(runStatePath, async () => {
+    const runState = await readJson(runStatePath);
+    const task = runState.taskLedger.find((item) => item.id === descriptor.taskId);
+
+    if (!task) {
+      return {
+        shouldExecute: false,
+        note: `Task not found in run-state: ${descriptor.taskId}`
+      };
+    }
+
+    if (
+      descriptor.handoffId &&
+      (typeof task.activeHandoffId !== "string" ||
+        task.activeHandoffId.trim().length === 0 ||
+        task.activeHandoffId !== descriptor.handoffId)
+    ) {
+      return {
+        shouldExecute: false,
+        note: `Descriptor handoff ${descriptor.handoffId} is stale for task ${descriptor.taskId}.`
+      };
+    }
+
+    if (
+      descriptor.resultPath &&
+      (typeof task.activeResultPath !== "string" ||
+        task.activeResultPath.trim().length === 0 ||
+        path.resolve(task.activeResultPath) !== path.resolve(descriptor.resultPath))
+    ) {
+      return {
+        shouldExecute: false,
+        note: `Descriptor result path is stale for task ${descriptor.taskId}.`
+      };
+    }
+
+    if (!["ready", "in_progress"].includes(task.status)) {
+      return {
+        shouldExecute: false,
+        note: `Task ${descriptor.taskId} is ${task.status}; launcher execution was skipped.`
+      };
+    }
+
+    if (task.status === "ready") {
+      const nextRunState = updateTaskInRunState(
+        runState,
+        descriptor.taskId,
+        "in_progress",
+        `dispatch:claimed ${descriptor.handoffId ?? "unknown"}`
+      );
+
+      await writeJson(runStatePath, nextRunState);
+
+      if (await fileExists(planPath)) {
+        const plan = await readJson(planPath);
+        await writeFile(reportPath, `${renderRunReport(nextRunState, plan)}\n`, "utf8");
+      }
+    }
+
+    return { shouldExecute: true, note: null };
+  });
+}
+
+async function syncDispatchResults(runStatePath, planPath, reportPath, results) {
+  if (!(await fileExists(runStatePath))) {
+    return null;
+  }
+
+  return withDispatchLock(runStatePath, async () => {
+    let runState = await readJson(runStatePath);
+    const updatedTasks = [];
+
+    for (const result of results) {
+      const nextStatus = mapDispatchResultToTaskStatus(result);
+
+      if (!nextStatus) {
+        continue;
+      }
+
+      const task = runState.taskLedger.find((item) => item.id === result.taskId);
+
+      if (!task) {
+        continue;
+      }
+
+      if (
+        result.handoffId &&
+        (typeof task.activeHandoffId !== "string" ||
+          task.activeHandoffId.trim().length === 0 ||
+          task.activeHandoffId !== result.handoffId)
+      ) {
+        continue;
+      }
+
+      if (
+        result.resultPath &&
+        (typeof task.activeResultPath !== "string" ||
+          task.activeResultPath.trim().length === 0 ||
+          path.resolve(task.activeResultPath) !== path.resolve(result.resultPath))
+      ) {
+        continue;
+      }
+
+      runState = updateTaskInRunState(
+        {
+          ...runState,
+          taskLedger: runState.taskLedger.map((item) =>
+            item.id === result.taskId ? clearActiveHandoffFields(item) : item
+          )
+        },
+        result.taskId,
+        nextStatus,
+        `dispatch:${result.status}`
+      );
+      updatedTasks.push({
+        taskId: result.taskId,
+        nextStatus
+      });
+    }
+
+    await writeJson(runStatePath, runState);
+
+    if (await fileExists(planPath)) {
+      const plan = await readJson(planPath);
+      await writeFile(reportPath, `${renderRunReport(runState, plan)}\n`, "utf8");
+    }
+
+    return {
+      runStatePath,
+      reportPath: (await fileExists(reportPath)) ? reportPath : null,
+      updatedTasks
+    };
+  });
+}
+
 export async function dispatchHandoffs(indexPath, mode = "dry-run") {
   if (mode !== "dry-run" && mode !== "execute") {
     throw new Error(`Unsupported dispatch mode: ${mode}`);
@@ -309,6 +505,7 @@ export async function dispatchHandoffs(indexPath, mode = "dry-run") {
     if (mode === "dry-run") {
       results.push({
         taskId: descriptor.taskId,
+        handoffId: descriptor.handoffId ?? null,
         runtime: runtimeId,
         status: shouldAutoExecute(runtimeId) ? "would_execute" : "would_skip",
         launcherPath: descriptor.launcherPath,
@@ -320,6 +517,7 @@ export async function dispatchHandoffs(indexPath, mode = "dry-run") {
     if (!shouldAutoExecute(runtimeId)) {
       results.push({
         taskId: descriptor.taskId,
+        handoffId: descriptor.handoffId ?? null,
         runtime: runtimeId,
         status: "skipped",
         launcherPath: descriptor.launcherPath,
@@ -345,9 +543,32 @@ export async function dispatchHandoffs(indexPath, mode = "dry-run") {
       }
 
       try {
+        const runDirectory = handoffIndex.runDirectory
+          ? path.resolve(handoffIndex.runDirectory)
+          : path.resolve(outputDir, "..");
+        const runStatePath = handoffIndex.runStatePath
+          ? path.resolve(handoffIndex.runStatePath)
+          : path.join(runDirectory, "run-state.json");
+        const planPath = path.join(runDirectory, "execution-plan.json");
+        const reportPath = path.join(runDirectory, "report.md");
+        const preparation = await prepareTaskForExecution(runStatePath, planPath, reportPath, descriptor);
+
+        if (!preparation.shouldExecute) {
+          results.push({
+            taskId: descriptor.taskId,
+            handoffId: descriptor.handoffId ?? null,
+            runtime: runtimeId,
+            status: "skipped",
+            launcherPath: descriptor.launcherPath,
+            resultPath: descriptor.resultPath ?? null,
+            note: preparation.note
+          });
+          continue;
+        }
+
         await removeExistingResultArtifact(descriptor.resultPath ?? null);
         const launcherStartedAtMs = Date.now();
-        const execution = await runPowerShellScript(descriptor.launcherPath);
+        const execution = await runLauncherScript(descriptor.launcherPath);
         const resultArtifact = await readResultArtifactForExecution(descriptor.resultPath ?? null, {
           runId: descriptor.runId ?? handoffIndex.runId ?? null,
           taskId: descriptor.taskId,
@@ -369,6 +590,7 @@ export async function dispatchHandoffs(indexPath, mode = "dry-run") {
 
         results.push({
           taskId: descriptor.taskId,
+          handoffId: descriptor.handoffId ?? null,
           runtime: runtimeId,
           status,
           launcherPath: descriptor.launcherPath,
@@ -384,6 +606,7 @@ export async function dispatchHandoffs(indexPath, mode = "dry-run") {
     } catch (error) {
       results.push({
         taskId: descriptor.taskId,
+        handoffId: descriptor.handoffId ?? null,
         runtime: runtimeId,
         status: "failed",
         launcherPath: descriptor.launcherPath,
@@ -408,57 +631,18 @@ export async function dispatchHandoffs(indexPath, mode = "dry-run") {
     failed: results.filter((item) => item.status === "failed").length
   };
 
-  let runStateSync = null;
-
-  if (mode === "execute") {
-    const runDirectory = handoffIndex.runDirectory
-      ? path.resolve(handoffIndex.runDirectory)
-      : path.resolve(outputDir, "..");
-    const runStatePath = handoffIndex.runStatePath
-      ? path.resolve(handoffIndex.runStatePath)
-      : path.join(runDirectory, "run-state.json");
-    const planPath = path.join(runDirectory, "execution-plan.json");
-    const reportPath = path.join(runDirectory, "report.md");
-
-    if (await fileExists(runStatePath)) {
-      runStateSync = await withDispatchLock(runStatePath, async () => {
-        let runState = await readJson(runStatePath);
-        const updatedTasks = [];
-
-        for (const result of results) {
-          const nextStatus = mapDispatchResultToTaskStatus(result);
-
-          if (!nextStatus) {
-            continue;
-          }
-
-          runState = updateTaskInRunState(
-            runState,
-            result.taskId,
-            nextStatus,
-            `dispatch:${result.status}`
-          );
-          updatedTasks.push({
-            taskId: result.taskId,
-            nextStatus
-          });
-        }
-
-        await writeJson(runStatePath, runState);
-
-        if (await fileExists(planPath)) {
-          const plan = await readJson(planPath);
-          await writeFile(reportPath, `${renderRunReport(runState, plan)}\n`, "utf8");
-        }
-
-        return {
-          runStatePath,
-          reportPath: (await fileExists(reportPath)) ? reportPath : null,
-          updatedTasks
-        };
-      });
-    }
-  }
+  const runDirectory = handoffIndex.runDirectory
+    ? path.resolve(handoffIndex.runDirectory)
+    : path.resolve(outputDir, "..");
+  const runStatePath = handoffIndex.runStatePath
+    ? path.resolve(handoffIndex.runStatePath)
+    : path.join(runDirectory, "run-state.json");
+  const planPath = path.join(runDirectory, "execution-plan.json");
+  const reportPath = path.join(runDirectory, "report.md");
+  const runStateSync =
+    mode === "execute"
+      ? await syncDispatchResults(runStatePath, planPath, reportPath, results)
+      : null;
 
   await ensureDirectory(outputDir);
 

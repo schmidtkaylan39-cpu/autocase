@@ -32,7 +32,7 @@ The workflow is intentionally file-first and auditable:
    `run-state.json`, `report.md`, `task-briefs/*`, `roles.json`, `spec.snapshot.json`.
 4. `handoff`
    Generates runnable handoff packages for `ready` tasks:
-   `*.prompt.md`, `*.handoff.json`, `*.handoff.md`, `*.launch.ps1`, plus expected `results/<taskId>.<handoffId>.result.json`.
+   `*.prompt.md`, `*.handoff.json`, `*.handoff.md`, `*.launch.<ps1|sh>`, plus expected `results/<taskId>.<handoffId>.result.json`.
 5. `dispatch` (`dry-run` or `execute`)
    Runs auto-executable launchers, validates result artifact contract, writes dispatch reports, and in `execute` mode syncs outcomes back into run artifacts.
 

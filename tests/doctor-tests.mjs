@@ -71,7 +71,7 @@ async function main() {
       assert.ok(localCiCheck);
       assert.equal(localCiCheck.ok, false);
       assert.equal(localCiCheck.details?.launcherShellReady, false);
-      assert.match(localCiCheck.error ?? "", /PowerShell launcher runtime is unavailable/i);
+      assert.match(localCiCheck.error ?? "", /launcher shell runtime is unavailable/i);
     } finally {
       process.chdir(previousCwd);
 
