@@ -108,6 +108,11 @@ Recommended release evidence to keep with the candidate:
 - `runs/<run-id>/run-state.json`
 - `runs/<run-id>/report.md`
 
+Collaboration hygiene:
+
+- line endings are normalized via `.gitattributes` / `.editorconfig` for Windows + Linux collaboration
+- pull requests can use `.github/pull_request_template.md` to keep validation and release evidence consistent
+
 ## Quick Start
 
 ```bash
