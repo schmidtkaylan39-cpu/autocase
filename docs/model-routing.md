@@ -64,8 +64,8 @@ Not automatic today:
 
 ## Cursor Position
 
-`cursor` remains available as an auxiliary IDE or fallback surface, but it is no longer
-the default planner/reviewer runtime route in this starter.
+`cursor` remains available as an auxiliary human IDE or spot-check surface, but it is no longer
+part of automatic planner/reviewer runtime routing in this starter.
 
 ## Configuration
 

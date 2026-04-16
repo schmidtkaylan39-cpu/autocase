@@ -206,6 +206,10 @@ function buildValidationResultsArtifact(bundleName, evidenceSummary, generatedAt
   };
 }
 
+function isCanonicalValidationResultsArtifact(candidate) {
+  return Boolean(candidate) && Array.isArray(candidate.results);
+}
+
 async function collectRunsMetadata(sourceDir) {
   const runsDirectory = path.join(sourceDir, "runs");
 
@@ -370,6 +374,7 @@ function renderReviewBrief(manifest) {
     "- `repo/CONTRIBUTING.md`",
     "- `repo/docs/architecture.md`",
     "- `repo/docs/dispatch.md`",
+    "- `repo/docs/handoffs.md`",
     "- `repo/docs/artifact-contract.md`",
     "- `repo/docs/proposal-contract.md`",
     "- `repo/docs/failure-feedback.md`",
@@ -444,6 +449,7 @@ function renderReviewPrompt() {
     "- `repo/README.md`",
     "- `repo/docs/architecture.md`",
     "- `repo/docs/dispatch.md`",
+    "- `repo/docs/handoffs.md`",
     "- `repo/docs/artifact-contract.md`",
     "- `repo/docs/proposal-contract.md`",
     "- `repo/docs/failure-feedback.md`",
@@ -817,7 +823,12 @@ export async function createReviewBundle({
 
   await writeGitArtifacts(metadataDirectory, gitMetadata);
   await writeFile(reviewPromptPath, `${renderReviewPrompt()}\n`, "utf8");
-  const validationResults = buildValidationResultsArtifact(effectiveBundleName, evidenceSummary);
+  const canonicalValidationResults = await readOptionalJson(
+    path.join(resolvedSourceDir, "reports", "validation-results.json")
+  );
+  const validationResults = isCanonicalValidationResultsArtifact(canonicalValidationResults)
+    ? canonicalValidationResults
+    : buildValidationResultsArtifact(effectiveBundleName, evidenceSummary);
   await writeJson(validationResultsPath, validationResults);
 
   const baseManifest = {

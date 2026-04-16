@@ -21,6 +21,7 @@
     "start": "node src/index.mjs",
     "init": "node src/index.mjs init",
     "build": "node scripts/build-check.mjs",
+    "selfcheck": "node scripts/self-check.mjs",
     "pack:check": "node scripts/pack-check.mjs",
     "validate:workflows": "node scripts/validate-workflows.mjs",
     "lint": "eslint .",

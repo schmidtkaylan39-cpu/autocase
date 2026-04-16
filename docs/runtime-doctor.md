@@ -74,13 +74,13 @@ Warnings are added when:
 
 ## Cursor Check
 
-The Cursor check is lightweight and is mainly for auxiliary IDE/fallback readiness.
+The Cursor check is lightweight and is mainly for human-side IDE / spot-check readiness.
 
 It resolves the `cursor` command and then runs:
 
 - `cursor --version`
 
-If that command exits successfully, the runtime is marked ready for auxiliary IDE/fallback use.
+If that command exits successfully, the runtime is marked ready for human-side IDE / spot-check use.
 
 The current check does not verify:
 
@@ -167,7 +167,7 @@ That report is normalized by `src/lib/runtime-registry.mjs`:
 
 - missing runtime entries become `ok: false`
 - `manual` is always treated as available
-- planner/reviewer work currently routes to `manual` first, with Cursor retained only as an optional auxiliary surface
+- planner/reviewer work currently routes to `manual`; Cursor is tracked only as an optional human-side surface
 
 Runtime selection then uses the first ready runtime in the role preference list.
 If no automated or hybrid runtime is ready, the task falls back to `manual`.

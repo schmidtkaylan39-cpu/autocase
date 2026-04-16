@@ -36,7 +36,7 @@ This is the current intended role model and routing baseline:
 - `Codex`: executor (`automated`)
 - `local-ci`: verifier (`automated`)
 - `manual`: explicit fallback for every role
-- `Cursor`: optional IDE / spot-check / emergency fallback surface, not the default runtime route
+- `Cursor`: optional human IDE / spot-check surface, outside the automatic runtime route
 
 The defaults above are reflected in `src/lib/roles.mjs` and runtime routing is resolved by `src/lib/runtime-registry.mjs`.
 
@@ -72,8 +72,8 @@ Dependencies unlock through `refreshRunState()` based on upstream `completed` st
 Runtime selection is role-based and doctor-aware. Current preferences:
 
 - `orchestrator`: `openclaw -> manual`
-- `planner`: `manual -> cursor`
-- `reviewer`: `manual -> cursor`
+- `planner`: `manual`
+- `reviewer`: `manual`
 - `executor`: `codex -> manual`
 - `verifier`: `local-ci -> manual`
 
@@ -82,9 +82,9 @@ Important behavior:
 - `dispatch dry-run` reports `would_execute` or `would_skip`.
 - `dispatch execute` auto-executes only `openclaw`, `codex`, and `local-ci`.
 - planning and review work is manual-first by design, with GPT-5.4 / GPT-5.4 Pro carried in the handoff metadata.
-- `cursor` is retained as an optional auxiliary surface and is not the primary runtime route.
+- `cursor` is retained as an optional human-side IDE surface and is not part of automatic runtime routing.
 - runtime routing and model routing are separate:
-  - runtime routing chooses `openclaw` / `manual` / `codex` / `local-ci`, with `cursor` kept as an optional auxiliary surface
+  - runtime routing chooses `openclaw` / `manual` / `codex` / `local-ci`
   - model routing chooses `codex`, `gpt-5.4`, or `gpt-5.4-pro` inside the selected surface
 - `run` persists the workspace root into `run-state.json`, so later `handoff` and `tick` calls keep launcher paths stable even when they are invoked from another directory.
 - Result artifact contract requires:
@@ -172,6 +172,14 @@ The bundle includes:
 - copied reports and run artifacts already present in the repository
 - a compressed archive when the current platform supports it
 
+If you want the bundle to include a canonical machine-readable validation record, run:
+
+```bash
+npm run selfcheck
+```
+
+before generating the review bundle. This writes `reports/validation-results.json`, which the bundle will copy into `metadata/validation-results.json`.
+
 ## Release Verification (Delivery Baseline)
 
 Use this as the minimum release gate before promoting changes.
@@ -193,6 +201,12 @@ npm test
 npm run test:integration
 npm run test:e2e
 npm run doctor
+```
+
+Or capture the same release-gate run in one machine-readable pass:
+
+```bash
+npm run selfcheck
 ```
 
 For release-candidate burn-in (3 consecutive rounds):
@@ -306,7 +320,7 @@ node src/index.mjs plan <specPath> [outputDir]
 Checks include:
 
 - OpenClaw command presence, gateway reachability, and service/runtime signals
-- optional Cursor CLI availability for auxiliary IDE/fallback use
+- optional Cursor CLI availability for human-side IDE / spot-check use
 - Codex CLI plus auth readiness (`codex login status`)
 - local-ci verifier script completeness:
   `build`, `lint`, `typecheck`, `test`, `test:integration`, `test:e2e`

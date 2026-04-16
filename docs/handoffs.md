@@ -107,7 +107,7 @@ openclaw agent --local --json --thinking medium --message $message
 
 ### `cursor`
 
-Cursor remains available as an auxiliary IDE or fallback surface, but it is not the
+Cursor remains available as an auxiliary human IDE or spot-check surface, but it is not the
 default planner/reviewer route in this starter.
 
 After an auxiliary surface finishes and writes the required `result.json`, apply it back into the run with:

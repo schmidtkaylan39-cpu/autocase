@@ -134,6 +134,7 @@ async function main() {
     await writeFile(path.join(sourceDir, "src", "index.mjs"), "export const demo = true;\n", "utf8");
     await writeFile(path.join(sourceDir, "docs", "notes.md"), "notes\n", "utf8");
     await writeFile(path.join(sourceDir, "docs", "artifact-contract.md"), "# Artifact Contract\n", "utf8");
+    await writeFile(path.join(sourceDir, "docs", "handoffs.md"), "# Handoffs\n", "utf8");
     await writeFile(path.join(sourceDir, "docs", "proposal-contract.md"), "# Proposal Contract\n", "utf8");
     await writeFile(path.join(sourceDir, "docs", "failure-feedback.md"), "# Failure Feedback\n", "utf8");
     await writeFile(path.join(sourceDir, "prompts", "planner.md"), "# Planner Prompt\n", "utf8");
@@ -177,6 +178,28 @@ async function main() {
         stepsFailed: 0
       }
     });
+    const canonicalValidationResults = {
+      generatedAt: "2026-04-16T01:23:45.000Z",
+      results: [
+        {
+          command: "npm run build",
+          status: "passed",
+          startedAt: "2026-04-16T01:00:00.000Z",
+          finishedAt: "2026-04-16T01:00:02.000Z",
+          durationMs: 2000,
+          evidence: []
+        },
+        {
+          command: "npm test",
+          status: "passed",
+          startedAt: "2026-04-16T01:00:03.000Z",
+          finishedAt: "2026-04-16T01:00:13.000Z",
+          durationMs: 10000,
+          evidence: ["reports/test-output.log"]
+        }
+      ]
+    };
+    await writeJson(path.join(sourceDir, "reports", "validation-results.json"), canonicalValidationResults);
     await writeJson(path.join(sourceDir, "runs", "demo-run", "run-state.json"), {
       runId: "demo-run",
       projectName: "Fixture Project",
@@ -253,6 +276,7 @@ async function main() {
     assert.match(reviewPrompt, /metadata\/validation-results\.json/);
     assert.match(reviewPrompt, /metadata\/patch-notes\.md/);
     assert.match(reviewPrompt, /repo\/docs\/dispatch\.md/);
+    assert.match(reviewPrompt, /repo\/docs\/handoffs\.md/);
     assert.match(reviewPrompt, /repo\/docs\/artifact-contract\.md/);
     assert.match(reviewPrompt, /repo\/docs\/runtime-doctor\.md/);
     assert.match(reviewPrompt, /repo\/docs\/proposal-contract\.md/);
@@ -273,6 +297,7 @@ async function main() {
     assert.match(reviewBrief, /repo\/src\/lib\/dispatch\.mjs/);
     assert.match(reviewBrief, /metadata\/validation-results\.json/);
     assert.match(reviewBrief, /metadata\/patch-notes\.md/);
+    assert.match(reviewBrief, /repo\/docs\/handoffs\.md/);
     assert.match(reviewBrief, /repo\/docs\/artifact-contract\.md/);
     assert.match(reviewBrief, /repo\/prompts\/planner\.md/);
     assert.match(reviewBrief, /repo\/prompts\/reviewer\.md/);
@@ -287,8 +312,9 @@ async function main() {
     assert.match(reviewBrief, /repo\/templates\/validation-results\.template\.json/);
     assert.match(patchNotes, /# Patch Notes/);
     assert.match(patchNotes, /Included Review Context/);
-    assert.ok(Array.isArray(validationResults.results));
+    assert.deepEqual(validationResults, canonicalValidationResults);
     assert.match(sourceFileList, /metadata\/validation-results\.json/);
+    assert.match(sourceFileList, /repo\/reports\/validation-results\.json/);
     assert.match(sourceFileList, /repo\/README\.md/);
     assert.match(sourceFileList, /repo\/src\/index\.mjs/);
     assert.equal(manifest.inventory.fileCount, bundleFiles.length);

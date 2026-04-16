@@ -126,7 +126,7 @@ This now aligns the starter with its intended operating model:
 - GPT-5.4 / GPT-5.4 Pro drive planning and review work through manual-first handoffs
 - Codex executes implementation work
 - local CI verifies
-- Cursor remains an auxiliary IDE / fallback surface instead of the default workflow owner
+- Cursor remains an auxiliary human IDE / spot-check surface instead of the default workflow owner
 
 ## Model Policy
 
@@ -208,7 +208,7 @@ The launcher:
 
 ### Cursor
 
-Cursor remains available as an auxiliary IDE or emergency fallback surface.
+Cursor remains available as an auxiliary human IDE or spot-check surface.
 It is not the default planner/reviewer runtime route in this starter.
 
 ### Codex

@@ -84,7 +84,7 @@ Why non-blocking for now:
 
 ## Design Choices (Not Bugs)
 
-- planner/reviewer work is manual-first with `gpt-5.4` / `gpt-5.4-pro`; Cursor is retained only as an auxiliary IDE/fallback surface.
+- planner/reviewer work is manual-first with `gpt-5.4` / `gpt-5.4-pro`; Cursor is retained only as an auxiliary human IDE / spot-check surface.
 - `dispatch` reports runtime artifact status `blocked` as dispatch result `incomplete`; during run-state sync it is mapped to task status `blocked`.
 - `dispatch execute` claims auto-executable tasks as `in_progress` before launcher execution begins.
 - `doctor` validates runtime readiness and required script presence, not full task-completion capability of every runtime.

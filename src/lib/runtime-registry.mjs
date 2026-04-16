@@ -33,8 +33,8 @@ export const runtimeDefinitions = {
 
 const rolePreferences = {
   orchestrator: ["openclaw", "manual"],
-  planner: ["manual", "cursor"],
-  reviewer: ["manual", "cursor"],
+  planner: ["manual"],
+  reviewer: ["manual"],
   executor: ["codex", "manual"],
   verifier: ["local-ci", "manual"]
 };
