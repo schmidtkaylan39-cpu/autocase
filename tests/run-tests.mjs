@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  applyTaskResult,
   createRunHandoffs,
   initProject,
   planProject,
@@ -211,6 +212,59 @@ async function main() {
     await stat(path.join(tempDir, "handoff-run", "handoffs", "implement-spec-intake.handoff.md"));
     await stat(path.join(tempDir, "handoff-run", "handoffs", "implement-spec-intake.launch.ps1"));
     await stat(path.join(tempDir, "handoff-run", "handoffs", "results"));
+  });
+
+  await runTest("manual or hybrid result artifact can be applied back into the run-state", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-apply-result-"));
+    const runResult = await runProject(validSpecPath, tempDir, "apply-result-run");
+    const planningResultsDirectory = path.join(tempDir, "apply-result-run", "handoffs", "results");
+    const planningResultPath = path.join(planningResultsDirectory, "planning-brief.result.json");
+
+    await mkdir(planningResultsDirectory, { recursive: true });
+    await writeJson(planningResultPath, {
+      status: "completed",
+      summary: "planner completed the brief",
+      changedFiles: [],
+      verification: ["reviewed brief and prompt"],
+      notes: ["cursor surface result"]
+    });
+
+    const result = await applyTaskResult(runResult.statePath, "planning-brief", planningResultPath);
+    const runState = JSON.parse(await readFile(runResult.statePath, "utf8"));
+    const planningTask = runState.taskLedger.find((task) => task.id === "planning-brief");
+    const implementationTask = runState.taskLedger.find((task) => task.id === "implement-spec-intake");
+    const report = await readFile(path.join(tempDir, "apply-result-run", "report.md"), "utf8");
+
+    assert.equal(result.task?.status, "completed");
+    assert.equal(result.artifact.status, "completed");
+    assert.equal(planningTask?.status, "completed");
+    assert.equal(implementationTask?.status, "ready");
+    assert.match(report, /\[completed\] planning-brief ->/);
+    assert.match(report, /\[ready\] implement-spec-intake ->/);
+  });
+
+  await runTest("applying an invalid manual or hybrid result artifact fails fast", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-apply-invalid-result-"));
+    const runResult = await runProject(validSpecPath, tempDir, "apply-invalid-result-run");
+    const invalidResultsDirectory = path.join(
+      tempDir,
+      "apply-invalid-result-run",
+      "handoffs",
+      "results"
+    );
+    const invalidResultPath = path.join(invalidResultsDirectory, "planning-brief.result.json");
+
+    await mkdir(invalidResultsDirectory, { recursive: true });
+    await writeJson(invalidResultPath, {
+      status: "completed",
+      summary: "missing required arrays",
+      changedFiles: "src/index.mjs"
+    });
+
+    await assert.rejects(
+      () => applyTaskResult(runResult.statePath, "planning-brief", invalidResultPath),
+      /expected schema/i
+    );
   });
 
   await runTest("dispatch dry-run produces dispatch results", async () => {

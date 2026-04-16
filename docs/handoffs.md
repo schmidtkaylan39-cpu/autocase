@@ -102,6 +102,12 @@ The launcher opens Cursor with the workspace, brief, and prompt paths.
 
 This is currently treated as a hybrid surface for planning or review, not a fully automated worker.
 
+After Cursor finishes and writes the required `result.json`, apply it back into the run with:
+
+```bash
+node src/index.mjs result runs/example-run/run-state.json <taskId> runs/example-run/handoffs/results/<taskId>.result.json
+```
+
 ### `codex`
 
 The launcher changes into the workspace, reads the prompt, and pipes it into:
@@ -130,6 +136,8 @@ npm test
 ### `manual`
 
 The launcher only prints the prompt and brief locations for manual handling.
+
+Manual handlers should still write the same result artifact contract and apply it with the `result` command above.
 
 ## Descriptor contents
 

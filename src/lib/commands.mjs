@@ -205,6 +205,62 @@ export async function updateRunTask(runStatePath, taskId, nextStatus, note = "")
   };
 }
 
+function validateResultArtifact(artifact) {
+  const validStatuses = new Set(["completed", "failed", "blocked"]);
+
+  if (
+    typeof artifact?.summary !== "string" ||
+    !validStatuses.has(artifact?.status) ||
+    !Array.isArray(artifact?.changedFiles) ||
+    !Array.isArray(artifact?.verification) ||
+    !Array.isArray(artifact?.notes)
+  ) {
+    throw new Error("Result artifact does not match the expected schema.");
+  }
+
+  return artifact;
+}
+
+function mapArtifactStatusToTaskStatus(status) {
+  if (status === "completed") {
+    return "completed";
+  }
+
+  if (status === "failed") {
+    return "failed";
+  }
+
+  return "blocked";
+}
+
+export async function applyTaskResult(runStatePath, taskId, resultPath) {
+  const resolvedRunStatePath = path.resolve(runStatePath);
+  const resolvedResultPath = path.resolve(resultPath);
+  const runDirectory = path.dirname(resolvedRunStatePath);
+  const artifact = validateResultArtifact(await readJson(resolvedResultPath));
+  const nextStatus = mapArtifactStatusToTaskStatus(artifact.status);
+  const nextRunState = updateTaskInRunState(
+    await readJson(resolvedRunStatePath),
+    taskId,
+    nextStatus,
+    `result:${artifact.status}`
+  );
+  const plan = await readJson(path.join(runDirectory, "execution-plan.json"));
+  const reportPath = path.join(runDirectory, "report.md");
+
+  await writeJson(resolvedRunStatePath, nextRunState);
+  await writeFile(reportPath, `${renderRunReport(nextRunState, plan)}\n`, "utf8");
+
+  return {
+    runDirectory,
+    reportPath,
+    resultPath: resolvedResultPath,
+    artifact,
+    summary: summarizeRunState(nextRunState),
+    task: nextRunState.taskLedger.find((task) => task.id === taskId)
+  };
+}
+
 export async function createRunHandoffs(
   runStatePath,
   outputDir,

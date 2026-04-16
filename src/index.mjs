@@ -4,6 +4,7 @@ import { createRequire } from "node:module";
 import process from "node:process";
 
 import {
+  applyTaskResult,
   createRunHandoffs,
   initProject,
   planProject,
@@ -28,6 +29,7 @@ Usage:
   ${packageMetadata.name} run <specPath> [outputDir] [runId]
   ${packageMetadata.name} report <runStatePath>
   ${packageMetadata.name} task <runStatePath> <taskId> <status> [note]
+  ${packageMetadata.name} result <runStatePath> <taskId> <resultPath>
   ${packageMetadata.name} doctor [outputDir]
   ${packageMetadata.name} handoff <runStatePath> [outputDir] [doctorReportPath]
   ${packageMetadata.name} dispatch <handoffIndexPath> [dry-run|execute]
@@ -102,6 +104,14 @@ async function runTaskUpdate(runStatePath, taskId, status, note = "") {
   const result = await updateRunTask(runStatePath, taskId, status, note);
   console.log(`Task updated: ${taskId}`);
   console.log(JSON.stringify(result.task, null, 2));
+  console.log(JSON.stringify(result.summary, null, 2));
+}
+
+async function runTaskResult(runStatePath, taskId, resultPath) {
+  const result = await applyTaskResult(runStatePath, taskId, resultPath);
+  console.log(`Task result applied: ${taskId}`);
+  console.log(JSON.stringify(result.task, null, 2));
+  console.log(JSON.stringify(result.artifact, null, 2));
   console.log(JSON.stringify(result.summary, null, 2));
 }
 
@@ -182,6 +192,12 @@ async function main() {
         throw new Error("Please provide run-state path, task id, and status.");
       }
       await runTaskUpdate(arg1, arg2, arg3, arg4 ?? "");
+      break;
+    case "result":
+      if (!arg1 || !arg2 || !arg3) {
+        throw new Error("Please provide run-state path, task id, and result path.");
+      }
+      await runTaskResult(arg1, arg2, arg3);
       break;
     case "doctor":
       await runDoctor(arg1);

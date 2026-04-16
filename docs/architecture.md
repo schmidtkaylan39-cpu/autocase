@@ -17,6 +17,8 @@ The CLI currently supports these stages:
    writes `run-state.json`, writes `report.md`, and creates task briefs.
 4. `task`
    Updates one task status in `run-state.json` and refreshes downstream task readiness.
+5. `result`
+   Validates a result artifact for a hybrid or manual task and applies it back into `run-state.json`.
 5. `doctor`
    Checks runtime readiness for OpenClaw, Cursor, Codex, and local CI.
 6. `handoff`
@@ -207,6 +209,12 @@ When `dispatch execute` finds a sibling `run-state.json`, it also:
 - maps `failed` dispatch results to task status `failed`
 - maps `incomplete` dispatch results to task status `blocked`
 - rewrites `report.md` when `execution-plan.json` is present
+
+For `cursor` or `manual` follow-up, the same result contract can now be applied with:
+
+```bash
+node src/index.mjs result runs/example-run/run-state.json planning-brief runs/example-run/handoffs/results/planning-brief.result.json
+```
 
 `dispatch` still does not:
 

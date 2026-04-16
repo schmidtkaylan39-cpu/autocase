@@ -151,12 +151,13 @@ node src/index.mjs dispatch runs/example-run/handoffs/index.json execute
 node src/index.mjs init [targetDir]
 node src/index.mjs validate <specPath>
 node src/index.mjs plan <specPath> [outputDir]
-node src/index.mjs run <specPath> [outputDir] [runId]
-node src/index.mjs report <runStatePath>
-node src/index.mjs task <runStatePath> <taskId> <status> [note]
-node src/index.mjs doctor [outputDir]
-node src/index.mjs handoff <runStatePath> [outputDir] [doctorReportPath]
-node src/index.mjs dispatch <handoffIndexPath> [dry-run|execute]
+  node src/index.mjs run <specPath> [outputDir] [runId]
+  node src/index.mjs report <runStatePath>
+  node src/index.mjs task <runStatePath> <taskId> <status> [note]
+  node src/index.mjs result <runStatePath> <taskId> <resultPath>
+  node src/index.mjs doctor [outputDir]
+  node src/index.mjs handoff <runStatePath> [outputDir] [doctorReportPath]
+  node src/index.mjs dispatch <handoffIndexPath> [dry-run|execute]
 ```
 
 ## Repository Layout
