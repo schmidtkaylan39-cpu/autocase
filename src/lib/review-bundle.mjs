@@ -292,19 +292,52 @@ function renderReviewBrief(manifest) {
     "",
     "## Important Files",
     "- `metadata/bundle-manifest.json`",
+    "- `metadata/patch-notes.md`",
     "- `metadata/git-status.txt`",
     "- `metadata/git-log.txt`",
     "- `metadata/source-file-list.txt`",
     "- `repo/README.md`",
     "- `repo/CONTRIBUTING.md`",
     "- `repo/docs/architecture.md`",
+    "- `repo/docs/dispatch.md`",
     "- `repo/docs/model-routing.md`",
     "- `repo/docs/release-readiness.md`",
+    "- `repo/docs/runtime-doctor.md`",
     "",
     "## Review Output Expectations",
     "- prioritize concrete bugs, regressions, and missing validations over summaries",
     "- include file paths and the smallest convincing explanation for each finding",
     "- call out residual risks even if no definite bug is found"
+  ].join("\n");
+}
+
+function renderPatchNotes(manifest) {
+  const recentCommits =
+    typeof manifest.git?.recentCommits === "string" && manifest.git.recentCommits.trim().length > 0
+      ? manifest.git.recentCommits.trim().split(/\r?\n/).map((line) => `- ${line}`)
+      : ["- No recent git history was available when the bundle was generated."];
+  const reportFiles =
+    Array.isArray(manifest.evidence?.reportFiles) && manifest.evidence.reportFiles.length > 0
+      ? manifest.evidence.reportFiles.map((reportPath) => `- ${reportPath}`)
+      : ["- No report files were captured in this bundle."];
+
+  return [
+    "# Patch Notes",
+    "",
+    `- Bundle: ${manifest.bundleName}`,
+    `- Generated at: ${manifest.generatedAt}`,
+    `- Commit: ${manifest.git?.shortHead ?? manifest.git?.head ?? "unknown"}`,
+    "",
+    "## Included Review Context",
+    "- This bundle is intended for follow-up bug review and patch validation.",
+    "- Use the bundle manifest and review brief as the canonical inventory of included evidence.",
+    "- Cross-platform launcher behavior is expected to be `.ps1` on Windows and `.sh` on non-Windows runtimes.",
+    "",
+    "## Recent Commits",
+    ...recentCommits,
+    "",
+    "## Included Evidence Files",
+    ...reportFiles
   ].join("\n");
 }
 
@@ -320,10 +353,13 @@ function renderReviewPrompt() {
     "",
     "- `metadata/bundle-manifest.json`",
     "- `metadata/external-ai-review-brief.md`",
+    "- `metadata/patch-notes.md`",
     "- `repo/README.md`",
     "- `repo/docs/architecture.md`",
+    "- `repo/docs/dispatch.md`",
     "- `repo/docs/model-routing.md`",
     "- `repo/docs/release-readiness.md`",
+    "- `repo/docs/runtime-doctor.md`",
     "",
     "Then review the codebase under `repo/`.",
     "",
@@ -334,7 +370,7 @@ function renderReviewPrompt() {
     "2. Hybrid/manual follow-up safety",
     "   Focus on `result`, `retry`, `tick`, `handoff`, and dispatch result syncing.",
     "3. Cross-platform behavior",
-    "   Focus on PowerShell invocation, archive generation, CLI behavior, and Windows/Linux compatibility.",
+    "   Focus on launcher generation/execution, doctor readiness checks, archive generation, CLI behavior, and Windows/Linux compatibility.",
     "4. Model-routing correctness",
     "   Focus on `repo/src/lib/model-policy.mjs`, handoff descriptors, and escalation behavior.",
     "5. Review-bundle completeness",
@@ -394,9 +430,36 @@ async function writeGitArtifacts(metadataDirectory, gitMetadata) {
   );
 }
 
-async function createArchive(bundleDirectory, destinationBasePath) {
+async function detectArchiveFormat() {
   if (process.platform === "win32") {
-    const archivePath = `${destinationBasePath}.zip`;
+    return "zip";
+  }
+
+  try {
+    await execFileAsync("zip", ["-v"], {
+      encoding: "utf8",
+      timeout: 15000,
+      maxBuffer: 1024 * 1024
+    });
+    return "zip";
+  } catch {
+    try {
+      await execFileAsync("tar", ["--version"], {
+        encoding: "utf8",
+        timeout: 15000,
+        maxBuffer: 1024 * 1024
+      });
+      return "tar.gz";
+    } catch {
+      return "directory";
+    }
+  }
+}
+
+async function createZipArchive(bundleDirectory, destinationBasePath) {
+  const archivePath = `${destinationBasePath}.zip`;
+
+  if (process.platform === "win32") {
     const runtime = getPowerShellInvocation();
     const command = [
       "Add-Type -AssemblyName System.IO.Compression",
@@ -434,40 +497,49 @@ async function createArchive(bundleDirectory, destinationBasePath) {
     };
   }
 
-  try {
-    const archivePath = `${destinationBasePath}.zip`;
-    await execFileAsync("zip", ["-qr", archivePath, path.basename(bundleDirectory)], {
-      cwd: path.dirname(bundleDirectory),
-      encoding: "utf8",
-      timeout: 180000,
-      maxBuffer: 10 * 1024 * 1024
-    });
+  await execFileAsync("zip", ["-qr", archivePath, path.basename(bundleDirectory)], {
+    cwd: path.dirname(bundleDirectory),
+    encoding: "utf8",
+    timeout: 180000,
+    maxBuffer: 10 * 1024 * 1024
+  });
 
-    return {
-      archivePath,
-      archiveFormat: "zip"
-    };
-  } catch {
-    try {
-      const archivePath = `${destinationBasePath}.tar.gz`;
-      await execFileAsync("tar", ["-czf", archivePath, path.basename(bundleDirectory)], {
-        cwd: path.dirname(bundleDirectory),
-        encoding: "utf8",
-        timeout: 180000,
-        maxBuffer: 10 * 1024 * 1024
-      });
+  return {
+    archivePath,
+    archiveFormat: "zip"
+  };
+}
 
-      return {
-        archivePath,
-        archiveFormat: "tar.gz"
-      };
-    } catch {
-      return {
-        archivePath: null,
-        archiveFormat: "directory"
-      };
-    }
+async function createTarArchive(bundleDirectory, destinationBasePath) {
+  const archivePath = `${destinationBasePath}.tar.gz`;
+  await execFileAsync("tar", ["-czf", archivePath, path.basename(bundleDirectory)], {
+    cwd: path.dirname(bundleDirectory),
+    encoding: "utf8",
+    timeout: 180000,
+    maxBuffer: 10 * 1024 * 1024
+  });
+
+  return {
+    archivePath,
+    archiveFormat: "tar.gz"
+  };
+}
+
+async function createArchive(bundleDirectory, destinationBasePath, preferredFormat = null) {
+  const archiveFormat = preferredFormat ?? (await detectArchiveFormat());
+
+  if (archiveFormat === "zip") {
+    return createZipArchive(bundleDirectory, destinationBasePath);
   }
+
+  if (archiveFormat === "tar.gz") {
+    return createTarArchive(bundleDirectory, destinationBasePath);
+  }
+
+  return {
+    archivePath: null,
+    archiveFormat: "directory"
+  };
 }
 
 /**
@@ -530,6 +602,7 @@ export async function createReviewBundle({
   const manifestPath = path.join(metadataDirectory, "bundle-manifest.json");
   const reviewBriefPath = path.join(metadataDirectory, "external-ai-review-brief.md");
   const reviewPromptPath = path.join(metadataDirectory, "external-ai-review-prompt.md");
+  const patchNotesPath = path.join(metadataDirectory, "patch-notes.md");
   const sourceFileListPath = path.join(metadataDirectory, "source-file-list.txt");
   const topLevelEntries = await readdir(bundleSourceDirectory);
 
@@ -550,6 +623,7 @@ export async function createReviewBundle({
       manifestPath: "metadata/bundle-manifest.json",
       reviewBriefPath: "metadata/external-ai-review-brief.md",
       reviewPromptPath: "metadata/external-ai-review-prompt.md",
+      patchNotesPath: "metadata/patch-notes.md",
       gitStatusPath: gitMetadata ? "metadata/git-status.txt" : null,
       gitLogPath: gitMetadata ? "metadata/git-log.txt" : null,
       gitRemotesPath: gitMetadata ? "metadata/git-remotes.txt" : null
@@ -559,6 +633,7 @@ export async function createReviewBundle({
   const writeBundleMetadata = async (manifest) => {
     await writeJson(manifestPath, manifest);
     await writeFile(reviewBriefPath, `${renderReviewBrief(manifest)}\n`, "utf8");
+    await writeFile(patchNotesPath, `${renderPatchNotes(manifest)}\n`, "utf8");
   };
 
   await writeBundleMetadata({
@@ -592,32 +667,38 @@ export async function createReviewBundle({
     archivePath: null,
     archiveFormat: "directory"
   };
+  let plannedArchiveFormat = "directory";
 
-  let finalManifest = buildManifest({
-    format: "directory",
-    path: null
-  });
+  if (archive) {
+    plannedArchiveFormat = await detectArchiveFormat();
+    archiveResult =
+      plannedArchiveFormat === "directory"
+        ? {
+            archivePath: null,
+            archiveFormat: "directory"
+          }
+        : {
+            archivePath: `${bundleDirectory}.${plannedArchiveFormat === "zip" ? "zip" : "tar.gz"}`,
+            archiveFormat: plannedArchiveFormat
+          };
+  }
+
+  let finalManifest = buildManifest(
+    archiveResult.archiveFormat === "directory"
+      ? {
+          format: "directory",
+          path: null
+        }
+      : {
+          format: archiveResult.archiveFormat,
+          path: safePathLabel(path.relative(bundleDirectory, archiveResult.archivePath))
+        }
+  );
 
   await writeBundleMetadata(finalManifest);
 
-  if (archive) {
-    archiveResult = await createArchive(bundleDirectory, bundleDirectory);
-    finalManifest = buildManifest({
-      format: archiveResult.archiveFormat,
-      path: archiveResult.archivePath
-        ? safePathLabel(path.relative(bundleDirectory, archiveResult.archivePath))
-        : null
-    });
-    await writeBundleMetadata(finalManifest);
-
-    if (archiveResult.archivePath) {
-      archiveResult = await createArchive(bundleDirectory, bundleDirectory);
-      finalManifest = buildManifest({
-        format: archiveResult.archiveFormat,
-        path: safePathLabel(path.relative(bundleDirectory, archiveResult.archivePath))
-      });
-      await writeBundleMetadata(finalManifest);
-    }
+  if (archive && archiveResult.archiveFormat !== "directory") {
+    archiveResult = await createArchive(bundleDirectory, bundleDirectory, plannedArchiveFormat);
   }
 
   return {
@@ -627,6 +708,7 @@ export async function createReviewBundle({
     manifestPath,
     reviewBriefPath,
     reviewPromptPath,
+    patchNotesPath,
     archivePath: archiveResult.archivePath,
     archiveFormat: archiveResult.archiveFormat,
     fileCount: copiedFiles.length

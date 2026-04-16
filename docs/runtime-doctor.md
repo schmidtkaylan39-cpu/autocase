@@ -19,11 +19,11 @@ The doctor runs four checks in sequence:
 Each check records whether the runtime is installed, whether it is considered ready,
 which command path was resolved, and any extra details or diagnostics.
 
-For automated runtimes that rely on generated `.ps1` launchers (`openclaw`, `codex`, and `local-ci`),
-doctor also checks whether the platform PowerShell runtime is available:
+For automated runtimes that rely on generated launchers (`openclaw`, `codex`, and `local-ci`),
+doctor also checks whether the platform launcher shell is available:
 
 - `powershell.exe` on Windows
-- `pwsh` on Linux/macOS
+- `bash` on Linux/macOS
 
 If that launcher shell is unavailable, the runtime is marked `ok: false` even when the tool itself is installed.
 

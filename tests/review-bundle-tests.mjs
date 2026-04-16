@@ -179,6 +179,7 @@ async function main() {
     await stat(result.manifestPath);
     await stat(result.reviewBriefPath);
     await stat(result.reviewPromptPath);
+    await stat(result.patchNotesPath);
     await stat(path.join(result.metadataDirectory, "source-file-list.txt"));
 
     await stat(path.join(result.bundleSourceDirectory, "README.md"));
@@ -196,19 +197,27 @@ async function main() {
     const manifest = JSON.parse(await readFile(result.manifestPath, "utf8"));
     const reviewBrief = await readFile(result.reviewBriefPath, "utf8");
     const reviewPrompt = await readFile(result.reviewPromptPath, "utf8");
+    const patchNotes = await readFile(result.patchNotesPath, "utf8");
     const sourceFileList = await readFile(path.join(result.metadataDirectory, "source-file-list.txt"), "utf8");
     const bundleFiles = await listRelativeFiles(result.bundleDirectory);
 
     assert.equal(manifest.package.name, "bundle-fixture");
     assert.equal(manifest.package.version, "1.2.3");
     assert.equal(manifest.archive.format, "directory");
+    assert.equal(manifest.paths.patchNotesPath, "metadata/patch-notes.md");
     assert.equal(manifest.paths.reviewPromptPath, "metadata/external-ai-review-prompt.md");
     assert.equal(manifest.evidence.qualityBurnin.roundsPassed, 2);
     assert.equal(manifest.evidence.runs[0]?.runId, "demo-run");
     assert.match(reviewBrief, /External AI Review Brief/);
     assert.match(reviewPrompt, /External AI Review Prompt/);
+    assert.match(reviewPrompt, /metadata\/patch-notes\.md/);
+    assert.match(reviewPrompt, /repo\/docs\/dispatch\.md/);
+    assert.match(reviewPrompt, /repo\/docs\/runtime-doctor\.md/);
     assert.match(reviewPrompt, /State-transition correctness/);
     assert.match(reviewBrief, /repo\/src\/lib\/dispatch\.mjs/);
+    assert.match(reviewBrief, /metadata\/patch-notes\.md/);
+    assert.match(patchNotes, /# Patch Notes/);
+    assert.match(patchNotes, /Included Review Context/);
     assert.match(sourceFileList, /repo\/README\.md/);
     assert.match(sourceFileList, /repo\/src\/index\.mjs/);
     assert.equal(manifest.inventory.fileCount, bundleFiles.length);
@@ -248,15 +257,19 @@ async function main() {
       const briefEntry = zipEntries.find((entry) =>
         entry.name.endsWith("/metadata/external-ai-review-brief.md")
       );
+      const patchNotesEntry = zipEntries.find((entry) => entry.name.endsWith("/metadata/patch-notes.md"));
 
       assert.ok(manifestEntry);
       assert.ok(briefEntry);
+      assert.ok(patchNotesEntry);
       assert.ok(zipEntries.every((entry) => !entry.name.includes("\\")));
 
       const archivedManifest = JSON.parse(manifestEntry.text);
       assert.equal(archivedManifest.archive.format, "zip");
+      assert.equal(archivedManifest.paths.patchNotesPath, "metadata/patch-notes.md");
       assert.ok(typeof archivedManifest.archive.path === "string" && archivedManifest.archive.path.length > 0);
       assert.match(briefEntry.text, /Archive:\s+(?!directory only).+/i);
+      assert.match(patchNotesEntry.text, /# Patch Notes/);
     }
   });
 

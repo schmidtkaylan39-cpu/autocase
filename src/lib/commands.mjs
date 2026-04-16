@@ -319,7 +319,7 @@ export async function scheduleTaskRetry(
     throw new Error(`Task not found: ${taskId}`);
   }
 
-  if (!["ready", "in_progress", "waiting_retry"].includes(targetTask.status)) {
+  if (!["ready", "waiting_retry"].includes(targetTask.status)) {
     throw new Error(
       `Cannot schedule a retry for task ${taskId} while it is ${targetTask.status}.`
     );
@@ -462,8 +462,17 @@ export async function applyTaskResult(runStatePath, taskId, resultPath) {
   }
 
   if (
-    typeof targetTask.activeResultPath === "string" &&
-    targetTask.activeResultPath.trim().length > 0 &&
+    typeof targetTask.activeHandoffId !== "string" ||
+    targetTask.activeHandoffId.trim().length === 0 ||
+    typeof targetTask.activeResultPath !== "string" ||
+    targetTask.activeResultPath.trim().length === 0
+  ) {
+    throw new Error(
+      `Cannot apply a result artifact to task ${taskId} before an active handoff has been generated.`
+    );
+  }
+
+  if (
     path.resolve(targetTask.activeResultPath) !== resolvedResultPath
   ) {
     throw new Error(
@@ -474,10 +483,7 @@ export async function applyTaskResult(runStatePath, taskId, resultPath) {
   const artifact = validateResultArtifact(await readJson(resolvedResultPath), {
     runId: existingRunState.runId,
     taskId,
-    handoffId:
-      typeof targetTask.activeHandoffId === "string" && targetTask.activeHandoffId.trim().length > 0
-        ? targetTask.activeHandoffId
-        : undefined
+    handoffId: targetTask.activeHandoffId
   });
   const nextStatus = mapArtifactStatusToTaskStatus(artifact.status);
   const preparedRunState = {

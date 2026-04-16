@@ -470,11 +470,14 @@ async function main() {
   await runTest("manual or hybrid result artifact can be applied back into the run-state", async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-apply-result-"));
     const runResult = await runProject(validSpecPath, tempDir, "apply-result-run");
-    const planningResultsDirectory = path.join(tempDir, "apply-result-run", "handoffs", "results");
-    const planningResultPath = path.join(planningResultsDirectory, "planning-brief.result.json");
+    const handoffResult = await createRunHandoffs(runResult.statePath);
+    const planningDescriptor = handoffResult.descriptors.find((descriptor) => descriptor.taskId === "planning-brief");
 
-    await mkdir(planningResultsDirectory, { recursive: true });
-    await writeJson(planningResultPath, withArtifactIdentity({
+    if (!planningDescriptor) {
+      throw new Error("Expected a planning-brief handoff descriptor.");
+    }
+
+    await writeJson(planningDescriptor.resultPath, withArtifactIdentity({
       status: "completed",
       summary: "planner completed the brief",
       changedFiles: [],
@@ -482,10 +485,11 @@ async function main() {
       notes: ["cursor surface result"]
     }, {
       runId: "apply-result-run",
-      taskId: "planning-brief"
+      taskId: "planning-brief",
+      handoffId: planningDescriptor.handoffId
     }));
 
-    const result = await applyTaskResult(runResult.statePath, "planning-brief", planningResultPath);
+    const result = await applyTaskResult(runResult.statePath, "planning-brief", planningDescriptor.resultPath);
     const runState = JSON.parse(await readFile(runResult.statePath, "utf8"));
     const planningTask = runState.taskLedger.find((task) => task.id === "planning-brief");
     const implementationTask = runState.taskLedger.find((task) => task.id === "implement-spec-intake");
@@ -497,6 +501,31 @@ async function main() {
     assert.equal(implementationTask?.status, "ready");
     assert.match(report, /\[completed\] planning-brief ->/);
     assert.match(report, /\[ready\] implement-spec-intake ->/);
+  });
+
+  await runTest("manual or hybrid result artifacts require an active handoff", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-apply-no-handoff-"));
+    const runResult = await runProject(validSpecPath, tempDir, "apply-no-handoff-run");
+    const planningResultsDirectory = path.join(tempDir, "apply-no-handoff-run", "handoffs", "results");
+    const planningResultPath = path.join(planningResultsDirectory, "planning-brief.result.json");
+
+    await mkdir(planningResultsDirectory, { recursive: true });
+    await writeJson(planningResultPath, withArtifactIdentity({
+      status: "completed",
+      summary: "planner completed without a handoff",
+      changedFiles: [],
+      verification: ["manual review"],
+      notes: ["missing handoff repro"]
+    }, {
+      runId: "apply-no-handoff-run",
+      taskId: "planning-brief",
+      handoffId: "foreign-handoff"
+    }));
+
+    await assert.rejects(
+      () => applyTaskResult(runResult.statePath, "planning-brief", planningResultPath),
+      /active handoff/i
+    );
   });
 
   await runTest("manual or hybrid result artifacts reject stale handoffs from older output directories", async () => {
@@ -541,26 +570,25 @@ async function main() {
   await runTest("applying an invalid manual or hybrid result artifact fails fast", async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-apply-invalid-result-"));
     const runResult = await runProject(validSpecPath, tempDir, "apply-invalid-result-run");
-    const invalidResultsDirectory = path.join(
-      tempDir,
-      "apply-invalid-result-run",
-      "handoffs",
-      "results"
-    );
-    const invalidResultPath = path.join(invalidResultsDirectory, "planning-brief.result.json");
+    const handoffResult = await createRunHandoffs(runResult.statePath);
+    const planningDescriptor = handoffResult.descriptors.find((descriptor) => descriptor.taskId === "planning-brief");
 
-    await mkdir(invalidResultsDirectory, { recursive: true });
-    await writeJson(invalidResultPath, withArtifactIdentity({
+    if (!planningDescriptor) {
+      throw new Error("Expected a planning-brief handoff descriptor.");
+    }
+
+    await writeJson(planningDescriptor.resultPath, withArtifactIdentity({
       status: "completed",
       summary: "missing required arrays",
       changedFiles: "src/index.mjs"
     }, {
       runId: "apply-invalid-result-run",
-      taskId: "planning-brief"
+      taskId: "planning-brief",
+      handoffId: planningDescriptor.handoffId
     }));
 
     await assert.rejects(
-      () => applyTaskResult(runResult.statePath, "planning-brief", invalidResultPath),
+      () => applyTaskResult(runResult.statePath, "planning-brief", planningDescriptor.resultPath),
       /expected schema/i
     );
   });
@@ -568,16 +596,15 @@ async function main() {
   await runTest("applying a missing manual or hybrid result artifact fails fast", async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-apply-missing-result-"));
     const runResult = await runProject(validSpecPath, tempDir, "apply-missing-result-run");
-    const missingResultPath = path.join(
-      tempDir,
-      "apply-missing-result-run",
-      "handoffs",
-      "results",
-      "planning-brief.result.json"
-    );
+    const handoffResult = await createRunHandoffs(runResult.statePath);
+    const planningDescriptor = handoffResult.descriptors.find((descriptor) => descriptor.taskId === "planning-brief");
+
+    if (!planningDescriptor) {
+      throw new Error("Expected a planning-brief handoff descriptor.");
+    }
 
     await assert.rejects(
-      () => applyTaskResult(runResult.statePath, "planning-brief", missingResultPath),
+      () => applyTaskResult(runResult.statePath, "planning-brief", planningDescriptor.resultPath),
       /(ENOENT|no such file)/i
     );
   });
@@ -613,12 +640,14 @@ async function main() {
   await runTest("applyTaskResult rejects artifacts from another run or task", async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-apply-foreign-result-"));
     const runResult = await runProject(validSpecPath, tempDir, "apply-foreign-result-run");
-    const resultsDirectory = path.join(tempDir, "apply-foreign-result-run", "handoffs", "results");
-    const foreignRunResultPath = path.join(resultsDirectory, "planning-brief.foreign-run.result.json");
-    const foreignTaskResultPath = path.join(resultsDirectory, "planning-brief.foreign-task.result.json");
+    const handoffResult = await createRunHandoffs(runResult.statePath);
+    const planningDescriptor = handoffResult.descriptors.find((descriptor) => descriptor.taskId === "planning-brief");
 
-    await mkdir(resultsDirectory, { recursive: true });
-    await writeJson(foreignRunResultPath, withArtifactIdentity({
+    if (!planningDescriptor) {
+      throw new Error("Expected a planning-brief handoff descriptor.");
+    }
+
+    await writeJson(planningDescriptor.resultPath, withArtifactIdentity({
       status: "completed",
       summary: "foreign run should be rejected",
       changedFiles: [],
@@ -626,9 +655,16 @@ async function main() {
       notes: ["wrong run id"]
     }, {
       runId: "different-run",
-      taskId: "planning-brief"
+      taskId: "planning-brief",
+      handoffId: planningDescriptor.handoffId
     }));
-    await writeJson(foreignTaskResultPath, withArtifactIdentity({
+
+    await assert.rejects(
+      () => applyTaskResult(runResult.statePath, "planning-brief", planningDescriptor.resultPath),
+      /runId mismatch/i
+    );
+
+    await writeJson(planningDescriptor.resultPath, withArtifactIdentity({
       status: "completed",
       summary: "foreign task should be rejected",
       changedFiles: [],
@@ -636,15 +672,12 @@ async function main() {
       notes: ["wrong task id"]
     }, {
       runId: "apply-foreign-result-run",
-      taskId: "implement-spec-intake"
+      taskId: "implement-spec-intake",
+      handoffId: planningDescriptor.handoffId
     }));
 
     await assert.rejects(
-      () => applyTaskResult(runResult.statePath, "planning-brief", foreignRunResultPath),
-      /runId mismatch/i
-    );
-    await assert.rejects(
-      () => applyTaskResult(runResult.statePath, "planning-brief", foreignTaskResultPath),
+      () => applyTaskResult(runResult.statePath, "planning-brief", planningDescriptor.resultPath),
       /taskId mismatch/i
     );
   });
@@ -696,6 +729,17 @@ async function main() {
       runState.taskLedger
         .filter((task) => task.id.startsWith("implement-"))
         .every((task) => task.status === "ready")
+    );
+  });
+
+  await runTest("retry rejects tasks that are already in progress", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-retry-in-progress-"));
+    const runResult = await runProject(validSpecPath, tempDir, "retry-in-progress-run");
+
+    await updateRunTask(runResult.statePath, "planning-brief", "in_progress", "runtime started");
+    await assert.rejects(
+      () => scheduleTaskRetry(runResult.statePath, "planning-brief", "force retry"),
+      /cannot schedule a retry/i
     );
   });
 
@@ -826,6 +870,54 @@ async function main() {
     assert.ok(result.newlyReadyTasks.includes("planning-brief"));
     assert.equal(planningTask?.status, "ready");
     assert.equal(planningTask?.retryCount, 3);
+    assert.equal(planningTask?.nextRetryAt, null);
+  });
+
+  await runTest("blocked result artifacts clear stale retry windows instead of reopening immediately", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-blocked-result-window-"));
+    const runResult = await runProject(validSpecPath, tempDir, "blocked-result-window-run");
+    const handoffResult = await createRunHandoffs(runResult.statePath);
+    const planningDescriptor = handoffResult.descriptors.find((descriptor) => descriptor.taskId === "planning-brief");
+
+    if (!planningDescriptor) {
+      throw new Error("Expected a planning-brief handoff descriptor.");
+    }
+
+    const runState = JSON.parse(await readFile(runResult.statePath, "utf8"));
+    const modifiedRunState = {
+      ...runState,
+      taskLedger: runState.taskLedger.map((task) =>
+        task.id === "planning-brief"
+          ? {
+              ...task,
+              status: "waiting_retry",
+              retryCount: 1,
+              nextRetryAt: new Date(Date.now() - 60_000).toISOString(),
+              lastRetryReason: "transient timeout"
+            }
+          : task
+      )
+    };
+
+    await writeJson(runResult.statePath, modifiedRunState);
+    await writeJson(planningDescriptor.resultPath, withArtifactIdentity({
+      status: "blocked",
+      summary: "runtime hit a blocker",
+      changedFiles: [],
+      verification: ["manual review"],
+      notes: ["blocked artifact repro"]
+    }, {
+      runId: runResult.runId,
+      taskId: "planning-brief",
+      handoffId: planningDescriptor.handoffId
+    }));
+
+    const result = await applyTaskResult(runResult.statePath, "planning-brief", planningDescriptor.resultPath);
+    const refreshedRunState = JSON.parse(await readFile(runResult.statePath, "utf8"));
+    const planningTask = refreshedRunState.taskLedger.find((task) => task.id === "planning-brief");
+
+    assert.equal(result.task?.status, "blocked");
+    assert.equal(planningTask?.status, "blocked");
     assert.equal(planningTask?.nextRetryAt, null);
   });
 

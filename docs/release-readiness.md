@@ -86,7 +86,7 @@ Why non-blocking for now:
 
 - `cursor` remains a hybrid planner/reviewer surface and is intentionally not auto-executed by `dispatch execute`.
 - `dispatch` reports runtime artifact status `blocked` as dispatch result `incomplete`; during run-state sync it is mapped to task status `blocked`.
-- `dispatch` does not auto-mark tasks `in_progress`; status progression is intentionally explicit.
+- `dispatch execute` claims auto-executable tasks as `in_progress` before launcher execution begins.
 - `doctor` validates runtime readiness and required script presence, not full task-completion capability of every runtime.
 - `dispatch` does not infer semantic code quality from diffs or logs beyond launcher outcome and artifact schema contract.
 

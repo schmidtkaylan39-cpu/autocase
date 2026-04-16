@@ -5,7 +5,7 @@
 `dispatch` consumes a handoff index and decides whether each ready task should be:
 
 - reported only in `dry-run` mode
-- executed through its generated PowerShell launcher in `execute` mode
+- executed through its generated launcher in `execute` mode
 
 The implementation lives in `src/lib/dispatch.mjs`.
 
@@ -33,8 +33,11 @@ For each descriptor, the result is:
 Each descriptor is processed in order.
 
 - If the runtime is not auto-executable, the task is marked `skipped`.
-- If the runtime is auto-executable, the `.ps1` launcher is run with the platform PowerShell runtime (`powershell.exe` on Windows, `pwsh` elsewhere).
+- If the runtime is auto-executable, the generated launcher is run with the platform shell runtime:
+  - `.ps1` via `powershell.exe` on Windows
+  - `.sh` via `bash` on Linux/macOS
 - Before launch, any existing file at `resultPath` is removed so stale artifacts cannot be reused.
+- Before launch, `dispatch` claims the task as `in_progress` in the run-state when the expected run artifacts are available.
 
 ## Auto-executable runtimes
 

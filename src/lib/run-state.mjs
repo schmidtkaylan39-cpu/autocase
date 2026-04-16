@@ -191,6 +191,18 @@ function hasElapsedRetryWindow(task, now) {
   return Number.isFinite(retryAtMs) && retryAtMs <= now;
 }
 
+function canAutoUnlockBlockedTask(task) {
+  if ((task.retryCount ?? 0) <= 0) {
+    return false;
+  }
+
+  if (typeof task.lastRetryReason === "string" && task.lastRetryReason.trim().length > 0) {
+    return true;
+  }
+
+  return Array.isArray(task.notes) && task.notes.some((note) => /retry-escalated:/i.test(note));
+}
+
 function validateTaskTransition(task, nextStatus, taskLedger) {
   const transitionGraph = {
     pending: new Set(["pending", "ready"]),
@@ -242,8 +254,24 @@ function inferRunStatus(taskLedger) {
 export function refreshRunState(runState) {
   const now = Date.now();
   const taskLedger = runState.taskLedger.map((task) => {
-    if (task.status === "waiting_retry" || task.status === "blocked") {
+    if (task.status === "waiting_retry") {
       if (hasElapsedRetryWindow(task, now) && areDependenciesCompleted(task, runState.taskLedger)) {
+        return {
+          ...task,
+          status: "ready",
+          nextRetryAt: null
+        };
+      }
+
+      return task;
+    }
+
+    if (task.status === "blocked") {
+      if (
+        canAutoUnlockBlockedTask(task) &&
+        hasElapsedRetryWindow(task, now) &&
+        areDependenciesCompleted(task, runState.taskLedger)
+      ) {
         return {
           ...task,
           status: "ready",
@@ -320,8 +348,7 @@ export function updateTaskInRunState(runState, taskId, nextStatus, note = "") {
       ...task,
       status: nextStatus,
       attempts: nextStatus === "failed" ? task.attempts + 1 : task.attempts,
-      nextRetryAt:
-        nextStatus === "waiting_retry" || nextStatus === "blocked" ? task.nextRetryAt ?? null : null,
+      nextRetryAt: nextStatus === "waiting_retry" ? task.nextRetryAt ?? null : null,
       retryCount: task.retryCount ?? 0,
       lastRetryReason: task.lastRetryReason ?? null,
       notes: note
