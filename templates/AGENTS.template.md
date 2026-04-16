@@ -21,12 +21,34 @@ For risky or multi-file tasks, write a concise proposal contract first:
 - acceptance checks
 - major risks or blockers
 
+## Round Outputs
+
+For significant rounds, prefer leaving behind the same core artifacts:
+
+- `findings`
+- `patch-notes`
+- `codex-prompt`
+- `review-bundle`
+- `validation-results`
+
 ## Execution Rules
 
 - Do not invent missing files or behavior.
 - Prefer reading the current implementation over guessing.
 - If verification was requested, run it before claiming completion.
 - If something fails, summarize the failure with a structured category and the next recovery step.
+
+## Workflow Spine
+
+Prefer reasoning in this order:
+
+1. `intake`
+2. `analyze`
+3. `patch`
+4. `validate`
+5. `review`
+6. `bundle`
+7. `accept` / `retry` / `block`
 
 ## Failure Feedback Categories
 

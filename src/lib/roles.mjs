@@ -10,8 +10,8 @@ export const defaultFactoryConfig = {
       finalAuthority: false
     },
     planner: {
-      tool: "Cursor / Claude",
-      automation: "hybrid",
+      tool: "GPT-5.4 / GPT-5.4 Pro",
+      automation: "manual",
       responsibilities: ["spec breakdown", "risk clarification", "task sequencing"],
       finalAuthority: false
     },
@@ -22,8 +22,8 @@ export const defaultFactoryConfig = {
       finalAuthority: false
     },
     reviewer: {
-      tool: "Independent reviewer session or Cursor / Claude",
-      automation: "hybrid",
+      tool: "GPT-5.4 / GPT-5.4 Pro",
+      automation: "manual",
       responsibilities: ["requirements review", "quality review", "risk review"],
       finalAuthority: false
     },

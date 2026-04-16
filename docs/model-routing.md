@@ -15,8 +15,8 @@ Model routing decides which model should be preferred inside that surface.
 | Task role | Runtime | Default model | Escalated model | Typical use |
 | --- | --- | --- | --- | --- |
 | orchestrator | `openclaw` | `openclaw` | none | scheduling, retries, dispatch, risk-stop enforcement |
-| planner | `cursor` / `manual` fallback | `gpt-5.4` | `gpt-5.4-pro` | requirement breakdown, sequencing, clarification |
-| reviewer | `cursor` / `manual` fallback | `gpt-5.4` | `gpt-5.4-pro` | review, risk analysis, finding hidden issues |
+| planner | `manual` primary | `gpt-5.4` | `gpt-5.4-pro` | requirement breakdown, sequencing, clarification |
+| reviewer | `manual` primary | `gpt-5.4` | `gpt-5.4-pro` | review, risk analysis, finding hidden issues |
 | executor | `codex` | `codex` | none | implementation, bug fixing, integration |
 | verifier | `local-ci` | `local-ci` | none | build, lint, typecheck, tests |
 
@@ -54,13 +54,18 @@ Automatic today:
   - `run-state.json` snapshot via `modelPolicy`
   - each handoff descriptor
   - each prompt document
-  - launcher guidance for hybrid/manual surfaces
+  - launcher guidance for manual or automated surfaces
 
 Not automatic today:
 
-- `dispatch execute` still does not auto-run `cursor`
+- `dispatch execute` does not directly call a GPT-5.4 API for planning/review work
 - the system does not directly call a GPT-5.4 API by itself
-- hybrid surfaces still need the selected model to be honored by the human/operator or future surface integration
+- manual surfaces still need the selected model to be honored by the human/operator or future surface integration
+
+## Cursor Position
+
+`cursor` remains available as an auxiliary IDE or fallback surface, but it is no longer
+the default planner/reviewer runtime route in this starter.
 
 ## Configuration
 

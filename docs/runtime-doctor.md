@@ -12,7 +12,7 @@ The implementation lives in `src/lib/doctor.mjs`.
 The doctor runs four checks in sequence:
 
 1. OpenClaw
-2. Cursor
+2. Cursor (optional surface)
 3. Codex
 4. Local CI
 
@@ -74,13 +74,13 @@ Warnings are added when:
 
 ## Cursor Check
 
-The Cursor check is lightweight.
+The Cursor check is lightweight and is mainly for auxiliary IDE/fallback readiness.
 
 It resolves the `cursor` command and then runs:
 
 - `cursor --version`
 
-If that command exits successfully, the runtime is marked ready.
+If that command exits successfully, the runtime is marked ready for auxiliary IDE/fallback use.
 
 The current check does not verify:
 
@@ -167,6 +167,7 @@ That report is normalized by `src/lib/runtime-registry.mjs`:
 
 - missing runtime entries become `ok: false`
 - `manual` is always treated as available
+- planner/reviewer work currently routes to `manual` first, with Cursor retained only as an optional auxiliary surface
 
 Runtime selection then uses the first ready runtime in the role preference list.
 If no automated or hybrid runtime is ready, the task falls back to `manual`.

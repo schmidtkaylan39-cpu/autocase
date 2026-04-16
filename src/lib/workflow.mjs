@@ -58,9 +58,9 @@ export function buildExecutionPlan(spec) {
     },
     architecture: {
       orchestrator: "OpenClaw",
-      planner: "Cursor / Claude",
+      planner: "GPT-5.4 / GPT-5.4 Pro",
       executor: "Codex",
-      reviewer: "Independent reviewer session or Cursor / Claude",
+      reviewer: "GPT-5.4 / GPT-5.4 Pro",
       verifier: "CI / automated test system"
     },
     phases: [

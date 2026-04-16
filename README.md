@@ -15,22 +15,28 @@ This starter now includes a lightweight natural-language harness layer:
 - `init` now creates a workspace `AGENTS.md`
 - prompt templates instruct planners, reviewers, executors, and verifiers to read `AGENTS.md` first when present
 - starter docs and templates now include:
+  - `docs/artifact-contract.md`
   - `docs/proposal-contract.md`
   - `docs/failure-feedback.md`
+  - `templates/findings.template.md`
+  - `templates/patch-notes.template.md`
+  - `templates/codex-prompt.template.md`
   - `templates/proposal-artifact.template.json`
   - `templates/failure-feedback.template.json`
+  - `templates/validation-results.template.json`
 
-The intent is to make environment discovery, proposal alignment, and failure reporting explicit instead of implicit.
+The intent is to make environment discovery, proposal alignment, round outputs, and failure reporting explicit instead of implicit.
 
 ## Current Runtime Positioning
 
 This is the current intended role model and routing baseline:
 
 - `OpenClaw`: orchestrator (`automated`)
-- `Cursor`: planner and reviewer surface (`hybrid`)
+- `GPT-5.4 / GPT-5.4 Pro`: planner and reviewer surface (`manual`)
 - `Codex`: executor (`automated`)
 - `local-ci`: verifier (`automated`)
 - `manual`: explicit fallback for every role
+- `Cursor`: optional IDE / spot-check / emergency fallback surface, not the default runtime route
 
 The defaults above are reflected in `src/lib/roles.mjs` and runtime routing is resolved by `src/lib/runtime-registry.mjs`.
 
@@ -66,8 +72,8 @@ Dependencies unlock through `refreshRunState()` based on upstream `completed` st
 Runtime selection is role-based and doctor-aware. Current preferences:
 
 - `orchestrator`: `openclaw -> manual`
-- `planner`: `cursor -> manual`
-- `reviewer`: `cursor -> manual`
+- `planner`: `manual -> cursor`
+- `reviewer`: `manual -> cursor`
 - `executor`: `codex -> manual`
 - `verifier`: `local-ci -> manual`
 
@@ -75,9 +81,10 @@ Important behavior:
 
 - `dispatch dry-run` reports `would_execute` or `would_skip`.
 - `dispatch execute` auto-executes only `openclaw`, `codex`, and `local-ci`.
-- `cursor` remains hybrid by design and is currently not auto-executed by dispatch.
+- planning and review work is manual-first by design, with GPT-5.4 / GPT-5.4 Pro carried in the handoff metadata.
+- `cursor` is retained as an optional auxiliary surface and is not the primary runtime route.
 - runtime routing and model routing are separate:
-  - runtime routing chooses `openclaw` / `cursor` / `codex` / `local-ci` / `manual`
+  - runtime routing chooses `openclaw` / `manual` / `codex` / `local-ci`, with `cursor` kept as an optional auxiliary surface
   - model routing chooses `codex`, `gpt-5.4`, or `gpt-5.4-pro` inside the selected surface
 - `run` persists the workspace root into `run-state.json`, so later `handoff` and `tick` calls keep launcher paths stable even when they are invoked from another directory.
 - Result artifact contract requires:
@@ -110,6 +117,20 @@ Auto-escalation to `gpt-5.4-pro` currently applies to planner/reviewer tasks whe
 The selected model is written into each handoff descriptor and prompt so the surface can follow it consistently.
 
 Detailed policy reference: `docs/model-routing.md`.
+
+## Artifact Contract
+
+Significant rounds should leave behind the same core outputs:
+
+- `findings`
+- `patch-notes`
+- `codex-prompt`
+- `review-bundle`
+- `validation-results`
+
+Reference:
+
+- `docs/artifact-contract.md`
 
 ## GitHub Governance
 
@@ -285,7 +306,7 @@ node src/index.mjs plan <specPath> [outputDir]
 Checks include:
 
 - OpenClaw command presence, gateway reachability, and service/runtime signals
-- Cursor CLI availability
+- optional Cursor CLI availability for auxiliary IDE/fallback use
 - Codex CLI plus auth readiness (`codex login status`)
 - local-ci verifier script completeness:
   `build`, `lint`, `typecheck`, `test`, `test:integration`, `test:e2e`

@@ -5,7 +5,7 @@ export const sampleProjectSpec = {
     oneLine:
       "Allow the system to plan, implement, review, and verify a software project with minimal supervision.",
     details:
-      "This starter project turns project intake, risk-stop rules, execution planning, and acceptance rules into reusable artifacts so OpenClaw can orchestrate, Codex can implement, and Cursor or Claude can assist with planning or final human review."
+      "This starter project turns project intake, risk-stop rules, execution planning, and acceptance rules into reusable artifacts so OpenClaw can orchestrate, GPT-5.4 can plan and review, Codex can implement, and human operators can step in when needed."
   },
   targetUsers: [
     "Non-programmers who want a structured AI software workflow",
@@ -35,7 +35,7 @@ export const sampleProjectSpec = {
   ],
   backlogFeatures: [
     "Wire real OpenClaw task submission",
-    "Wire Codex and Claude execution backends",
+    "Wire Codex and GPT-5.4 execution backends",
     "Wire CI and Playwright verification"
   ],
   nonGoals: [
@@ -68,9 +68,9 @@ export const sampleProjectSpec = {
       notes: "Primary executor"
     },
     {
-      name: "Cursor / Claude",
+      name: "GPT-5.4 / GPT-5.4 Pro",
       status: "optional",
-      notes: "Planning assistant and human review surface"
+      notes: "Planning and review surface with human-in-the-loop operation"
     }
   ],
   dataSources: ["Project requirement document", "Acceptance checklist", "Risk-stop rules"],

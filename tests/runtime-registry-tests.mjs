@@ -112,8 +112,8 @@ async function main() {
     };
 
     assert.equal(pickRuntimeForRole("orchestrator", allReady).runtimeId, "openclaw");
-    assert.equal(pickRuntimeForRole("planner", allReady).runtimeId, "cursor");
-    assert.equal(pickRuntimeForRole("reviewer", allReady).runtimeId, "cursor");
+    assert.equal(pickRuntimeForRole("planner", allReady).runtimeId, "manual");
+    assert.equal(pickRuntimeForRole("reviewer", allReady).runtimeId, "manual");
     assert.equal(pickRuntimeForRole("executor", allReady).runtimeId, "codex");
     assert.equal(pickRuntimeForRole("verifier", allReady).runtimeId, "local-ci");
 
@@ -127,11 +127,11 @@ async function main() {
     const plannerSelection = pickRuntimeForRole("planner", plannerChecks);
 
     assert.equal(plannerSelection.runtimeId, "manual");
-    assert.equal(plannerSelection.status, "fallback");
-    assert.match(plannerSelection.reason, /(falls back|fallback)/i);
+    assert.equal(plannerSelection.status, "ready");
+    assert.match(plannerSelection.reason, /intentionally handled through a manual surface/i);
   });
 
-  await runTest("buildHandoffDescriptor falls back to manual runtime when preferred runtime is not ready", async () => {
+  await runTest("buildHandoffDescriptor uses manual runtime as the default planner surface", async () => {
     const descriptor = createDescriptorFixture({
       role: "planner",
       taskId: "planning-brief",
@@ -149,14 +149,14 @@ async function main() {
 
     assert.equal(descriptor.runtime.id, "manual");
     assert.equal(descriptor.runtime.mode, "manual");
-    assert.equal(descriptor.runtime.selectionStatus, "fallback");
+    assert.equal(descriptor.runtime.selectionStatus, "ready");
     assert.equal(descriptor.model.preferredModel, "gpt-5.4");
     assert.equal(descriptor.model.selectionMode, "default");
-    assert.match(descriptor.runtime.selectionReason, /(falls back|fallback)/i);
+    assert.match(descriptor.runtime.selectionReason, /manual surface by default/i);
     assert.match(descriptor.launcherScript, /Please handle this task manually/i);
   });
 
-  await runTest("cursor hybrid surface is routed but skipped by dispatch execute", async () => {
+  await runTest("manual planner or reviewer surfaces are skipped by dispatch execute", async () => {
     const descriptor = createDescriptorFixture({
       role: "reviewer",
       taskId: "review-spec-intake",
@@ -172,8 +172,8 @@ async function main() {
       }
     });
 
-    assert.equal(descriptor.runtime.id, "cursor");
-    assert.equal(descriptor.runtime.mode, "hybrid");
+    assert.equal(descriptor.runtime.id, "manual");
+    assert.equal(descriptor.runtime.mode, "manual");
     assert.equal(descriptor.runtime.selectionStatus, "ready");
     assert.equal(descriptor.model.preferredModel, "gpt-5.4");
 
@@ -241,15 +241,7 @@ async function main() {
       promptPath: "C:/handoffs/planning.prompt.md",
       briefPath: "C:/handoffs/planning.brief.md",
       resultPath: "C:/handoffs/results/planning.result.json",
-      doctorReport: {
-        checks: [
-          {
-            id: "cursor",
-            installed: true,
-            ok: true
-          }
-        ]
-      }
+      doctorReport: { checks: [] }
     });
 
     assert.equal(descriptor.model.preferredModel, "gpt-5.4-pro");

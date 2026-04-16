@@ -33,8 +33,8 @@ export const runtimeDefinitions = {
 
 const rolePreferences = {
   orchestrator: ["openclaw", "manual"],
-  planner: ["cursor", "manual"],
-  reviewer: ["cursor", "manual"],
+  planner: ["manual", "cursor"],
+  reviewer: ["manual", "cursor"],
   executor: ["codex", "manual"],
   verifier: ["local-ci", "manual"]
 };
@@ -74,14 +74,17 @@ export function normalizeRuntimeChecks(report) {
 export function pickRuntimeForRole(role, runtimeChecks) {
   const preferences = rolePreferences[role] ?? ["manual"];
 
-  for (const runtimeId of preferences) {
+  for (const [index, runtimeId] of preferences.entries()) {
     const status = runtimeChecks[runtimeId];
 
     if (runtimeId === "manual") {
       return {
         runtimeId,
-        status: "fallback",
-        reason: "No ready automated runtime was available, so this task falls back to manual handling."
+        status: index === 0 ? "ready" : "fallback",
+        reason:
+          index === 0
+            ? "This role is intentionally handled through a manual surface by default."
+            : "No ready automated runtime was available, so this task falls back to manual handling."
       };
     }
 

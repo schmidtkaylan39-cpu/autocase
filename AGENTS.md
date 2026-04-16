@@ -36,17 +36,33 @@ Proposal contract sections:
 
 Prefer concrete findings over summaries.
 Challenge weak acceptance criteria, missing verification, and unsafe assumptions.
+Leave behind a structured findings artifact when the round is review-heavy.
 
 ### Executor
 
 Read the current files first, then implement.
 If the task is non-trivial, restate the execution contract in a few lines before wide edits.
 Do not claim full-project completion from a local subtask.
+Prefer emitting patch notes and a Codex-ready execution prompt for the next loop when that would reduce ambiguity.
 
 ### Verifier
 
 Use objective evidence: build, lint, typecheck, test, integration, e2e, or other task-specific checks.
 If a gate was not run, say so explicitly.
+Capture validation results in a structured form when the round is intended for handoff or release review.
+
+## Round Outputs
+
+For significant rounds, prefer leaving behind the same core artifacts:
+
+- `findings`
+- `patch-notes`
+- `codex-prompt`
+- `review-bundle`
+- `validation-results`
+
+Treat these as the common handoff layer between GPT-5.4 planning/review work,
+Codex implementation work, and human/operator acceptance.
 
 ## Failure Feedback
 
@@ -82,3 +98,15 @@ For each failure, capture:
 - Keep runtime routing and model routing explicit.
 - Treat `result`, `retry`, `tick`, `handoff`, and `dispatch` as high-risk surfaces.
 - Keep Windows/Linux behavior aligned unless a platform difference is explicitly intended.
+
+## Workflow Spine
+
+Prefer reasoning in this order:
+
+1. `intake`
+2. `analyze`
+3. `patch`
+4. `validate`
+5. `review`
+6. `bundle`
+7. `accept` / `retry` / `block`

@@ -45,12 +45,13 @@ Runtime selection is based on:
 Current preference order:
 
 - `orchestrator`: `openclaw`, then `manual`
-- `planner`: `cursor`, then `manual`
-- `reviewer`: `cursor`, then `manual`
+- `planner`: `manual`, then `cursor`
+- `reviewer`: `manual`, then `cursor`
 - `executor`: `codex`, then `manual`
 - `verifier`: `local-ci`, then `manual`
 
-The first runtime with `ok: true` is selected.
+The first runtime with `ok: true` is selected, except that planner/reviewer work is
+intentional manual-first routing in the current starter.
 
 If no automated runtime is ready, the task falls back to `manual`.
 
@@ -105,17 +106,16 @@ openclaw agent --local --json --thinking medium --message $message
 
 ### `cursor`
 
-The launcher opens Cursor with the workspace, brief, and prompt paths.
+Cursor remains available as an auxiliary IDE or fallback surface, but it is not the
+default planner/reviewer route in this starter.
 
-This is currently treated as a hybrid surface for planning or review, not a fully automated worker.
-
-After Cursor finishes and writes the required `result.json`, apply it back into the run with:
+After an auxiliary surface finishes and writes the required `result.json`, apply it back into the run with:
 
 ```bash
 node src/index.mjs result runs/example-run/run-state.json <taskId> runs/example-run/handoffs/results/<taskId>.<handoffId>.result.json
 ```
 
-If Cursor hits a transient failure such as rate limiting, timeout, or a server-side error, do not mark the task complete.
+If a follow-up surface hits a transient failure such as rate limiting, timeout, or a server-side error, do not mark the task complete.
 Schedule a timed retry instead:
 
 ```bash

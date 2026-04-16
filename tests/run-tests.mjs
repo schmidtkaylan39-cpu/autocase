@@ -521,7 +521,7 @@ async function main() {
     );
 
     assert.equal(handoffDescriptor.runtime.id, "manual");
-    assert.equal(handoffDescriptor.runtime.selectionStatus, "fallback");
+    assert.equal(handoffDescriptor.runtime.selectionStatus, "ready");
   });
 
   await runTest("manual or hybrid result artifact can be applied back into the run-state", async () => {
@@ -539,7 +539,7 @@ async function main() {
       summary: "planner completed the brief",
       changedFiles: [],
       verification: ["reviewed brief and prompt"],
-      notes: ["cursor surface result"]
+      notes: ["manual planning surface result"]
     }, {
       runId: "apply-result-run",
       taskId: "planning-brief",

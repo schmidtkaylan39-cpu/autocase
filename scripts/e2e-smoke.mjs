@@ -123,7 +123,7 @@ async function main() {
 
   const planningHandoffIndex = JSON.parse(await readFile(handoffIndexPath, "utf8"));
   assert.equal(planningHandoffIndex.readyTaskCount, 1);
-  assert.equal(planningHandoffIndex.descriptors[0]?.runtime.id, "cursor");
+  assert.equal(planningHandoffIndex.descriptors[0]?.runtime.id, "manual");
 
   await runNode(["src/index.mjs", "task", runStatePath, "planning-brief", "completed", "synthetic planner"]);
   await runNode(["src/index.mjs", "tick", runStatePath, syntheticDoctorPath]);

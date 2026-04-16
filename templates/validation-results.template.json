@@ -1,0 +1,15 @@
+{
+  "round": "round-001",
+  "results": [
+    {
+      "command": "npm test",
+      "status": "passed",
+      "startedAt": "2026-04-17T00:00:00.000Z",
+      "finishedAt": "2026-04-17T00:01:30.000Z",
+      "durationMs": 90000,
+      "evidence": [
+        "tests passed"
+      ]
+    }
+  ]
+}
