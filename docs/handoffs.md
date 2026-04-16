@@ -108,6 +108,15 @@ After Cursor finishes and writes the required `result.json`, apply it back into 
 node src/index.mjs result runs/example-run/run-state.json <taskId> runs/example-run/handoffs/results/<taskId>.result.json
 ```
 
+If Cursor hits a transient failure such as rate limiting, timeout, or a server-side error, do not mark the task complete.
+Schedule a timed retry instead:
+
+```bash
+node src/index.mjs retry runs/example-run/run-state.json <taskId> "请求频率过高，请稍后重试" 3
+```
+
+Timed retries move the task to `waiting_retry`; the next `report` or `handoff` refresh will return it to `ready` once the retry time has elapsed.
+
 ### `codex`
 
 The launcher changes into the workspace, reads the prompt, and pipes it into:

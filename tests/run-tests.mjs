@@ -11,6 +11,7 @@ import {
   planProject,
   reportProjectRun,
   runProject,
+  scheduleTaskRetry,
   updateRunTask,
   validateSpec
 } from "../src/lib/commands.mjs";
@@ -134,7 +135,23 @@ async function main() {
     await stat(path.join(tempDir, "execution-plan.md"));
 
     const markdown = await readFile(path.join(tempDir, "execution-plan.md"), "utf8");
+    const implementationTask = result.plan.phases
+      .find((phase) => phase.id === "implementation")
+      ?.tasks?.find((task) => task.id === "implement-spec-intake");
+    const verificationTask = result.plan.phases
+      .find((phase) => phase.id === "verification")
+      ?.tasks?.find((task) => task.id === "verify-spec-intake");
+
     assert.match(markdown, /AI Factory Demo Execution Plan/);
+    assert.equal(implementationTask?.owner, "Codex");
+    assert.deepEqual(verificationTask?.gates, [
+      "build",
+      "lint",
+      "typecheck",
+      "unit test",
+      "integration test",
+      "e2e test"
+    ]);
   });
 
   await runTest("init creates starter folders and spec", async () => {
@@ -265,6 +282,96 @@ async function main() {
       () => applyTaskResult(runResult.statePath, "planning-brief", invalidResultPath),
       /expected schema/i
     );
+  });
+
+  await runTest("hybrid retry schedules a waiting window and records retry metadata", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-retry-"));
+    const runResult = await runProject(validSpecPath, tempDir, "retry-run");
+    const result = await scheduleTaskRetry(
+      runResult.statePath,
+      "planning-brief",
+      "请求频率过高，请稍后重试",
+      3,
+      path.join(projectRoot, "config", "factory.config.json")
+    );
+    const runState = JSON.parse(await readFile(runResult.statePath, "utf8"));
+    const planningTask = runState.taskLedger.find((task) => task.id === "planning-brief");
+
+    assert.equal(result.classification, "retryable_transient");
+    assert.equal(result.escalated, false);
+    assert.equal(planningTask?.status, "waiting_retry");
+    assert.equal(planningTask?.retryCount, 1);
+    assert.ok(typeof planningTask?.nextRetryAt === "string");
+    assert.match(planningTask?.lastRetryReason ?? "", /频率过高/);
+  });
+
+  await runTest("handoff refresh promotes expired retry tasks back to ready", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-retry-ready-"));
+    const runResult = await runProject(validSpecPath, tempDir, "retry-ready-run");
+    const runState = JSON.parse(await readFile(runResult.statePath, "utf8"));
+    const modifiedRunState = {
+      ...runState,
+      taskLedger: runState.taskLedger.map((task) =>
+        task.id === "planning-brief"
+          ? {
+              ...task,
+              status: "waiting_retry",
+              retryCount: 1,
+              nextRetryAt: new Date(Date.now() - 60_000).toISOString(),
+              lastRetryReason: "transient timeout"
+            }
+          : task
+      )
+    };
+
+    await writeJson(runResult.statePath, modifiedRunState);
+    const fakeDoctorPath = path.join(tempDir, "doctor.json");
+    await writeFakeDoctorReport(fakeDoctorPath, {
+      cursor: { ok: true }
+    });
+
+    const handoffResult = await createRunHandoffs(runResult.statePath, undefined, fakeDoctorPath);
+    const refreshedRunState = JSON.parse(await readFile(runResult.statePath, "utf8"));
+    const planningTask = refreshedRunState.taskLedger.find((task) => task.id === "planning-brief");
+
+    assert.equal(planningTask?.status, "ready");
+    assert.equal(planningTask?.nextRetryAt, null);
+    assert.equal(handoffResult.readyTaskCount, 1);
+    assert.equal(handoffResult.descriptors[0]?.taskId, "planning-brief");
+  });
+
+  await runTest("hybrid retry escalates to blocked after the configured retry limit", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-retry-escalate-"));
+    const runResult = await runProject(validSpecPath, tempDir, "retry-escalate-run");
+
+    await scheduleTaskRetry(
+      runResult.statePath,
+      "planning-brief",
+      "响应超时，请发送继续",
+      0,
+      path.join(projectRoot, "config", "factory.config.json")
+    );
+    await scheduleTaskRetry(
+      runResult.statePath,
+      "planning-brief",
+      "An unexpected error occurred on our servers.",
+      0,
+      path.join(projectRoot, "config", "factory.config.json")
+    );
+    const finalResult = await scheduleTaskRetry(
+      runResult.statePath,
+      "planning-brief",
+      "请求频率过高，请稍后重试",
+      0,
+      path.join(projectRoot, "config", "factory.config.json")
+    );
+    const runState = JSON.parse(await readFile(runResult.statePath, "utf8"));
+    const planningTask = runState.taskLedger.find((task) => task.id === "planning-brief");
+
+    assert.equal(finalResult.escalated, true);
+    assert.equal(planningTask?.status, "blocked");
+    assert.equal(planningTask?.retryCount, 3);
+    assert.equal(planningTask?.nextRetryAt, null);
   });
 
   await runTest("dispatch dry-run produces dispatch results", async () => {

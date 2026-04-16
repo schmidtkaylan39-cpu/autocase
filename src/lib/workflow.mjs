@@ -1,8 +1,8 @@
 function createImplementationTask(feature, order) {
   return {
-    id: `worker-${feature.id}`,
+    id: `implement-${feature.id}`,
     order,
-    owner: "codex-worker",
+    owner: "Codex",
     title: `Implement feature: ${feature.title}`,
     description: feature.description,
     acceptanceCriteria: feature.acceptanceCriteria,
@@ -26,18 +26,19 @@ function createReviewTask(feature, order) {
   };
 }
 
-function createVerificationTask(feature, order) {
+function createVerificationTask(feature, order, mandatoryGates) {
   return {
     id: `verify-${feature.id}`,
     order,
     owner: "verifier",
     title: `Verify feature: ${feature.title}`,
-    gates: ["build passes", "lint passes", "typecheck passes", "unit tests pass"],
+    gates: mandatoryGates,
     tiedFeatureId: feature.id
   };
 }
 
 export function buildExecutionPlan(spec) {
+  const mandatoryGates = ["build", "lint", "typecheck", "unit test", "integration test", "e2e test"];
   const implementationTasks = spec.coreFeatures.map((feature, index) =>
     createImplementationTask(feature, index + 1)
   );
@@ -45,7 +46,7 @@ export function buildExecutionPlan(spec) {
     createReviewTask(feature, index + 1)
   );
   const verificationTasks = spec.coreFeatures.map((feature, index) =>
-    createVerificationTask(feature, index + 1)
+    createVerificationTask(feature, index + 1, mandatoryGates)
   );
 
   return {
@@ -90,7 +91,7 @@ export function buildExecutionPlan(spec) {
         title: "Verification",
         owner: "verifier",
         tasks: verificationTasks,
-        mandatoryGates: ["build", "lint", "typecheck", "unit test", "integration test", "e2e test"]
+        mandatoryGates
       },
       {
         id: "delivery",

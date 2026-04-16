@@ -171,7 +171,9 @@ export function summarizeRunState(runState) {
     totalTasks: runState.taskLedger.length,
     readyTasks: runState.taskLedger.filter((task) => task.status === "ready").length,
     pendingTasks: runState.taskLedger.filter((task) => task.status === "pending").length,
+    waitingRetryTasks: runState.taskLedger.filter((task) => task.status === "waiting_retry").length,
     completedTasks: runState.taskLedger.filter((task) => task.status === "completed").length,
+    blockedTasks: runState.taskLedger.filter((task) => task.status === "blocked").length,
     failedTasks: runState.taskLedger.filter((task) => task.status === "failed").length
   };
 }
@@ -184,11 +186,14 @@ function areDependenciesCompleted(task, taskLedger) {
 
 function inferRunStatus(taskLedger) {
   const failedTasks = taskLedger.filter((task) => task.status === "failed");
+  const blockedTasks = taskLedger.filter((task) => task.status === "blocked");
   const inProgressTasks = taskLedger.filter((task) => task.status === "in_progress");
+  const waitingRetryTasks = taskLedger.filter((task) => task.status === "waiting_retry");
   const readyTasks = taskLedger.filter((task) => task.status === "ready");
   const pendingTasks = taskLedger.filter((task) => task.status === "pending");
+  const completedTasks = taskLedger.filter((task) => task.status === "completed");
 
-  if (failedTasks.length > 0) {
+  if (failedTasks.length > 0 || blockedTasks.length > 0) {
     return "attention_required";
   }
 
@@ -196,7 +201,7 @@ function inferRunStatus(taskLedger) {
     return "completed";
   }
 
-  if (inProgressTasks.length > 0) {
+  if (inProgressTasks.length > 0 || waitingRetryTasks.length > 0 || completedTasks.length > 0) {
     return "in_progress";
   }
 
@@ -208,7 +213,22 @@ function inferRunStatus(taskLedger) {
 }
 
 export function refreshRunState(runState) {
+  const now = Date.now();
   const taskLedger = runState.taskLedger.map((task) => {
+    if (task.status === "waiting_retry") {
+      const retryAtMs = Date.parse(task.nextRetryAt ?? "");
+
+      if (Number.isFinite(retryAtMs) && retryAtMs <= now && areDependenciesCompleted(task, runState.taskLedger)) {
+        return {
+          ...task,
+          status: "ready",
+          nextRetryAt: null
+        };
+      }
+
+      return task;
+    }
+
     if (task.status !== "pending") {
       return task;
     }
@@ -237,7 +257,15 @@ export function refreshRunState(runState) {
 }
 
 export function updateTaskInRunState(runState, taskId, nextStatus, note = "") {
-  const allowedStatuses = new Set(["ready", "in_progress", "completed", "failed", "blocked", "pending"]);
+  const allowedStatuses = new Set([
+    "ready",
+    "in_progress",
+    "completed",
+    "failed",
+    "blocked",
+    "pending",
+    "waiting_retry"
+  ]);
 
   if (!allowedStatuses.has(nextStatus)) {
     throw new Error(`Unsupported task status: ${nextStatus}`);
@@ -258,6 +286,9 @@ export function updateTaskInRunState(runState, taskId, nextStatus, note = "") {
       ...task,
       status: nextStatus,
       attempts: nextStatus === "failed" ? task.attempts + 1 : task.attempts,
+      nextRetryAt: nextStatus === "waiting_retry" ? task.nextRetryAt ?? null : null,
+      retryCount: nextStatus === "waiting_retry" ? task.retryCount ?? 0 : 0,
+      lastRetryReason: nextStatus === "waiting_retry" ? task.lastRetryReason ?? null : null,
       notes: note
         ? [...(Array.isArray(task.notes) ? task.notes : []), `${new Date().toISOString()} ${note}`]
         : task.notes
@@ -322,7 +353,9 @@ export function renderRunReport(runState, plan) {
     `- Total tasks: ${summary.totalTasks}`,
     `- Ready: ${summary.readyTasks}`,
     `- Pending: ${summary.pendingTasks}`,
+    `- Waiting retry: ${summary.waitingRetryTasks}`,
     `- Completed: ${summary.completedTasks}`,
+    `- Blocked: ${summary.blockedTasks}`,
     `- Failed: ${summary.failedTasks}`,
     "",
     "## Role Configuration",
@@ -337,6 +370,16 @@ export function renderRunReport(runState, plan) {
     ...(runState.nextActions.length > 0
       ? runState.nextActions.map((action) => `- ${action.role} -> ${action.title}`)
       : ["- No ready tasks at the moment."]),
+    "",
+    "## Waiting Retry",
+    ...(runState.taskLedger.some((task) => task.status === "waiting_retry")
+      ? runState.taskLedger
+          .filter((task) => task.status === "waiting_retry")
+          .map(
+            (task) =>
+              `- ${task.id} retry at ${task.nextRetryAt ?? "unscheduled"} (${task.lastRetryReason ?? "no reason recorded"})`
+          )
+      : ["- No tasks are waiting for a timed retry."]),
     "",
     "## Risk Stop Rules",
     ...runState.stopConditions.map((rule) => `- ${rule}`),

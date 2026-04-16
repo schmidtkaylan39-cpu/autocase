@@ -43,7 +43,11 @@ export const defaultFactoryConfig = {
     implementation: 3,
     review: 2,
     verification: 2,
-    replanning: 1
+    replanning: 1,
+    hybridSurface: {
+      maxAttempts: 3,
+      retryDelayMinutes: 3
+    }
   },
   mandatoryGates: ["build", "lint", "typecheck", "unit test", "integration test", "e2e test"],
   escalation: {

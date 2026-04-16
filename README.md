@@ -155,6 +155,7 @@ node src/index.mjs plan <specPath> [outputDir]
   node src/index.mjs report <runStatePath>
   node src/index.mjs task <runStatePath> <taskId> <status> [note]
   node src/index.mjs result <runStatePath> <taskId> <resultPath>
+  node src/index.mjs retry <runStatePath> <taskId> [reason] [delayMinutes]
   node src/index.mjs doctor [outputDir]
   node src/index.mjs handoff <runStatePath> [outputDir] [doctorReportPath]
   node src/index.mjs dispatch <handoffIndexPath> [dry-run|execute]

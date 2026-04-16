@@ -35,6 +35,33 @@ async function loadFactoryConfig(configPath = "config/factory.config.json") {
   };
 }
 
+function classifyHybridIssue(reason = "") {
+  const normalizedReason = String(reason).trim();
+  const retryablePatterns = [
+    /请求频率过高/i,
+    /頻率過高/i,
+    /rate limit/i,
+    /too many requests/i,
+    /响应超时/i,
+    /回應超時/i,
+    /timed out/i,
+    /\btimeout\b/i,
+    /unexpected error occurred on our servers/i,
+    /please try again/i,
+    /发送.?继续/i,
+    /send .*继续/i
+  ];
+
+  return {
+    reason: normalizedReason || "Hybrid runtime retry requested.",
+    retryable: retryablePatterns.some((pattern) => pattern.test(normalizedReason))
+  };
+}
+
+function addMinutes(timestamp, minutes) {
+  return new Date(timestamp.getTime() + minutes * 60 * 1000).toISOString();
+}
+
 async function loadDoctorReport(doctorReportPath = "reports/runtime-doctor.json") {
   const resolvedDoctorReportPath = path.resolve(doctorReportPath);
 
@@ -205,6 +232,79 @@ export async function updateRunTask(runStatePath, taskId, nextStatus, note = "")
   };
 }
 
+export async function scheduleTaskRetry(
+  runStatePath,
+  taskId,
+  reason = "",
+  retryDelayMinutes,
+  configPath = "config/factory.config.json"
+) {
+  const resolvedRunStatePath = path.resolve(runStatePath);
+  const runDirectory = path.dirname(resolvedRunStatePath);
+  const { config } = await loadFactoryConfig(configPath);
+  const retryConfig = config.retryPolicy.hybridSurface ?? {
+    maxAttempts: 3,
+    retryDelayMinutes: 3
+  };
+  const issue = classifyHybridIssue(reason);
+  const effectiveDelayMinutes =
+    typeof retryDelayMinutes === "number" && Number.isFinite(retryDelayMinutes)
+      ? retryDelayMinutes
+      : retryConfig.retryDelayMinutes;
+  const existingRunState = await readJson(resolvedRunStatePath);
+  const targetTask = existingRunState.taskLedger.find((task) => task.id === taskId);
+
+  if (!targetTask) {
+    throw new Error(`Task not found: ${taskId}`);
+  }
+
+  const retryCount = (targetTask.retryCount ?? 0) + 1;
+  const shouldEscalate = retryCount >= retryConfig.maxAttempts;
+  const nextRetryAt = shouldEscalate ? null : addMinutes(new Date(), effectiveDelayMinutes);
+  const nextRunState = refreshRunState({
+    ...existingRunState,
+    updatedAt: new Date().toISOString(),
+    taskLedger: existingRunState.taskLedger.map((task) => {
+      if (task.id !== taskId) {
+        return task;
+      }
+
+      const nextStatus = shouldEscalate ? "blocked" : "waiting_retry";
+      const statusNote = shouldEscalate
+        ? `retry-escalated:${issue.reason}`
+        : `retry-scheduled:${issue.reason}`;
+
+      return {
+        ...task,
+        status: nextStatus,
+        retryCount,
+        nextRetryAt,
+        lastRetryReason: issue.reason,
+        notes: [
+          ...(Array.isArray(task.notes) ? task.notes : []),
+          `${new Date().toISOString()} ${statusNote}`
+        ]
+      };
+    })
+  });
+  const plan = await readJson(path.join(runDirectory, "execution-plan.json"));
+  const reportPath = path.join(runDirectory, "report.md");
+
+  await writeJson(resolvedRunStatePath, nextRunState);
+  await writeFile(reportPath, `${renderRunReport(nextRunState, plan)}\n`, "utf8");
+
+  return {
+    runDirectory,
+    reportPath,
+    classification: issue.retryable ? "retryable_transient" : "manual_retry_requested",
+    nextRetryAt,
+    retryCount,
+    escalated: shouldEscalate,
+    summary: summarizeRunState(nextRunState),
+    task: nextRunState.taskLedger.find((task) => task.id === taskId)
+  };
+}
+
 function validateResultArtifact(artifact) {
   const validStatuses = new Set(["completed", "failed", "blocked"]);
 
@@ -269,7 +369,7 @@ export async function createRunHandoffs(
   const resolvedRunStatePath = path.resolve(runStatePath);
   const runDirectory = path.dirname(resolvedRunStatePath);
   const resolvedOutputDir = path.resolve(outputDir || path.join(runDirectory, "handoffs"));
-  const runState = await readJson(resolvedRunStatePath);
+  const runState = refreshRunState(await readJson(resolvedRunStatePath));
   const plan = await readJson(path.join(runDirectory, "execution-plan.json"));
   const spec = await readJson(path.join(runDirectory, "spec.snapshot.json"));
   const { report: doctorReport } = await loadDoctorReport(doctorReportPath);
@@ -277,6 +377,8 @@ export async function createRunHandoffs(
 
   await ensureDirectory(resolvedOutputDir);
   await ensureDirectory(resultsDirectory);
+  await writeJson(resolvedRunStatePath, runState);
+  await writeFile(path.join(runDirectory, "report.md"), `${renderRunReport(runState, plan)}\n`, "utf8");
 
   const readyTasks = runState.taskLedger.filter((task) => task.status === "ready");
   const descriptors = [];

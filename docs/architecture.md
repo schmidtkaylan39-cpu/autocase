@@ -19,12 +19,14 @@ The CLI currently supports these stages:
    Updates one task status in `run-state.json` and refreshes downstream task readiness.
 5. `result`
    Validates a result artifact for a hybrid or manual task and applies it back into `run-state.json`.
-5. `doctor`
+6. `retry`
+   Schedules a timed retry window for transient hybrid-surface failures such as Cursor rate limits or timeouts.
+7. `doctor`
    Checks runtime readiness for OpenClaw, Cursor, Codex, and local CI.
-6. `handoff`
+8. `handoff`
    Creates prompt files, handoff descriptors, Markdown summaries, launcher scripts,
    and expected result artifact paths for every task that is currently `ready`.
-7. `dispatch`
+9. `dispatch`
    Runs launcher scripts in `dry-run` or `execute` mode, validates result artifacts,
    writes dispatch reports, and syncs supported outcomes into `run-state.json`.
 
@@ -203,6 +205,13 @@ Execution result states are currently:
 - `skipped`
   Runtime is currently treated as manual or hybrid only.
 
+Hybrid/manual follow-up now has a matching CLI-side retry path:
+
+- `node src/index.mjs retry <runStatePath> <taskId> [reason] [delayMinutes]`
+  schedules `waiting_retry` for transient surface failures
+- `node src/index.mjs result <runStatePath> <taskId> <resultPath>`
+  validates and applies a finished hybrid/manual artifact
+
 When `dispatch execute` finds a sibling `run-state.json`, it also:
 
 - maps `completed` dispatch results to task status `completed`
@@ -214,6 +223,12 @@ For `cursor` or `manual` follow-up, the same result contract can now be applied 
 
 ```bash
 node src/index.mjs result runs/example-run/run-state.json planning-brief runs/example-run/handoffs/results/planning-brief.result.json
+```
+
+For transient Cursor-side failures such as rate limits, timeout prompts, or server errors, schedule a timed retry with:
+
+```bash
+node src/index.mjs retry runs/example-run/run-state.json planning-brief "请求频率过高，请稍后重试" 3
 ```
 
 `dispatch` still does not:

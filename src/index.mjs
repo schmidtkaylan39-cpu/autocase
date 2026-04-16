@@ -10,6 +10,7 @@ import {
   planProject,
   reportProjectRun,
   runProject,
+  scheduleTaskRetry,
   updateRunTask,
   validateSpec
 } from "./lib/commands.mjs";
@@ -30,6 +31,7 @@ Usage:
   ${packageMetadata.name} report <runStatePath>
   ${packageMetadata.name} task <runStatePath> <taskId> <status> [note]
   ${packageMetadata.name} result <runStatePath> <taskId> <resultPath>
+  ${packageMetadata.name} retry <runStatePath> <taskId> [reason] [delayMinutes]
   ${packageMetadata.name} doctor [outputDir]
   ${packageMetadata.name} handoff <runStatePath> [outputDir] [doctorReportPath]
   ${packageMetadata.name} dispatch <handoffIndexPath> [dry-run|execute]
@@ -112,6 +114,27 @@ async function runTaskResult(runStatePath, taskId, resultPath) {
   console.log(`Task result applied: ${taskId}`);
   console.log(JSON.stringify(result.task, null, 2));
   console.log(JSON.stringify(result.artifact, null, 2));
+  console.log(JSON.stringify(result.summary, null, 2));
+}
+
+async function runTaskRetry(runStatePath, taskId, reason = "", delayMinutes) {
+  const parsedDelayMinutes =
+    delayMinutes === undefined ? undefined : Number.parseInt(delayMinutes, 10);
+  const result = await scheduleTaskRetry(runStatePath, taskId, reason, parsedDelayMinutes);
+  console.log(`Task retry scheduled: ${taskId}`);
+  console.log(JSON.stringify(result.task, null, 2));
+  console.log(
+    JSON.stringify(
+      {
+        classification: result.classification,
+        nextRetryAt: result.nextRetryAt,
+        retryCount: result.retryCount,
+        escalated: result.escalated
+      },
+      null,
+      2
+    )
+  );
   console.log(JSON.stringify(result.summary, null, 2));
 }
 
@@ -198,6 +221,12 @@ async function main() {
         throw new Error("Please provide run-state path, task id, and result path.");
       }
       await runTaskResult(arg1, arg2, arg3);
+      break;
+    case "retry":
+      if (!arg1 || !arg2) {
+        throw new Error("Please provide run-state path and task id.");
+      }
+      await runTaskRetry(arg1, arg2, arg3 ?? "", arg4);
       break;
     case "doctor":
       await runDoctor(arg1);
