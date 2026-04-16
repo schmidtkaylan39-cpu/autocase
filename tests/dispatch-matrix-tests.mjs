@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -67,6 +67,23 @@ function buildRawResultScript(resultPath, rawContent) {
   const escapedResultPath = escapePowerShellSingleQuoted(resultPath);
   const escapedRawContent = escapePowerShellSingleQuoted(rawContent);
   return `Set-Content -Path '${escapedResultPath}' -Value '${escapedRawContent}' -Encoding utf8\n`;
+}
+
+function buildBarrierResultArtifactScript(resultPath, artifact, syncDirectory, markerName, expectedCount) {
+  const escapedSyncDirectory = escapePowerShellSingleQuoted(syncDirectory);
+  const escapedMarkerName = escapePowerShellSingleQuoted(markerName);
+  const barrierLines = [
+    `$syncDirectory = '${escapedSyncDirectory}'`,
+    "New-Item -ItemType Directory -Force -Path $syncDirectory | Out-Null",
+    `$markerPath = Join-Path $syncDirectory '${escapedMarkerName}.started'`,
+    "Set-Content -Path $markerPath -Value 'ready' -Encoding utf8",
+    `$expectedCount = ${expectedCount}`,
+    "while ((Get-ChildItem -LiteralPath $syncDirectory -Filter '*.started' | Measure-Object).Count -lt $expectedCount) {",
+    "  Start-Sleep -Milliseconds 25",
+    "}"
+  ];
+
+  return `${barrierLines.join("\n")}\n${buildResultArtifactScript(resultPath, artifact)}`;
 }
 
 function modeForRuntime(runtimeId) {
@@ -280,6 +297,31 @@ async function main() {
     assert.match(report, new RegExp(`\\[blocked\\] ${descriptor.taskId} ->`));
   });
 
+  await runTest("matrix: blank summaries and empty notes fail stricter artifact validation", async () => {
+    const scenario = await runSingleDescriptorDispatchScenario({
+      tempPrefix: "ai-factory-matrix-summary-",
+      runtimeId: "codex",
+      launcherScript: buildResultArtifactScript("{{RESULT_PATH}}", {
+        status: "completed",
+        summary: "   ",
+        changedFiles: ["src/index.mjs"],
+        verification: ["npm test"],
+        notes: []
+      })
+    });
+    const { descriptor, dispatchResult, report, task } = scenario;
+    const result = dispatchResult.results[0];
+
+    assert.equal(result.status, "incomplete");
+    assert.match(result.note ?? "", /expected schema/i);
+    assert.deepEqual(dispatchResult.runStateSync?.updatedTasks[0], {
+      taskId: descriptor.taskId,
+      nextStatus: "blocked"
+    });
+    assert.equal(task.status, "blocked");
+    assert.match(report, new RegExp(`\\[blocked\\] ${descriptor.taskId} ->`));
+  });
+
   await runTest("matrix: invalid JSON artifact blocks the task with parse error note", async () => {
     const scenario = await runSingleDescriptorDispatchScenario({
       tempPrefix: "ai-factory-matrix-json-",
@@ -317,6 +359,63 @@ async function main() {
     });
     assert.equal(task.status, "blocked");
     assert.match(report, new RegExp(`\\[blocked\\] ${descriptor.taskId} ->`));
+  });
+
+  await runTest("matrix: missing launcher path fails fast with a clear error", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-matrix-missing-launcher-"));
+    const { runResult, handoffResult, descriptor, reportPath } = await createDispatchReadyRun(
+      tempDir,
+      `missing-launcher-${Date.now()}`,
+      { codex: { ok: true } }
+    );
+
+    await limitDispatchToDescriptors(handoffResult.indexPath, handoffResult.runId, [descriptor]);
+    await rm(descriptor.launcherPath, { force: true });
+
+    const dispatchResult = await dispatchHandoffs(handoffResult.indexPath, "execute");
+    const runState = JSON.parse(await readFile(runResult.statePath, "utf8"));
+    const report = await readFile(reportPath, "utf8");
+    const task = runState.taskLedger.find((item) => item.id === descriptor.taskId);
+    const result = dispatchResult.results[0];
+
+    assert.equal(result.status, "failed");
+    assert.match(result.error ?? "", /launcher script not found/i);
+    assert.deepEqual(dispatchResult.runStateSync?.updatedTasks[0], {
+      taskId: descriptor.taskId,
+      nextStatus: "failed"
+    });
+    assert.equal(task?.status, "failed");
+    assert.match(report, new RegExp(`\\[failed\\] ${descriptor.taskId} ->`));
+  });
+
+  await runTest("matrix: launcher timeout is reported as a timeout-specific failure", async () => {
+    const previousTimeout = process.env.AI_FACTORY_POWERSHELL_TIMEOUT_MS;
+    process.env.AI_FACTORY_POWERSHELL_TIMEOUT_MS = "100";
+
+    try {
+      const scenario = await runSingleDescriptorDispatchScenario({
+        tempPrefix: "ai-factory-matrix-timeout-",
+        runtimeId: "codex",
+        launcherScript: "Start-Sleep -Milliseconds 300\n"
+      });
+      const { descriptor, dispatchResult, report, task } = scenario;
+      const result = dispatchResult.results[0];
+
+      assert.equal(result.status, "failed");
+      assert.match(result.error ?? "", /timed out/i);
+      assert.deepEqual(dispatchResult.runStateSync?.updatedTasks[0], {
+        taskId: descriptor.taskId,
+        nextStatus: "failed"
+      });
+      assert.equal(task.status, "failed");
+      assert.match(report, new RegExp(`\\[failed\\] ${descriptor.taskId} ->`));
+    } finally {
+      if (previousTimeout === undefined) {
+        delete process.env.AI_FACTORY_POWERSHELL_TIMEOUT_MS;
+      } else {
+        process.env.AI_FACTORY_POWERSHELL_TIMEOUT_MS = previousTimeout;
+      }
+    }
   });
 
   await runTest("matrix: manual runtime is skipped and does not mutate run-state", async () => {
@@ -390,6 +489,97 @@ async function main() {
     assert.equal(dispatchResult.summary.completed, 1);
     assert.equal(dispatchResult.results[0]?.status, "completed");
     assert.equal(dispatchResult.runStateSync, null);
+  });
+
+  await runTest("matrix: unsupported dispatch modes fail fast", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-matrix-mode-"));
+    const indexPath = path.join(tempDir, "index.json");
+
+    await writeJson(indexPath, {
+      generatedAt: new Date().toISOString(),
+      runId: "bad-mode-run",
+      readyTaskCount: 0,
+      descriptors: []
+    });
+
+    await assert.rejects(() => dispatchHandoffs(indexPath, "preview"), /unsupported dispatch mode/i);
+  });
+
+  await runTest("matrix: concurrent dispatch execute preserves both run-state updates", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-matrix-concurrent-"));
+    const { runResult, handoffResult, reportPath } = await createDispatchReadyRun(
+      tempDir,
+      `concurrent-dispatch-${Date.now()}`,
+      { codex: { ok: true } }
+    );
+    const [firstDescriptor, secondDescriptor] = handoffResult.descriptors;
+
+    if (!firstDescriptor || !secondDescriptor) {
+      throw new Error("Expected two ready descriptors for concurrent dispatch coverage.");
+    }
+
+    const syncDirectory = path.join(tempDir, "dispatch-sync");
+    const firstIndexPath = path.join(path.dirname(handoffResult.indexPath), "index-a.json");
+    const secondIndexPath = path.join(path.dirname(handoffResult.indexPath), "index-b.json");
+
+    await writeFile(
+      firstDescriptor.launcherPath,
+      buildBarrierResultArtifactScript(
+        firstDescriptor.resultPath,
+        {
+          status: "completed",
+          summary: `completed ${firstDescriptor.taskId}`,
+          changedFiles: ["src/lib/dispatch.mjs"],
+          verification: ["npm test"],
+          notes: ["concurrent dispatch A"]
+        },
+        syncDirectory,
+        "first",
+        2
+      ),
+      "utf8"
+    );
+    await writeFile(
+      secondDescriptor.launcherPath,
+      buildBarrierResultArtifactScript(
+        secondDescriptor.resultPath,
+        {
+          status: "completed",
+          summary: `completed ${secondDescriptor.taskId}`,
+          changedFiles: ["src/lib/run-state.mjs"],
+          verification: ["npm test"],
+          notes: ["concurrent dispatch B"]
+        },
+        syncDirectory,
+        "second",
+        2
+      ),
+      "utf8"
+    );
+    await limitDispatchToDescriptors(firstIndexPath, handoffResult.runId, [firstDescriptor]);
+    await limitDispatchToDescriptors(secondIndexPath, handoffResult.runId, [secondDescriptor]);
+
+    const [firstDispatchResult, secondDispatchResult] = await Promise.all([
+      dispatchHandoffs(firstIndexPath, "execute"),
+      dispatchHandoffs(secondIndexPath, "execute")
+    ]);
+    const runState = JSON.parse(await readFile(runResult.statePath, "utf8"));
+    const report = await readFile(reportPath, "utf8");
+
+    assert.equal(firstDispatchResult.summary.completed, 1);
+    assert.equal(secondDispatchResult.summary.completed, 1);
+
+    for (const descriptor of [firstDescriptor, secondDescriptor]) {
+      const task = runState.taskLedger.find((item) => item.id === descriptor.taskId);
+      const reviewTask = runState.taskLedger.find(
+        (item) => item.id === descriptor.taskId.replace(/^implement-/, "review-")
+      );
+
+      assert.equal(task?.status, "completed");
+      assert.equal(reviewTask?.status, "ready");
+      assert.match(report, new RegExp(`\\[completed\\] ${descriptor.taskId} ->`));
+      assert.match(report, new RegExp(`\\[ready\\] ${descriptor.taskId.replace(/^implement-/, "review-")} ->`));
+    }
   });
 
   console.log("Dispatch matrix tests passed.");

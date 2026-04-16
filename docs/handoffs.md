@@ -116,7 +116,7 @@ Schedule a timed retry instead:
 node src/index.mjs retry runs/example-run/run-state.json <taskId> "request frequency too high, please retry later" 3
 ```
 
-Timed retries move the task to `waiting_retry`; the next `tick`, `report`, or `handoff` refresh will return it to `ready` once the retry time has elapsed.
+Timed retries move the task to `waiting_retry`; the next `tick`, `report`, or `handoff` refresh will return it to `ready` once the retry time has elapsed. If a hybrid surface exhausts its retry budget, the task can be parked in `blocked` with a cooldown and later reopened by the same refresh pass.
 
 For orchestrator-style polling, prefer:
 

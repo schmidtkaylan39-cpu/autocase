@@ -210,6 +210,16 @@ async function main() {
     assert.equal(implementationTask.status, "ready");
   });
 
+  await runTest("task updates reject unsupported task statuses", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-task-invalid-status-"));
+    const runResult = await runProject(validSpecPath, tempDir, "task-invalid-status-run");
+
+    await assert.rejects(
+      () => updateRunTask(runResult.statePath, "planning-brief", "unknown-status"),
+      /unsupported task status/i
+    );
+  });
+
   await runTest("handoff generation creates prompt, json, markdown, and launcher", async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-handoff-"));
     const runResult = await runProject(validSpecPath, tempDir, "handoff-run");
@@ -314,6 +324,23 @@ async function main() {
     );
   });
 
+  await runTest("applying a missing manual or hybrid result artifact fails fast", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-apply-missing-result-"));
+    const runResult = await runProject(validSpecPath, tempDir, "apply-missing-result-run");
+    const missingResultPath = path.join(
+      tempDir,
+      "apply-missing-result-run",
+      "handoffs",
+      "results",
+      "planning-brief.result.json"
+    );
+
+    await assert.rejects(
+      () => applyTaskResult(runResult.statePath, "planning-brief", missingResultPath),
+      /(ENOENT|no such file)/i
+    );
+  });
+
   await runTest("hybrid retry schedules a waiting window and records retry metadata", async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-retry-"));
     const runResult = await runProject(validSpecPath, tempDir, "retry-run");
@@ -333,6 +360,41 @@ async function main() {
     assert.equal(planningTask?.retryCount, 1);
     assert.ok(typeof planningTask?.nextRetryAt === "string");
     assert.match(planningTask?.lastRetryReason ?? "", /频率过高/);
+  });
+
+  await runTest("hybrid retry rejects unknown task identifiers", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-retry-missing-task-"));
+    const runResult = await runProject(validSpecPath, tempDir, "retry-missing-task-run");
+
+    await assert.rejects(
+      () => scheduleTaskRetry(runResult.statePath, "missing-task", "temporary server timeout"),
+      /task not found/i
+    );
+  });
+
+  await runTest("manual task updates preserve retry history while clearing stale retry windows", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-retry-history-"));
+    const runResult = await runProject(validSpecPath, tempDir, "retry-history-run");
+
+    await scheduleTaskRetry(
+      runResult.statePath,
+      "planning-brief",
+      "temporary server timeout",
+      3,
+      path.join(projectRoot, "config", "factory.config.json")
+    );
+
+    const result = await updateRunTask(
+      runResult.statePath,
+      "planning-brief",
+      "ready",
+      "manual operator retry"
+    );
+
+    assert.equal(result.task?.status, "ready");
+    assert.equal(result.task?.retryCount, 1);
+    assert.equal(result.task?.lastRetryReason, "temporary server timeout");
+    assert.equal(result.task?.nextRetryAt, null);
   });
 
   await runTest("handoff refresh promotes expired retry tasks back to ready", async () => {
@@ -400,6 +462,42 @@ async function main() {
 
     assert.equal(finalResult.escalated, true);
     assert.equal(planningTask?.status, "blocked");
+    assert.equal(planningTask?.retryCount, 3);
+    assert.ok(typeof planningTask?.nextRetryAt === "string");
+  });
+
+  await runTest("tick reopens blocked tasks after the unlock cooldown expires", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-blocked-unlock-"));
+    const runResult = await runProject(validSpecPath, tempDir, "blocked-unlock-run");
+    const runState = JSON.parse(await readFile(runResult.statePath, "utf8"));
+    const modifiedRunState = {
+      ...runState,
+      taskLedger: runState.taskLedger.map((task) =>
+        task.id === "planning-brief"
+          ? {
+              ...task,
+              status: "blocked",
+              retryCount: 3,
+              nextRetryAt: new Date(Date.now() - 60_000).toISOString(),
+              lastRetryReason: "cooldown elapsed"
+            }
+          : task
+      )
+    };
+
+    await writeJson(runResult.statePath, modifiedRunState);
+    const fakeDoctorPath = path.join(tempDir, "doctor.json");
+    await writeFakeDoctorReport(fakeDoctorPath, {
+      cursor: { ok: true }
+    });
+
+    const result = await tickProjectRun(runResult.statePath, fakeDoctorPath);
+    const refreshedRunState = JSON.parse(await readFile(runResult.statePath, "utf8"));
+    const planningTask = refreshedRunState.taskLedger.find((task) => task.id === "planning-brief");
+
+    assert.deepEqual(result.promotedRetryTasks, []);
+    assert.ok(result.newlyReadyTasks.includes("planning-brief"));
+    assert.equal(planningTask?.status, "ready");
     assert.equal(planningTask?.retryCount, 3);
     assert.equal(planningTask?.nextRetryAt, null);
   });
@@ -475,6 +573,42 @@ async function main() {
     assert.equal(result.readyTaskCount, 0);
     assert.equal(result.descriptors.length, 0);
     assert.equal(planningTask?.status, "waiting_retry");
+  });
+
+  await runTest("tick preserves waiting retry tasks when nextRetryAt is invalid", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-tick-invalid-retry-"));
+    const runResult = await runProject(validSpecPath, tempDir, "tick-invalid-retry-run");
+    const runState = JSON.parse(await readFile(runResult.statePath, "utf8"));
+    const modifiedRunState = {
+      ...runState,
+      taskLedger: runState.taskLedger.map((task) =>
+        task.id === "planning-brief"
+          ? {
+              ...task,
+              status: "waiting_retry",
+              retryCount: 1,
+              nextRetryAt: "not-a-date",
+              lastRetryReason: "bad timestamp"
+            }
+          : task
+      )
+    };
+
+    await writeJson(runResult.statePath, modifiedRunState);
+    const fakeDoctorPath = path.join(tempDir, "doctor.json");
+    await writeFakeDoctorReport(fakeDoctorPath, {
+      cursor: { ok: true }
+    });
+
+    const result = await tickProjectRun(runResult.statePath, fakeDoctorPath);
+    const refreshedRunState = JSON.parse(await readFile(runResult.statePath, "utf8"));
+    const planningTask = refreshedRunState.taskLedger.find((task) => task.id === "planning-brief");
+
+    assert.deepEqual(result.promotedRetryTasks, []);
+    assert.deepEqual(result.newlyReadyTasks, []);
+    assert.equal(result.readyTaskCount, 0);
+    assert.equal(planningTask?.status, "waiting_retry");
+    assert.equal(planningTask?.nextRetryAt, "not-a-date");
   });
 
   await runTest("dispatch dry-run produces dispatch results", async () => {

@@ -2,6 +2,10 @@ export function escapePowerShellLiteral(value) {
   return String(value).replace(/'/g, "''");
 }
 
+export function toPowerShellSingleQuotedLiteral(value) {
+  return `'${escapePowerShellLiteral(value)}'`;
+}
+
 export function getPowerShellInvocation(platform = process.platform) {
   if (platform === "win32") {
     return {
@@ -30,5 +34,6 @@ export function buildPowerShellFileArgs(scriptPath, platform = process.platform)
 
 export function buildPowerShellCommandArgs(commandLine, platform = process.platform) {
   const runtime = getPowerShellInvocation(platform);
-  return [...runtime.commonArgs, "-Command", commandLine];
+  const encodedCommand = Buffer.from(String(commandLine), "utf16le").toString("base64");
+  return [...runtime.commonArgs, "-EncodedCommand", encodedCommand];
 }

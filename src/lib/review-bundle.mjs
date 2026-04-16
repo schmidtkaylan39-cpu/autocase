@@ -6,8 +6,8 @@ import { promisify } from "node:util";
 import { ensureDirectory, readJson, writeJson } from "./fs-utils.mjs";
 import {
   buildPowerShellCommandArgs,
-  escapePowerShellLiteral,
-  getPowerShellInvocation
+  getPowerShellInvocation,
+  toPowerShellSingleQuotedLiteral
 } from "./powershell.mjs";
 
 const execFileAsync = promisify(execFile);
@@ -331,12 +331,14 @@ async function createArchive(bundleDirectory, destinationBasePath) {
   if (process.platform === "win32") {
     const archivePath = `${destinationBasePath}.zip`;
     const runtime = getPowerShellInvocation();
+    const normalizedBundleDirectory = bundleDirectory.replace(/\\/g, "/");
+    const normalizedArchivePath = archivePath.replace(/\\/g, "/");
     const command = [
       `Compress-Archive`,
       `-Path`,
-      `'${escapePowerShellLiteral(bundleDirectory)}'`,
+      toPowerShellSingleQuotedLiteral(normalizedBundleDirectory),
       `-DestinationPath`,
-      `'${escapePowerShellLiteral(archivePath)}'`,
+      toPowerShellSingleQuotedLiteral(normalizedArchivePath),
       `-Force`
     ].join(" ");
 

@@ -1,10 +1,7 @@
 import path from "node:path";
 
 import { describeRuntime, normalizeRuntimeChecks, pickRuntimeForRole } from "./runtime-registry.mjs";
-
-function escapePowerShellSingleQuoted(value) {
-  return String(value).replace(/'/g, "''");
-}
+import { toPowerShellSingleQuotedLiteral } from "./powershell.mjs";
 
 function relativeLabel(baseDir, targetPath) {
   return path.relative(baseDir, targetPath) || ".";
@@ -66,20 +63,20 @@ export function buildPromptDocument({
 }
 
 function buildOpenClawLauncher(promptPath) {
-  const escapedPromptPath = escapePowerShellSingleQuoted(promptPath);
+  const promptLiteral = toPowerShellSingleQuotedLiteral(promptPath);
   return [
-    `$message = Get-Content -Raw '${escapedPromptPath}'`,
-    "openclaw agent --local --json --thinking medium --message $message"
+    `$message = Get-Content -Raw -LiteralPath ${promptLiteral}`,
+    "& openclaw agent --local --json --thinking medium --message $message"
   ].join("\n");
 }
 
 function buildCursorLauncher(workspacePath, briefPath, promptPath) {
-  const escapedWorkspacePath = escapePowerShellSingleQuoted(workspacePath);
-  const escapedBriefPath = escapePowerShellSingleQuoted(briefPath);
-  const escapedPromptPath = escapePowerShellSingleQuoted(promptPath);
+  const workspaceLiteral = toPowerShellSingleQuotedLiteral(workspacePath);
+  const briefLiteral = toPowerShellSingleQuotedLiteral(briefPath);
+  const promptLiteral = toPowerShellSingleQuotedLiteral(promptPath);
 
   return [
-    `cursor -n '${escapedWorkspacePath}' '${escapedBriefPath}' '${escapedPromptPath}'`,
+    `& cursor -n ${workspaceLiteral} ${briefLiteral} ${promptLiteral}`,
     "",
     "# Cursor is currently treated as a planning or review surface.",
     "# Open the prompt and brief files inside Cursor for guided handling."
@@ -87,7 +84,7 @@ function buildCursorLauncher(workspacePath, briefPath, promptPath) {
 }
 
 function buildLocalCiLauncher(workspacePath, mandatoryGates = []) {
-  const escapedWorkspacePath = escapePowerShellSingleQuoted(workspacePath);
+  const workspaceLiteral = toPowerShellSingleQuotedLiteral(workspacePath);
   const gateToCommand = {
     build: "npm run build",
     lint: "npm run lint",
@@ -101,29 +98,30 @@ function buildLocalCiLauncher(workspacePath, mandatoryGates = []) {
     .map((gate) => gateToCommand[gate])
     .filter(Boolean);
 
-  return [`Set-Location '${escapedWorkspacePath}'`, ...(commands.length > 0 ? commands : ["npm test"])].join(
-    "\n"
-  );
+  return [
+    `Set-Location -LiteralPath ${workspaceLiteral}`,
+    ...(commands.length > 0 ? commands : ["npm test"])
+  ].join("\n");
 }
 
 function buildCodexLauncher(promptPath, workspacePath) {
-  const escapedPromptPath = escapePowerShellSingleQuoted(promptPath);
-  const escapedWorkspacePath = escapePowerShellSingleQuoted(workspacePath);
+  const promptLiteral = toPowerShellSingleQuotedLiteral(promptPath);
+  const workspaceLiteral = toPowerShellSingleQuotedLiteral(workspacePath);
 
   return [
-    `Set-Location '${escapedWorkspacePath}'`,
-    `$prompt = Get-Content -Raw '${escapedPromptPath}'`,
-    "$prompt | codex -a never exec -C . -s workspace-write -"
+    `Set-Location -LiteralPath ${workspaceLiteral}`,
+    `$prompt = Get-Content -Raw -LiteralPath ${promptLiteral}`,
+    "$prompt | & codex -a never exec -C . -s workspace-write -"
   ].join("\n");
 }
 
 function buildManualLauncher(promptPath, briefPath) {
-  const escapedPromptPath = escapePowerShellSingleQuoted(promptPath);
-  const escapedBriefPath = escapePowerShellSingleQuoted(briefPath);
+  const promptLiteral = toPowerShellSingleQuotedLiteral(promptPath);
+  const briefLiteral = toPowerShellSingleQuotedLiteral(briefPath);
   return [
     "Write-Host 'Please handle this task manually.'",
-    `Write-Host 'Prompt: ${escapedPromptPath}'`,
-    `Write-Host 'Brief: ${escapedBriefPath}'`
+    `Write-Host ('Prompt: ' + ${promptLiteral})`,
+    `Write-Host ('Brief: ' + ${briefLiteral})`
   ].join("\n");
 }
 

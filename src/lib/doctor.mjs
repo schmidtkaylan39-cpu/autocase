@@ -6,8 +6,8 @@ import { promisify } from "node:util";
 import { ensureDirectory, writeJson } from "./fs-utils.mjs";
 import {
   buildPowerShellCommandArgs,
-  escapePowerShellLiteral,
-  getPowerShellInvocation
+  getPowerShellInvocation,
+  toPowerShellSingleQuotedLiteral
 } from "./powershell.mjs";
 
 const execFileAsync = promisify(execFile);
@@ -19,7 +19,7 @@ async function resolveCommand(command) {
       const result = await execFileAsync(
         runtime.command,
         buildPowerShellCommandArgs(
-          `(Get-Command '${escapePowerShellLiteral(command)}' -ErrorAction Stop | Select-Object -ExpandProperty Source -First 1)`
+          `(Get-Command ${toPowerShellSingleQuotedLiteral(command)} -ErrorAction Stop | Select-Object -ExpandProperty Source -First 1)`
         ),
         {
           encoding: "utf8",
@@ -61,8 +61,8 @@ async function resolveCommand(command) {
 async function runCommand(command, args) {
   if (process.platform === "win32") {
     const runtime = getPowerShellInvocation();
-    const commandLine = [`& '${escapePowerShellLiteral(command)}'`]
-      .concat(args.map((arg) => `'${escapePowerShellLiteral(arg)}'`))
+    const commandLine = [`& ${toPowerShellSingleQuotedLiteral(command)}`]
+      .concat(args.map((arg) => toPowerShellSingleQuotedLiteral(arg)))
       .join(" ");
 
     return execFileAsync(runtime.command, buildPowerShellCommandArgs(commandLine), {

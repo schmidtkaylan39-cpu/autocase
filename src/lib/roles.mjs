@@ -46,7 +46,8 @@ export const defaultFactoryConfig = {
     replanning: 1,
     hybridSurface: {
       maxAttempts: 3,
-      retryDelayMinutes: 3
+      retryDelayMinutes: 3,
+      unlockAfterMinutes: 30
     }
   },
   mandatoryGates: ["build", "lint", "typecheck", "unit test", "integration test", "e2e test"],

@@ -118,6 +118,7 @@ Hybrid/manual retry behavior:
 - `waiting_retry` records `retryCount`, `nextRetryAt`, and `lastRetryReason`
 - once `nextRetryAt` has passed, the next `tick`, `report`, or `handoff` refresh promotes the task back to `ready`
 - if the configured retry limit is reached, the task is escalated to `blocked`
+- `retryPolicy.hybridSurface.unlockAfterMinutes` can attach a cooldown to `blocked`; once that cooldown expires, the next refresh promotes the task back to `ready`
 
 ## Reporting
 

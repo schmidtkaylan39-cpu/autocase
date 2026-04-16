@@ -244,13 +244,18 @@ export async function scheduleTaskRetry(
   const { config } = await loadFactoryConfig(configPath);
   const retryConfig = config.retryPolicy.hybridSurface ?? {
     maxAttempts: 3,
-    retryDelayMinutes: 3
+    retryDelayMinutes: 3,
+    unlockAfterMinutes: 30
   };
   const issue = classifyHybridIssue(reason);
   const effectiveDelayMinutes =
     typeof retryDelayMinutes === "number" && Number.isFinite(retryDelayMinutes)
       ? retryDelayMinutes
       : retryConfig.retryDelayMinutes;
+  const effectiveUnlockDelayMinutes =
+    typeof retryConfig.unlockAfterMinutes === "number" && Number.isFinite(retryConfig.unlockAfterMinutes)
+      ? retryConfig.unlockAfterMinutes
+      : null;
   const existingRunState = await readJson(resolvedRunStatePath);
   const targetTask = existingRunState.taskLedger.find((task) => task.id === taskId);
 
@@ -260,10 +265,15 @@ export async function scheduleTaskRetry(
 
   const retryCount = (targetTask.retryCount ?? 0) + 1;
   const shouldEscalate = retryCount >= retryConfig.maxAttempts;
-  const nextRetryAt = shouldEscalate ? null : addMinutes(new Date(), effectiveDelayMinutes);
+  const now = new Date();
+  const nextRetryAt = shouldEscalate
+    ? effectiveUnlockDelayMinutes === null
+      ? null
+      : addMinutes(now, effectiveUnlockDelayMinutes)
+    : addMinutes(now, effectiveDelayMinutes);
   const nextRunState = refreshRunState({
     ...existingRunState,
-    updatedAt: new Date().toISOString(),
+    updatedAt: now.toISOString(),
     taskLedger: existingRunState.taskLedger.map((task) => {
       if (task.id !== taskId) {
         return task;
@@ -282,7 +292,7 @@ export async function scheduleTaskRetry(
         lastRetryReason: issue.reason,
         notes: [
           ...(Array.isArray(task.notes) ? task.notes : []),
-          `${new Date().toISOString()} ${statusNote}`
+          `${now.toISOString()} ${statusNote}`
         ]
       };
     })
@@ -361,13 +371,26 @@ export async function tickProjectRun(
 
 function validateResultArtifact(artifact) {
   const validStatuses = new Set(["completed", "failed", "blocked"]);
+  const validChangedFiles =
+    Array.isArray(artifact?.changedFiles) &&
+    artifact.changedFiles.every((filePath) => typeof filePath === "string" && filePath.trim().length > 0);
+  const validVerification =
+    Array.isArray(artifact?.verification) &&
+    artifact.verification.length > 0 &&
+    artifact.verification.every((check) => typeof check === "string" && check.trim().length > 0);
+  const validNotes =
+    Array.isArray(artifact?.notes) &&
+    artifact.notes.length > 0 &&
+    artifact.notes.every((note) => typeof note === "string" && note.trim().length > 0);
+  const validSummary =
+    typeof artifact?.summary === "string" && artifact.summary.trim().length >= 5;
 
   if (
-    typeof artifact?.summary !== "string" ||
+    !validSummary ||
     !validStatuses.has(artifact?.status) ||
-    !Array.isArray(artifact?.changedFiles) ||
-    !Array.isArray(artifact?.verification) ||
-    !Array.isArray(artifact?.notes)
+    !validChangedFiles ||
+    !validVerification ||
+    !validNotes
   ) {
     throw new Error("Result artifact does not match the expected schema.");
   }

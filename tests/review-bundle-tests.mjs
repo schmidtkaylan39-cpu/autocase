@@ -117,6 +117,31 @@ async function main() {
     assert.equal(result.archivePath, null);
   });
 
+  await runTest("review bundle archive succeeds for Windows-style paths with spaces and symbols", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "ai-factory-review-bundle-archive-"));
+    const sourceDir = path.join(tempRoot, "source $bundle & data");
+    const outputDir = path.join(tempRoot, "output $bundle & data");
+
+    await mkdir(path.join(sourceDir, "src"), { recursive: true });
+    await writeJson(path.join(sourceDir, "package.json"), {
+      name: "bundle-archive-fixture",
+      version: "9.9.9"
+    });
+    await writeFile(path.join(sourceDir, "README.md"), "# Archive Fixture\n", "utf8");
+    await writeFile(path.join(sourceDir, "src", "index.mjs"), "export const archive = true;\n", "utf8");
+
+    const result = await createReviewBundle({
+      sourceDir,
+      outputDir,
+      bundleName: "fixture archive $bundle & data",
+      archive: true
+    });
+
+    assert.match(result.archiveFormat, /zip|tar\.gz/);
+    assert.ok(typeof result.archivePath === "string" && result.archivePath.length > 0);
+    await stat(result.archivePath);
+  });
+
   console.log("Review bundle tests passed.");
 }
 

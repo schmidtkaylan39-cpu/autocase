@@ -16,6 +16,16 @@ async function runTest(name, fn) {
   }
 }
 
+function decodeEncodedPowerShellCommand(args) {
+  const encodedFlagIndex = args.indexOf("-EncodedCommand");
+
+  if (encodedFlagIndex === -1) {
+    throw new Error("Expected -EncodedCommand argument.");
+  }
+
+  return Buffer.from(args[encodedFlagIndex + 1], "base64").toString("utf16le");
+}
+
 async function main() {
   await runTest("windows PowerShell invocation keeps ExecutionPolicy bypass", async () => {
     const runtime = getPowerShellInvocation("win32");
@@ -29,11 +39,10 @@ async function main() {
       "-File",
       "C:/tmp/demo.ps1"
     ]);
-    assert.deepEqual(buildPowerShellCommandArgs("Get-Command node", "win32"), [
-      "-NoProfile",
-      "-Command",
-      "Get-Command node"
-    ]);
+    const commandArgs = buildPowerShellCommandArgs("Get-Command node", "win32");
+
+    assert.deepEqual(commandArgs.slice(0, 2), ["-NoProfile", "-EncodedCommand"]);
+    assert.equal(decodeEncodedPowerShellCommand(commandArgs), "Get-Command node");
   });
 
   await runTest("non-Windows PowerShell invocation uses pwsh without ExecutionPolicy", async () => {
@@ -48,11 +57,10 @@ async function main() {
       "-File",
       "/tmp/demo.ps1"
     ]);
-    assert.deepEqual(buildPowerShellCommandArgs("Get-Command node", "linux"), [
-      "-NoProfile",
-      "-Command",
-      "Get-Command node"
-    ]);
+    const commandArgs = buildPowerShellCommandArgs("Get-Command node", "linux");
+
+    assert.deepEqual(commandArgs.slice(0, 2), ["-NoProfile", "-EncodedCommand"]);
+    assert.equal(decodeEncodedPowerShellCommand(commandArgs), "Get-Command node");
   });
 
   console.log("All cross-platform tests passed.");

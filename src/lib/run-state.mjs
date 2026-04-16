@@ -185,6 +185,11 @@ function areDependenciesCompleted(task, taskLedger) {
   );
 }
 
+function hasElapsedRetryWindow(task, now) {
+  const retryAtMs = Date.parse(task.nextRetryAt ?? "");
+  return Number.isFinite(retryAtMs) && retryAtMs <= now;
+}
+
 function inferRunStatus(taskLedger) {
   const failedTasks = taskLedger.filter((task) => task.status === "failed");
   const blockedTasks = taskLedger.filter((task) => task.status === "blocked");
@@ -216,10 +221,8 @@ function inferRunStatus(taskLedger) {
 export function refreshRunState(runState) {
   const now = Date.now();
   const taskLedger = runState.taskLedger.map((task) => {
-    if (task.status === "waiting_retry") {
-      const retryAtMs = Date.parse(task.nextRetryAt ?? "");
-
-      if (Number.isFinite(retryAtMs) && retryAtMs <= now && areDependenciesCompleted(task, runState.taskLedger)) {
+    if (task.status === "waiting_retry" || task.status === "blocked") {
+      if (hasElapsedRetryWindow(task, now) && areDependenciesCompleted(task, runState.taskLedger)) {
         return {
           ...task,
           status: "ready",
@@ -287,9 +290,10 @@ export function updateTaskInRunState(runState, taskId, nextStatus, note = "") {
       ...task,
       status: nextStatus,
       attempts: nextStatus === "failed" ? task.attempts + 1 : task.attempts,
-      nextRetryAt: nextStatus === "waiting_retry" ? task.nextRetryAt ?? null : null,
-      retryCount: nextStatus === "waiting_retry" ? task.retryCount ?? 0 : 0,
-      lastRetryReason: nextStatus === "waiting_retry" ? task.lastRetryReason ?? null : null,
+      nextRetryAt:
+        nextStatus === "waiting_retry" || nextStatus === "blocked" ? task.nextRetryAt ?? null : null,
+      retryCount: task.retryCount ?? 0,
+      lastRetryReason: task.lastRetryReason ?? null,
       notes: note
         ? [...(Array.isArray(task.notes) ? task.notes : []), `${new Date().toISOString()} ${note}`]
         : task.notes

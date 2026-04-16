@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { access, writeFile } from "node:fs/promises";
+import { access, open, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 
@@ -8,6 +8,20 @@ import { buildPowerShellFileArgs, getPowerShellInvocation } from "./powershell.m
 import { renderRunReport, updateTaskInRunState } from "./run-state.mjs";
 
 const execFileAsync = promisify(execFile);
+const dispatchLockSuffix = ".dispatch.lock";
+const dispatchLockTimeoutMs = 15000;
+const dispatchLockRetryDelayMs = 100;
+const dispatchLockStaleMs = 120000;
+
+function readPositiveIntegerEnv(name, fallbackValue) {
+  const rawValue = process.env[name];
+  const parsedValue = Number.parseInt(rawValue ?? "", 10);
+  return Number.isFinite(parsedValue) && parsedValue > 0 ? parsedValue : fallbackValue;
+}
+
+function getPowerShellTimeoutMs() {
+  return readPositiveIntegerEnv("AI_FACTORY_POWERSHELL_TIMEOUT_MS", 120000);
+}
 
 function renderDispatchReport(summary, results) {
   return [
@@ -29,16 +43,40 @@ function renderDispatchReport(summary, results) {
 }
 
 async function runPowerShellScript(scriptPath) {
+  if (!(await fileExists(scriptPath))) {
+    throw new Error(`Launcher script not found: ${scriptPath}`);
+  }
+
   const runtime = getPowerShellInvocation();
-  return execFileAsync(
-    runtime.command,
-    buildPowerShellFileArgs(scriptPath),
-    {
-      encoding: "utf8",
-      windowsHide: runtime.windowsHide,
-      timeout: 120000
+  const powerShellTimeoutMs = getPowerShellTimeoutMs();
+
+  try {
+    return await execFileAsync(
+      runtime.command,
+      buildPowerShellFileArgs(scriptPath),
+      {
+        encoding: "utf8",
+        windowsHide: runtime.windowsHide,
+        timeout: powerShellTimeoutMs
+      }
+    );
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const timedOut =
+      (typeof error === "object" &&
+        error !== null &&
+        (("code" in error && error.code === "ETIMEDOUT") ||
+          ("killed" in error && error.killed === true && "signal" in error && error.signal === "SIGTERM"))) ||
+      /timed out/i.test(errorMessage);
+
+    if (timedOut) {
+      throw new Error(`Launcher timed out after ${powerShellTimeoutMs / 1000} seconds: ${scriptPath}`, {
+        cause: error
+      });
     }
-  );
+
+    throw error;
+  }
 }
 
 function shouldAutoExecute(runtimeId) {
@@ -52,6 +90,77 @@ async function fileExists(targetPath) {
   } catch {
     return false;
   }
+}
+
+function sleep(durationMs) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, durationMs);
+  });
+}
+
+async function acquireDispatchLock(lockPath) {
+  const deadline = Date.now() + dispatchLockTimeoutMs;
+
+  while (true) {
+    try {
+      const lockHandle = await open(lockPath, "wx");
+      await lockHandle.writeFile(`${process.pid} ${new Date().toISOString()}\n`, "utf8");
+
+      return async () => {
+        await lockHandle.close().catch(() => undefined);
+        await rm(lockPath, { force: true }).catch(() => undefined);
+      };
+    } catch (error) {
+      if (!(error instanceof Error) || !("code" in error) || error.code !== "EEXIST") {
+        throw error;
+      }
+
+      try {
+        const existingLockStats = await stat(lockPath);
+
+        if (Date.now() - existingLockStats.mtimeMs > dispatchLockStaleMs) {
+          await rm(lockPath, { force: true });
+          continue;
+        }
+      } catch (statError) {
+        if (!(statError instanceof Error) || !("code" in statError) || statError.code !== "ENOENT") {
+          throw statError;
+        }
+
+        continue;
+      }
+
+      if (Date.now() >= deadline) {
+        throw new Error(`Timed out waiting for dispatch run-state lock: ${lockPath}`, {
+          cause: error
+        });
+      }
+
+      await sleep(dispatchLockRetryDelayMs);
+    }
+  }
+}
+
+async function withDispatchLock(runStatePath, action) {
+  const releaseLock = await acquireDispatchLock(`${runStatePath}${dispatchLockSuffix}`);
+
+  try {
+    return await action();
+  } finally {
+    await releaseLock();
+  }
+}
+
+function isNonEmptyString(value) {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function isStringArray(value, { allowEmpty = false } = {}) {
+  return (
+    Array.isArray(value) &&
+    (allowEmpty || value.length > 0) &&
+    value.every((item) => isNonEmptyString(item))
+  );
 }
 
 async function readResultArtifact(resultPath) {
@@ -68,11 +177,12 @@ async function readResultArtifact(resultPath) {
     const artifact = await readJson(resultPath);
     const validStatus = new Set(["completed", "failed", "blocked"]);
     const valid =
-      typeof artifact.summary === "string" &&
+      isNonEmptyString(artifact.summary) &&
+      artifact.summary.trim().length >= 5 &&
       validStatus.has(artifact.status) &&
-      Array.isArray(artifact.changedFiles) &&
-      Array.isArray(artifact.verification) &&
-      Array.isArray(artifact.notes);
+      isStringArray(artifact.changedFiles, { allowEmpty: true }) &&
+      isStringArray(artifact.verification) &&
+      isStringArray(artifact.notes);
 
     return {
       exists: true,
@@ -107,6 +217,10 @@ function mapDispatchResultToTaskStatus(result) {
 }
 
 export async function dispatchHandoffs(indexPath, mode = "dry-run") {
+  if (mode !== "dry-run" && mode !== "execute") {
+    throw new Error(`Unsupported dispatch mode: ${mode}`);
+  }
+
   const resolvedIndexPath = path.resolve(indexPath);
   const handoffIndex = await readJson(resolvedIndexPath);
   const outputDir = path.dirname(resolvedIndexPath);
@@ -197,40 +311,42 @@ export async function dispatchHandoffs(indexPath, mode = "dry-run") {
     const reportPath = path.join(runDirectory, "report.md");
 
     if (await fileExists(runStatePath)) {
-      let runState = await readJson(runStatePath);
-      const updatedTasks = [];
+      runStateSync = await withDispatchLock(runStatePath, async () => {
+        let runState = await readJson(runStatePath);
+        const updatedTasks = [];
 
-      for (const result of results) {
-        const nextStatus = mapDispatchResultToTaskStatus(result);
+        for (const result of results) {
+          const nextStatus = mapDispatchResultToTaskStatus(result);
 
-        if (!nextStatus) {
-          continue;
+          if (!nextStatus) {
+            continue;
+          }
+
+          runState = updateTaskInRunState(
+            runState,
+            result.taskId,
+            nextStatus,
+            `dispatch:${result.status}`
+          );
+          updatedTasks.push({
+            taskId: result.taskId,
+            nextStatus
+          });
         }
 
-        runState = updateTaskInRunState(
-          runState,
-          result.taskId,
-          nextStatus,
-          `dispatch:${result.status}`
-        );
-        updatedTasks.push({
-          taskId: result.taskId,
-          nextStatus
-        });
-      }
+        await writeJson(runStatePath, runState);
 
-      await writeJson(runStatePath, runState);
+        if (await fileExists(planPath)) {
+          const plan = await readJson(planPath);
+          await writeFile(reportPath, `${renderRunReport(runState, plan)}\n`, "utf8");
+        }
 
-      if (await fileExists(planPath)) {
-        const plan = await readJson(planPath);
-        await writeFile(reportPath, `${renderRunReport(runState, plan)}\n`, "utf8");
-      }
-
-      runStateSync = {
-        runStatePath,
-        reportPath: (await fileExists(reportPath)) ? reportPath : null,
-        updatedTasks
-      };
+        return {
+          runStatePath,
+          reportPath: (await fileExists(reportPath)) ? reportPath : null,
+          updatedTasks
+        };
+      });
     }
   }
 

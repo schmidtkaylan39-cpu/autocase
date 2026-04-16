@@ -201,6 +201,52 @@ async function main() {
     assert.match(executeResult.results[0].note ?? "", /manual or hybrid/i);
   });
 
+  await runTest("launcher scripts use literal paths and preserve special characters", async () => {
+    const descriptor = buildHandoffDescriptor({
+      workspacePath: "C:/workspace/$demo & path",
+      spec: {
+        projectName: "Runtime Routing Demo",
+        summary: "Validate runtime routing behavior."
+      },
+      runState: {
+        runId: "routing-run",
+        mandatoryGates: ["build", "lint"]
+      },
+      plan: {
+        phases: [{ id: "implementation" }]
+      },
+      task: {
+        id: "implement-special",
+        role: "executor",
+        title: "Task with special paths",
+        description: "Ensure launcher literals stay intact.",
+        dependsOn: [],
+        acceptanceCriteria: ["must preserve path literals"]
+      },
+      rolePromptTemplate: "# role prompt",
+      promptPath: "C:/handoffs/prompt '$demo' & work.md",
+      briefPath: "C:/handoffs/brief '$demo' & work.md",
+      resultPath: "C:/handoffs/results/implement-special.result.json",
+      doctorReport: {
+        checks: [
+          {
+            id: "codex",
+            installed: true,
+            ok: true
+          }
+        ]
+      }
+    });
+
+    assert.equal(descriptor.runtime.id, "codex");
+    assert.match(descriptor.launcherScript, /Set-Location -LiteralPath 'C:\/workspace\/\$demo & path'/);
+    assert.match(
+      descriptor.launcherScript,
+      /Get-Content -Raw -LiteralPath 'C:\/handoffs\/prompt ''\$demo'' & work\.md'/
+    );
+    assert.match(descriptor.launcherScript, /\$prompt \| & codex -a never exec -C \. -s workspace-write -/);
+  });
+
   console.log("All runtime-registry tests passed.");
 }
 
