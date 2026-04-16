@@ -139,6 +139,7 @@ export async function initProject(targetDir = ".") {
   const runsDir = path.resolve(targetDir, "runs");
   const reportsDir = path.resolve(targetDir, "reports");
   const configDir = path.resolve(targetDir, "config");
+  const agentsTemplatePath = path.join(packageRootDirectory, "templates", "AGENTS.template.md");
 
   await ensureDirectory(specsDir);
   await ensureDirectory(runsDir);
@@ -147,13 +148,16 @@ export async function initProject(targetDir = ".") {
 
   const sampleSpecPath = path.join(specsDir, "project-spec.json");
   const configPath = path.join(configDir, "factory.config.json");
+  const agentsPath = path.resolve(targetDir, "AGENTS.md");
   await writeJson(sampleSpecPath, sampleProjectSpec);
   await writeJson(configPath, defaultFactoryConfig);
+  await writeFile(agentsPath, await readFile(agentsTemplatePath, "utf8"), "utf8");
 
   return {
     targetDir: path.resolve(targetDir),
     sampleSpecPath,
-    configPath
+    configPath,
+    agentsPath
   };
 }
 

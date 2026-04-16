@@ -1,0 +1,21 @@
+{
+  "taskId": "planning-brief",
+  "role": "planner",
+  "objective": "Describe the intended outcome in one sentence.",
+  "assumptions": [
+    "List assumptions that could change the solution."
+  ],
+  "likelyTouchedFiles": [
+    "src/example.mjs"
+  ],
+  "acceptanceChecks": [
+    "npm test"
+  ],
+  "majorRisks": [
+    "State drift",
+    "Cross-platform mismatch"
+  ],
+  "openQuestions": [
+    "What external dependency is required?"
+  ]
+}

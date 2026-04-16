@@ -4,6 +4,16 @@ This repository is a local CLI starter for a multi-runtime software factory work
 It creates plans, run state, handoff packages, dispatch reports, and can sync
 dispatch execution outcomes back into the run ledger when the run artifacts are present.
 
+## Natural-Language Harness
+
+This starter now treats natural-language harness files as a first-class part of the operating model.
+
+- the repository root includes `AGENTS.md`
+- `init` writes a starter `AGENTS.md` into newly initialized workspaces
+- role prompts instruct agents to read `AGENTS.md` before broad work when it is present
+
+The goal is to make environment discovery, completion criteria, and failure reporting explicit.
+
 ## Current Command Flow
 
 The CLI currently supports these stages:
@@ -70,6 +80,12 @@ Model routing is a second layer on top of runtime routing:
 
 - runtime routing decides which surface/tool handles the task
 - model routing decides which model should be preferred inside that surface
+
+Proposal alignment is a third lightweight layer for risky work:
+
+- planners and reviewers are encouraged to start with a short proposal contract
+- proposal contracts document objective, assumptions, touched files, acceptance checks, and major risks
+- failure handling is expected to use structured categories instead of vague notes
 
 ## Runtime Definitions
 

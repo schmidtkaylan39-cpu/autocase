@@ -1,0 +1,11 @@
+{
+  "taskId": "implement-example",
+  "category": "verification_failed",
+  "summary": "State the smallest honest explanation of what failed.",
+  "evidence": [
+    "npm test -> failing dispatch-matrix case"
+  ],
+  "likelyCause": "One sentence hypothesis.",
+  "nextBestAction": "Retry after fixing the failing assertion.",
+  "retryable": true
+}

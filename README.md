@@ -7,6 +7,21 @@ This repository is a local starter for a multi-AI software factory workflow. It 
 
 The repository can still be driven from source with `node src/index.mjs`, and it now also exposes an installable CLI entrypoint as `ai-factory-starter`.
 
+## Harness Baseline
+
+This starter now includes a lightweight natural-language harness layer:
+
+- root `AGENTS.md` for this repository
+- `init` now creates a workspace `AGENTS.md`
+- prompt templates instruct planners, reviewers, executors, and verifiers to read `AGENTS.md` first when present
+- starter docs and templates now include:
+  - `docs/proposal-contract.md`
+  - `docs/failure-feedback.md`
+  - `templates/proposal-artifact.template.json`
+  - `templates/failure-feedback.template.json`
+
+The intent is to make environment discovery, proposal alignment, and failure reporting explicit instead of implicit.
+
 ## Current Runtime Positioning
 
 This is the current intended role model and routing baseline:
@@ -203,6 +218,8 @@ npm run handoff:example
 npm run dispatch:example
 npm test
 ```
+
+`npm run init` now also writes a starter `AGENTS.md` file into the target workspace.
 
 Installed CLI usage:
 

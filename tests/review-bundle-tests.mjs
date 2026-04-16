@@ -127,9 +127,12 @@ async function main() {
       name: "bundle-fixture",
       version: "1.2.3"
     });
+    await writeFile(path.join(sourceDir, "AGENTS.md"), "# Fixture Agents\n", "utf8");
     await writeFile(path.join(sourceDir, "README.md"), "# Fixture\n", "utf8");
     await writeFile(path.join(sourceDir, "src", "index.mjs"), "export const demo = true;\n", "utf8");
     await writeFile(path.join(sourceDir, "docs", "notes.md"), "notes\n", "utf8");
+    await writeFile(path.join(sourceDir, "docs", "proposal-contract.md"), "# Proposal Contract\n", "utf8");
+    await writeFile(path.join(sourceDir, "docs", "failure-feedback.md"), "# Failure Feedback\n", "utf8");
     await writeFile(path.join(sourceDir, ".git", "HEAD"), "ref: refs/heads/main\n", "utf8");
     await writeFile(path.join(sourceDir, "node_modules", "left-pad", "index.js"), "module.exports = {};\n", "utf8");
     await writeFile(path.join(sourceDir, "review-bundles", "old-bundle", "stale.txt"), "stale\n", "utf8");
@@ -182,6 +185,7 @@ async function main() {
     await stat(result.patchNotesPath);
     await stat(path.join(result.metadataDirectory, "source-file-list.txt"));
 
+    await stat(path.join(result.bundleSourceDirectory, "AGENTS.md"));
     await stat(path.join(result.bundleSourceDirectory, "README.md"));
     await stat(path.join(result.bundleSourceDirectory, "src", "index.mjs"));
     await stat(path.join(result.bundleSourceDirectory, "reports", "runtime-doctor.json"));
@@ -210,10 +214,14 @@ async function main() {
     assert.equal(manifest.evidence.runs[0]?.runId, "demo-run");
     assert.match(reviewBrief, /External AI Review Brief/);
     assert.match(reviewPrompt, /External AI Review Prompt/);
+    assert.match(reviewPrompt, /repo\/AGENTS\.md/);
     assert.match(reviewPrompt, /metadata\/patch-notes\.md/);
     assert.match(reviewPrompt, /repo\/docs\/dispatch\.md/);
     assert.match(reviewPrompt, /repo\/docs\/runtime-doctor\.md/);
+    assert.match(reviewPrompt, /repo\/docs\/proposal-contract\.md/);
+    assert.match(reviewPrompt, /repo\/docs\/failure-feedback\.md/);
     assert.match(reviewPrompt, /State-transition correctness/);
+    assert.match(reviewBrief, /repo\/AGENTS\.md/);
     assert.match(reviewBrief, /repo\/src\/lib\/dispatch\.mjs/);
     assert.match(reviewBrief, /metadata\/patch-notes\.md/);
     assert.match(patchNotes, /# Patch Notes/);

@@ -204,8 +204,10 @@ async function main() {
 
     assert.match(result.sampleSpecPath, /project-spec\.json$/);
     assert.match(result.configPath, /factory\.config\.json$/);
+    assert.match(result.agentsPath, /AGENTS\.md$/);
     await stat(path.join(tempDir, "specs", "project-spec.json"));
     await stat(path.join(tempDir, "config", "factory.config.json"));
+    await stat(path.join(tempDir, "AGENTS.md"));
   });
 
   await runTest("run creates a full run directory with state and briefs", async () => {

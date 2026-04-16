@@ -1,0 +1,40 @@
+# Workspace Agent Map
+
+This file is the short working map for agents operating in this workspace.
+Read it before making broad changes.
+
+## Startup Loop
+
+1. Read the task brief, this file, and any file paths explicitly named by the task.
+2. Inspect the actual workspace before planning or editing.
+3. Open the files you intend to change before changing them.
+4. Define completion with concrete verification.
+5. Leave auditable evidence behind.
+
+## Proposal Contract
+
+For risky or multi-file tasks, write a concise proposal contract first:
+
+- objective
+- assumptions
+- likely touched files
+- acceptance checks
+- major risks or blockers
+
+## Execution Rules
+
+- Do not invent missing files or behavior.
+- Prefer reading the current implementation over guessing.
+- If verification was requested, run it before claiming completion.
+- If something fails, summarize the failure with a structured category and the next recovery step.
+
+## Failure Feedback Categories
+
+- `rate_limit`
+- `timeout`
+- `missing_dependency`
+- `environment_mismatch`
+- `artifact_invalid`
+- `verification_failed`
+- `logic_bug`
+- `unknown`
