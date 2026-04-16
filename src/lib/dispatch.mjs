@@ -4,7 +4,11 @@ import path from "node:path";
 import { promisify } from "node:util";
 
 import { ensureDirectory, readJson, writeJson } from "./fs-utils.mjs";
-import { buildPowerShellFileArgs, getPowerShellInvocation } from "./powershell.mjs";
+import {
+  buildPowerShellFileArgs,
+  getNonWindowsLauncherShellCommand,
+  getPowerShellInvocation
+} from "./powershell.mjs";
 import { validateResultArtifact } from "./result-artifact.mjs";
 import { renderRunReport, updateTaskInRunState } from "./run-state.mjs";
 
@@ -97,10 +101,11 @@ async function runShellScript(scriptPath) {
     throw new Error(`Launcher script not found: ${scriptPath}`);
   }
 
+  const shellCommand = getNonWindowsLauncherShellCommand();
   const shellTimeoutMs = getPowerShellTimeoutMs();
 
   try {
-    return await execFileAsync("bash", [scriptPath], {
+    return await execFileAsync(shellCommand, [scriptPath], {
       encoding: "utf8",
       timeout: shellTimeoutMs
     });
@@ -119,7 +124,7 @@ async function runShellScript(scriptPath) {
       /timed out/i.test(errorMessage);
 
     if (shellMissing) {
-      throw new Error("Launcher shell is not available: bash", {
+      throw new Error(`Launcher shell is not available: ${shellCommand}`, {
         cause: error
       });
     }
@@ -350,6 +355,95 @@ function clearActiveHandoffFields(task) {
   };
 }
 
+function buildDispatchResultFromArtifact(descriptor, runtimeId, resultArtifact, execution = null, notePrefix = null) {
+  const withPrefix = (message) => (notePrefix ? `${notePrefix} ${message}` : message);
+  let status = "incomplete";
+  let note = resultArtifact.reason ?? "Launcher finished but no result artifact was written.";
+
+  if (resultArtifact.valid && resultArtifact.artifact?.status === "completed") {
+    status = "completed";
+    note = withPrefix("Result artifact passed validation.");
+  } else if (resultArtifact.valid && resultArtifact.artifact?.status === "failed") {
+    status = "failed";
+    note = withPrefix("Runtime reported a failed task in the result artifact.");
+  } else if (resultArtifact.valid && resultArtifact.artifact?.status === "blocked") {
+    note = withPrefix("Runtime reported a blocked task in the result artifact.");
+  }
+
+  return {
+    taskId: descriptor.taskId,
+    handoffId: descriptor.handoffId ?? null,
+    runtime: runtimeId,
+    status,
+    launcherPath: descriptor.launcherPath,
+    resultPath: descriptor.resultPath ?? null,
+    artifact: resultArtifact.artifact,
+    note,
+    stdout: execution?.stdout ?? "",
+    stderr: execution?.stderr ?? ""
+  };
+}
+
+async function tryRecoverExistingResultArtifact(runStatePath, descriptor, runtimeId, runId, notePrefix) {
+  if (!(await fileExists(runStatePath)) || !descriptor.resultPath) {
+    return null;
+  }
+
+  const recoveryState = await withDispatchLock(runStatePath, async () => {
+    const runState = await readJson(runStatePath);
+    const task = runState.taskLedger.find((item) => item.id === descriptor.taskId);
+
+    if (!task || task.status !== "in_progress") {
+      return null;
+    }
+
+    if (
+      descriptor.handoffId &&
+      (typeof task.activeHandoffId !== "string" ||
+        task.activeHandoffId.trim().length === 0 ||
+        task.activeHandoffId !== descriptor.handoffId)
+    ) {
+      return null;
+    }
+
+    if (
+      typeof task.activeResultPath !== "string" ||
+      task.activeResultPath.trim().length === 0 ||
+      path.resolve(task.activeResultPath) !== path.resolve(descriptor.resultPath)
+    ) {
+      return null;
+    }
+
+    return {
+      taskId: task.id,
+      activeHandoffId: task.activeHandoffId,
+      activeResultPath: task.activeResultPath
+    };
+  });
+
+  if (!recoveryState) {
+    return null;
+  }
+
+  const existingResultArtifact = await readResultArtifactForExecution(descriptor.resultPath, {
+    runId: runId ?? null,
+    taskId: descriptor.taskId,
+    handoffId: descriptor.handoffId ?? null
+  });
+
+  if (!existingResultArtifact.valid) {
+    return null;
+  }
+
+  return buildDispatchResultFromArtifact(
+    descriptor,
+    runtimeId,
+    existingResultArtifact,
+    null,
+    notePrefix
+  );
+}
+
 async function prepareTaskForExecution(runStatePath, planPath, reportPath, descriptor) {
   if (!(await fileExists(runStatePath))) {
     return { shouldExecute: true, note: null };
@@ -397,6 +491,8 @@ async function prepareTaskForExecution(runStatePath, planPath, reportPath, descr
       };
     }
 
+    const taskStatus = task.status;
+
     if (task.status === "ready") {
       const nextRunState = updateTaskInRunState(
         runState,
@@ -413,7 +509,7 @@ async function prepareTaskForExecution(runStatePath, planPath, reportPath, descr
       }
     }
 
-    return { shouldExecute: true, note: null };
+    return { shouldExecute: true, note: null, taskStatus };
   });
 }
 
@@ -497,6 +593,19 @@ export async function dispatchHandoffs(indexPath, mode = "dry-run") {
   const resolvedIndexPath = path.resolve(indexPath);
   const handoffIndex = await readJson(resolvedIndexPath);
   const outputDir = path.dirname(resolvedIndexPath);
+  /** @type {Array<{
+   *   taskId: string,
+   *   handoffId?: string | null,
+   *   runtime: string,
+   *   status: string,
+   *   launcherPath: string,
+   *   resultPath?: string | null,
+   *   note?: string,
+   *   error?: string,
+   *   artifact?: any,
+   *   stdout?: string,
+   *   stderr?: string
+   * }>} */
   const results = [];
 
   for (const descriptor of handoffIndex.descriptors) {
@@ -528,9 +637,31 @@ export async function dispatchHandoffs(indexPath, mode = "dry-run") {
     }
 
     try {
+      const runDirectory = handoffIndex.runDirectory
+        ? path.resolve(handoffIndex.runDirectory)
+        : path.resolve(outputDir, "..");
+      const runStatePath = handoffIndex.runStatePath
+        ? path.resolve(handoffIndex.runStatePath)
+        : path.join(runDirectory, "run-state.json");
+      const planPath = path.join(runDirectory, "execution-plan.json");
+      const reportPath = path.join(runDirectory, "report.md");
+      const runId = descriptor.runId ?? handoffIndex.runId ?? null;
       const releaseExecutionLock = await tryAcquireDescriptorExecutionLock(descriptor);
 
       if (!releaseExecutionLock) {
+        const recoveredResult = await tryRecoverExistingResultArtifact(
+          runStatePath,
+          descriptor,
+          runtimeId,
+          runId,
+          "Recovered existing result artifact after restart while the previous execution lock was still present."
+        );
+
+        if (recoveredResult) {
+          results.push(recoveredResult);
+          continue;
+        }
+
         results.push({
           taskId: descriptor.taskId,
           runtime: runtimeId,
@@ -543,14 +674,6 @@ export async function dispatchHandoffs(indexPath, mode = "dry-run") {
       }
 
       try {
-        const runDirectory = handoffIndex.runDirectory
-          ? path.resolve(handoffIndex.runDirectory)
-          : path.resolve(outputDir, "..");
-        const runStatePath = handoffIndex.runStatePath
-          ? path.resolve(handoffIndex.runStatePath)
-          : path.join(runDirectory, "run-state.json");
-        const planPath = path.join(runDirectory, "execution-plan.json");
-        const reportPath = path.join(runDirectory, "report.md");
         const preparation = await prepareTaskForExecution(runStatePath, planPath, reportPath, descriptor);
 
         if (!preparation.shouldExecute) {
@@ -566,40 +689,47 @@ export async function dispatchHandoffs(indexPath, mode = "dry-run") {
           continue;
         }
 
+        if (preparation.taskStatus === "in_progress") {
+          const recoveredResult = await tryRecoverExistingResultArtifact(
+            runStatePath,
+            descriptor,
+            runtimeId,
+            runId,
+            "Recovered existing result artifact after restart."
+          );
+
+          if (recoveredResult) {
+            results.push(recoveredResult);
+            continue;
+          }
+        }
+
         await removeExistingResultArtifact(descriptor.resultPath ?? null);
         const launcherStartedAtMs = Date.now();
         const execution = await runLauncherScript(descriptor.launcherPath);
         const resultArtifact = await readResultArtifactForExecution(descriptor.resultPath ?? null, {
-          runId: descriptor.runId ?? handoffIndex.runId ?? null,
+          runId,
           taskId: descriptor.taskId,
           handoffId: descriptor.handoffId ?? null,
           minimumMtimeMs: launcherStartedAtMs
         });
-        let status = "incomplete";
-        let note = resultArtifact.reason ?? "Launcher finished but no result artifact was written.";
 
-        if (resultArtifact.valid && resultArtifact.artifact?.status === "completed") {
-          status = "completed";
-          note = "Launcher finished and result artifact passed validation.";
-        } else if (resultArtifact.valid && resultArtifact.artifact?.status === "failed") {
-          status = "failed";
-          note = "Runtime reported a failed task in the result artifact.";
-        } else if (resultArtifact.valid && resultArtifact.artifact?.status === "blocked") {
-          note = "Runtime reported a blocked task in the result artifact.";
-        }
-
-        results.push({
-          taskId: descriptor.taskId,
-          handoffId: descriptor.handoffId ?? null,
-          runtime: runtimeId,
-          status,
-          launcherPath: descriptor.launcherPath,
-          resultPath: descriptor.resultPath ?? null,
-          stdout: execution.stdout.trim(),
-          stderr: execution.stderr.trim(),
-          note,
-          artifact: resultArtifact.artifact
-        });
+        results.push(
+          buildDispatchResultFromArtifact(
+            descriptor,
+            runtimeId,
+            {
+              ...resultArtifact,
+              artifact: resultArtifact.artifact,
+              reason: resultArtifact.reason
+            },
+            {
+              stdout: execution.stdout.trim(),
+              stderr: execution.stderr.trim()
+            },
+            "Launcher finished."
+          )
+        );
       } finally {
         await releaseExecutionLock();
       }

@@ -35,8 +35,8 @@ Each descriptor is processed in order.
 - If the runtime is not auto-executable, the task is marked `skipped`.
 - If the runtime is auto-executable, the generated launcher is run with the platform shell runtime:
   - `.ps1` via `powershell.exe` on Windows
-  - `.sh` via `bash` on Linux/macOS
-- Before launch, any existing file at `resultPath` is removed so stale artifacts cannot be reused.
+  - `.sh` via `bash` on Linux/macOS (or `AI_FACTORY_LAUNCHER_SHELL_COMMAND` when explicitly overridden)
+- Before launch, any existing file at `resultPath` is removed so stale artifacts cannot be reused. If the task is already `in_progress` and a valid current-hand off artifact already exists, dispatch consumes that artifact instead of deleting it and rerunning the launcher.
 - Before launch, `dispatch` claims the task as `in_progress` in the run-state when the expected run artifacts are available.
 
 ## Auto-executable runtimes

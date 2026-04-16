@@ -23,7 +23,7 @@ For automated runtimes that rely on generated launchers (`openclaw`, `codex`, an
 doctor also checks whether the platform launcher shell is available:
 
 - `powershell.exe` on Windows
-- `bash` on Linux/macOS
+- `bash` on Linux/macOS (or `AI_FACTORY_LAUNCHER_SHELL_COMMAND` when explicitly overridden)
 
 If that launcher shell is unavailable, the runtime is marked `ok: false` even when the tool itself is installed.
 

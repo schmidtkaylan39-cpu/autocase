@@ -6,7 +6,8 @@ import { promisify } from "node:util";
 import { ensureDirectory, writeJson } from "./fs-utils.mjs";
 import {
   buildPowerShellCommandArgs,
-  checkPowerShellAvailability,
+  checkLauncherShellAvailability,
+  getNonWindowsLauncherShellCommand,
   getPowerShellInvocation,
   toPowerShellSingleQuotedLiteral
 } from "./powershell.mjs";
@@ -273,18 +274,21 @@ async function checkLocalCi() {
 }
 
 async function checkLauncherRuntimeAvailability() {
+  const launcherStatus = await checkLauncherShellAvailability();
+
   if (process.platform === "win32") {
-    return checkPowerShellAvailability();
+    return launcherStatus;
   }
 
-  const resolution = await resolveCommand("bash");
+  const command = getNonWindowsLauncherShellCommand();
+  const resolution = await resolveCommand(command);
 
   return {
-    installed: resolution.installed,
-    ok: resolution.installed,
-    command: "bash",
+    installed: launcherStatus.installed,
+    ok: launcherStatus.ok,
+    command,
     source: resolution.source,
-    error: resolution.installed ? null : "command not found"
+    error: launcherStatus.error
   };
 }
 

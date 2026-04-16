@@ -487,6 +487,120 @@ async function main() {
     assert.match(report, new RegExp(`\\[blocked\\] ${descriptor.taskId} ->`));
   });
 
+  await runTest("matrix: restart recovery consumes an existing valid result artifact without rerunning the launcher", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-matrix-restart-"));
+    const { runResult, handoffResult, descriptor, reportPath } = await createDispatchReadyRun(
+      tempDir,
+      `restart-recovery-${Date.now()}`,
+      { codex: { ok: true } }
+    );
+    const markerDirectory = path.join(tempDir, "restart-marker");
+
+    await limitDispatchToDescriptors(handoffResult.indexPath, handoffResult.runId, [descriptor]);
+    await updateRunTask(runResult.statePath, descriptor.taskId, "in_progress", "simulate crash after launcher artifact write");
+    await writeJson(descriptor.resultPath, {
+      runId: descriptor.runId,
+      taskId: descriptor.taskId,
+      handoffId: descriptor.handoffId,
+      status: "completed",
+      summary: "artifact survived the crash window",
+      changedFiles: ["src/lib/dispatch.mjs"],
+      verification: ["npm test"],
+      notes: ["restart recovery fixture"]
+    });
+    await writeFile(
+      descriptor.launcherPath,
+      process.platform === "win32"
+        ? [
+            `$markerDirectory = '${escapePowerShellSingleQuoted(markerDirectory)}'`,
+            "New-Item -ItemType Directory -Force -Path $markerDirectory | Out-Null",
+            "$markerPath = Join-Path $markerDirectory 'launcher-ran.txt'",
+            "Set-Content -Path $markerPath -Value 'ran' -Encoding utf8"
+          ].join("\n")
+        : [
+            `markerDirectory='${escapeShellSingleQuoted(markerDirectory)}'`,
+            'mkdir -p "$markerDirectory"',
+            'printf "ran\n" > "$markerDirectory/launcher-ran.txt"'
+          ].join("\n"),
+      "utf8"
+    );
+
+    const dispatchResult = await dispatchHandoffs(handoffResult.indexPath, "execute");
+    const result = dispatchResult.results[0];
+    const markerFiles = await readdir(markerDirectory).catch(() => []);
+    const runState = JSON.parse(await readFile(runResult.statePath, "utf8"));
+    const report = await readFile(reportPath, "utf8");
+    const task = runState.taskLedger.find((item) => item.id === descriptor.taskId);
+
+    assert.equal(result?.status, "completed");
+    assert.match(result?.note ?? "", /recovered existing result artifact after restart/i);
+    assert.deepEqual(dispatchResult.runStateSync?.updatedTasks[0], {
+      taskId: descriptor.taskId,
+      nextStatus: "completed"
+    });
+    assert.equal(task?.status, "completed");
+    assert.equal(markerFiles.length, 0);
+    assert.match(report, new RegExp(`\\[completed\\] ${descriptor.taskId} ->`));
+  });
+
+  await runTest("matrix: restart recovery still succeeds when a leftover execution lock exists", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-matrix-restart-lock-"));
+    const { runResult, handoffResult, descriptor, reportPath } = await createDispatchReadyRun(
+      tempDir,
+      `restart-recovery-lock-${Date.now()}`,
+      { codex: { ok: true } }
+    );
+    const markerDirectory = path.join(tempDir, "restart-lock-marker");
+    const executionLockPath = `${path.resolve(descriptor.resultPath)}.execute.lock`;
+
+    await limitDispatchToDescriptors(handoffResult.indexPath, handoffResult.runId, [descriptor]);
+    await updateRunTask(runResult.statePath, descriptor.taskId, "in_progress", "simulate crash before execution lock release");
+    await writeJson(descriptor.resultPath, {
+      runId: descriptor.runId,
+      taskId: descriptor.taskId,
+      handoffId: descriptor.handoffId,
+      status: "completed",
+      summary: "artifact survived with a leftover execution lock",
+      changedFiles: ["src/lib/dispatch.mjs"],
+      verification: ["npm test"],
+      notes: ["restart recovery with lock fixture"]
+    });
+    await writeFile(executionLockPath, "crashed-dispatch\n", "utf8");
+    await writeFile(
+      descriptor.launcherPath,
+      process.platform === "win32"
+        ? [
+            `$markerDirectory = '${escapePowerShellSingleQuoted(markerDirectory)}'`,
+            "New-Item -ItemType Directory -Force -Path $markerDirectory | Out-Null",
+            "$markerPath = Join-Path $markerDirectory 'launcher-ran.txt'",
+            "Set-Content -Path $markerPath -Value 'ran' -Encoding utf8"
+          ].join("\n")
+        : [
+            `markerDirectory='${escapeShellSingleQuoted(markerDirectory)}'`,
+            'mkdir -p "$markerDirectory"',
+            'printf "ran\n" > "$markerDirectory/launcher-ran.txt"'
+          ].join("\n"),
+      "utf8"
+    );
+
+    const dispatchResult = await dispatchHandoffs(handoffResult.indexPath, "execute");
+    const result = dispatchResult.results[0];
+    const markerFiles = await readdir(markerDirectory).catch(() => []);
+    const runState = JSON.parse(await readFile(runResult.statePath, "utf8"));
+    const report = await readFile(reportPath, "utf8");
+    const task = runState.taskLedger.find((item) => item.id === descriptor.taskId);
+
+    assert.equal(result?.status, "completed");
+    assert.match(result?.note ?? "", /previous execution lock was still present/i);
+    assert.deepEqual(dispatchResult.runStateSync?.updatedTasks[0], {
+      taskId: descriptor.taskId,
+      nextStatus: "completed"
+    });
+    assert.equal(task?.status, "completed");
+    assert.equal(markerFiles.length, 0);
+    assert.match(report, new RegExp(`\\[completed\\] ${descriptor.taskId} ->`));
+  });
+
   await runTest("matrix: artifacts with mismatched handoff identity are rejected", async () => {
     const scenario = await runSingleDescriptorDispatchScenario({
       tempPrefix: "ai-factory-matrix-identity-",
