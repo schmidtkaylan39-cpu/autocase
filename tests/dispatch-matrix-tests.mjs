@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -99,6 +99,19 @@ function buildBarrierResultArtifactScript(resultPath, artifact, syncDirectory, m
   return `${barrierLines.join("\n")}\n${buildResultArtifactScript(resultPath, artifact)}`;
 }
 
+function buildMarkerResultArtifactScript(resultPath, artifact, markerDirectory) {
+  const escapedMarkerDirectory = escapePowerShellSingleQuoted(markerDirectory);
+  const markerLines = [
+    `$markerDirectory = '${escapedMarkerDirectory}'`,
+    "New-Item -ItemType Directory -Force -Path $markerDirectory | Out-Null",
+    "$markerPath = Join-Path $markerDirectory ([guid]::NewGuid().ToString() + '.txt')",
+    "Set-Content -Path $markerPath -Value 'ran' -Encoding utf8",
+    "Start-Sleep -Milliseconds 300"
+  ];
+
+  return `${markerLines.join("\n")}\n${buildResultArtifactScript(resultPath, artifact)}`;
+}
+
 function modeForRuntime(runtimeId) {
   if (runtimeId === "cursor") {
     return "hybrid";
@@ -149,7 +162,16 @@ async function createDispatchReadyRun(tempDir, runId, doctorOverrides = {}) {
 }
 
 async function limitDispatchToDescriptors(indexPath, runId, descriptors) {
+  const existingIndex = await (async () => {
+    try {
+      return JSON.parse(await readFile(indexPath, "utf8"));
+    } catch {
+      return {};
+    }
+  })();
+
   await writeJson(indexPath, {
+    ...existingIndex,
     generatedAt: new Date().toISOString(),
     runId,
     readyTaskCount: descriptors.length,
@@ -429,7 +451,7 @@ async function main() {
     const result = dispatchResult.results[0];
 
     assert.equal(result.status, "incomplete");
-    assert.match(result.note ?? "", /expected schema/i);
+    assert.match(result.note ?? "", /handoffId mismatch/i);
     assert.deepEqual(dispatchResult.runStateSync?.updatedTasks[0], {
       taskId: descriptor.taskId,
       nextStatus: "blocked"
@@ -584,6 +606,50 @@ async function main() {
     });
 
     await assert.rejects(() => dispatchHandoffs(indexPath, "preview"), /unsupported dispatch mode/i);
+  });
+
+  await runTest("matrix: concurrent dispatch execute claims a single launcher run per descriptor", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-matrix-same-descriptor-"));
+    const { runResult, handoffResult, descriptor, reportPath } = await createDispatchReadyRun(
+      tempDir,
+      `same-descriptor-${Date.now()}`,
+      { codex: { ok: true } }
+    );
+    const markerDirectory = path.join(tempDir, "same-descriptor-markers");
+
+    await limitDispatchToDescriptors(handoffResult.indexPath, handoffResult.runId, [descriptor]);
+    await writeFile(
+      descriptor.launcherPath,
+      bindArtifactScriptIdentity(buildMarkerResultArtifactScript(
+        descriptor.resultPath,
+        {
+          status: "completed",
+          summary: "single execution lock",
+          changedFiles: ["src/lib/dispatch.mjs"],
+          verification: ["npm test"],
+          notes: ["descriptor lock"]
+        },
+        markerDirectory
+      ), descriptor),
+      "utf8"
+    );
+
+    const [firstDispatchResult, secondDispatchResult] = await Promise.all([
+      dispatchHandoffs(handoffResult.indexPath, "execute"),
+      dispatchHandoffs(handoffResult.indexPath, "execute")
+    ]);
+    const statuses = [firstDispatchResult.results[0]?.status, secondDispatchResult.results[0]?.status].sort();
+    const notes = [firstDispatchResult.results[0]?.note, secondDispatchResult.results[0]?.note];
+    const markerFiles = await readdir(markerDirectory);
+    const runState = JSON.parse(await readFile(runResult.statePath, "utf8"));
+    const report = await readFile(reportPath, "utf8");
+    const task = runState.taskLedger.find((item) => item.id === descriptor.taskId);
+
+    assert.deepEqual(statuses, ["completed", "skipped"]);
+    assert.equal(markerFiles.length, 1);
+    assert.ok(notes.some((note) => /already executing/i.test(note ?? "")));
+    assert.equal(task?.status, "completed");
+    assert.match(report, new RegExp(`\\[completed\\] ${descriptor.taskId} ->`));
   });
 
   await runTest("matrix: concurrent dispatch execute preserves both run-state updates", async () => {

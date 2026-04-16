@@ -15,6 +15,7 @@ import {
   summarizeRunState
 } from "./run-state.mjs";
 import { updateTaskInRunState } from "./run-state.mjs";
+import { validateResultArtifact } from "./result-artifact.mjs";
 import { sampleProjectSpec } from "./sample-spec.mjs";
 import { summarizeSpec, validateProjectSpec } from "./spec.mjs";
 import { buildExecutionPlan, renderPlanMarkdown } from "./workflow.mjs";
@@ -35,6 +36,11 @@ function inferWorkspaceRootFromSpecPath(specPath) {
 
 function resolveWorkspaceRelativePath(workspaceRoot, targetPath) {
   return path.isAbsolute(targetPath) ? targetPath : path.resolve(workspaceRoot, targetPath);
+}
+
+function resolveRunRelativePath(runDirectory, targetPath, fallbackPath) {
+  const effectivePath = targetPath ?? fallbackPath;
+  return path.isAbsolute(effectivePath) ? path.resolve(effectivePath) : path.resolve(runDirectory, effectivePath);
 }
 
 function inferWorkspaceRootFromRunState(runState, resolvedRunStatePath) {
@@ -95,10 +101,6 @@ function classifyHybridIssue(reason = "") {
 
 function addMinutes(timestamp, minutes) {
   return new Date(timestamp.getTime() + minutes * 60 * 1000).toISOString();
-}
-
-function isNonEmptyString(value) {
-  return typeof value === "string" && value.trim().length > 0;
 }
 
 async function loadDoctorReport(
@@ -421,61 +423,6 @@ export async function tickProjectRun(
   };
 }
 
-function validateResultArtifact(artifact) {
-  const validStatuses = new Set(["completed", "failed", "blocked"]);
-  const validRunId = isNonEmptyString(artifact?.runId);
-  const validTaskId = isNonEmptyString(artifact?.taskId);
-  const validHandoffId = isNonEmptyString(artifact?.handoffId);
-  const validChangedFiles =
-    Array.isArray(artifact?.changedFiles) &&
-    artifact.changedFiles.every((filePath) => typeof filePath === "string" && filePath.trim().length > 0);
-  const validVerification =
-    Array.isArray(artifact?.verification) &&
-    artifact.verification.length > 0 &&
-    artifact.verification.every((check) => typeof check === "string" && check.trim().length > 0);
-  const validNotes =
-    Array.isArray(artifact?.notes) &&
-    artifact.notes.length > 0 &&
-    artifact.notes.every((note) => typeof note === "string" && note.trim().length > 0);
-  const validSummary =
-    typeof artifact?.summary === "string" && artifact.summary.trim().length >= 5;
-
-  if (
-    !validRunId ||
-    !validTaskId ||
-    !validHandoffId ||
-    !validSummary ||
-    !validStatuses.has(artifact?.status) ||
-    !validChangedFiles ||
-    !validVerification ||
-    !validNotes
-  ) {
-    throw new Error("Result artifact does not match the expected schema.");
-  }
-
-  return artifact;
-}
-
-async function resolveExpectedHandoffId(runDirectory, taskId, resultPath) {
-  const handoffDescriptorPath = path.join(runDirectory, "handoffs", `${taskId}.handoff.json`);
-
-  try {
-    const descriptor = await readJson(handoffDescriptorPath);
-
-    if (
-      typeof descriptor?.handoffId === "string" &&
-      descriptor.handoffId.trim().length > 0 &&
-      path.resolve(descriptor.paths?.resultPath ?? descriptor.resultPath ?? "") === path.resolve(resultPath)
-    ) {
-      return descriptor.handoffId;
-    }
-  } catch {
-    return null;
-  }
-
-  return null;
-}
-
 function mapArtifactStatusToTaskStatus(status) {
   if (status === "completed") {
     return "completed";
@@ -505,27 +452,24 @@ export async function applyTaskResult(runStatePath, taskId, resultPath) {
     );
   }
 
-  const expectedHandoffId = await resolveExpectedHandoffId(runDirectory, taskId, resolvedResultPath);
-  const artifact = validateResultArtifact(await readJson(resolvedResultPath));
-
-  if (artifact.runId !== existingRunState.runId) {
+  if (
+    typeof targetTask.activeResultPath === "string" &&
+    targetTask.activeResultPath.trim().length > 0 &&
+    path.resolve(targetTask.activeResultPath) !== resolvedResultPath
+  ) {
     throw new Error(
-      `Result artifact belongs to run ${artifact.runId}, but this command is updating run ${existingRunState.runId}.`
+      `Result artifact path mismatch: expected ${targetTask.activeResultPath}, received ${resolvedResultPath}.`
     );
   }
 
-  if (artifact.taskId !== taskId) {
-    throw new Error(
-      `Result artifact belongs to task ${artifact.taskId}, but this command is updating task ${taskId}.`
-    );
-  }
-
-  if (expectedHandoffId && artifact.handoffId !== expectedHandoffId) {
-    throw new Error(
-      `Result artifact belongs to handoff ${artifact.handoffId}, but the current handoff expects ${expectedHandoffId}.`
-    );
-  }
-
+  const artifact = validateResultArtifact(await readJson(resolvedResultPath), {
+    runId: existingRunState.runId,
+    taskId,
+    handoffId:
+      typeof targetTask.activeHandoffId === "string" && targetTask.activeHandoffId.trim().length > 0
+        ? targetTask.activeHandoffId
+        : undefined
+  });
   const nextStatus = mapArtifactStatusToTaskStatus(artifact.status);
 
   const nextRunState = updateTaskInRunState(
@@ -557,7 +501,7 @@ export async function createRunHandoffs(
 ) {
   const resolvedRunStatePath = path.resolve(runStatePath);
   const runDirectory = path.dirname(resolvedRunStatePath);
-  const resolvedOutputDir = path.resolve(outputDir || path.join(runDirectory, "handoffs"));
+  const resolvedOutputDir = resolveRunRelativePath(runDirectory, outputDir, path.join(runDirectory, "handoffs"));
   const runState = refreshRunState(await readJson(resolvedRunStatePath));
   const workspaceRoot = inferWorkspaceRootFromRunState(runState, resolvedRunStatePath);
   const plan = await readJson(path.join(runDirectory, "execution-plan.json"));
@@ -567,11 +511,10 @@ export async function createRunHandoffs(
 
   await ensureDirectory(resolvedOutputDir);
   await ensureDirectory(resultsDirectory);
-  await writeJson(resolvedRunStatePath, runState);
-  await writeFile(path.join(runDirectory, "report.md"), `${renderRunReport(runState, plan)}\n`, "utf8");
 
   const readyTasks = runState.taskLedger.filter((task) => task.status === "ready");
   const descriptors = [];
+  const activeHandoffsByTaskId = new Map();
 
   for (const task of readyTasks) {
     const handoffId = randomUUID();
@@ -617,12 +560,40 @@ export async function createRunHandoffs(
       promptPath,
       resultPath
     });
+    activeHandoffsByTaskId.set(task.id, {
+      handoffId: descriptor.handoffId,
+      resultPath,
+      outputDir: resolvedOutputDir
+    });
   }
+
+  const nextRunState = {
+    ...runState,
+    taskLedger: runState.taskLedger.map((task) => {
+      const activeHandoff = activeHandoffsByTaskId.get(task.id);
+
+      if (!activeHandoff) {
+        return task;
+      }
+
+      return {
+        ...task,
+        activeHandoffId: activeHandoff.handoffId,
+        activeResultPath: activeHandoff.resultPath,
+        activeHandoffOutputDir: activeHandoff.outputDir
+      };
+    })
+  };
+
+  await writeJson(resolvedRunStatePath, nextRunState);
+  await writeFile(path.join(runDirectory, "report.md"), `${renderRunReport(nextRunState, plan)}\n`, "utf8");
 
   const indexPath = path.join(resolvedOutputDir, "index.json");
   await writeJson(indexPath, {
     generatedAt: new Date().toISOString(),
     runId: runState.runId,
+    runDirectory,
+    runStatePath: resolvedRunStatePath,
     readyTaskCount: descriptors.length,
     descriptors
   });

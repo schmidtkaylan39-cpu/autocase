@@ -68,6 +68,27 @@ async function main() {
     await stat(path.join(tempDir, "cli-handoff-run", "handoffs", "planning-brief.handoff.json"));
   });
 
+  await runTest("cli handoff resolves relative output directories from the run directory when invoked outside the repo cwd", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-cli-handoff-relative-"));
+    const callerDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-cli-handoff-relative-caller-"));
+    const runResult = await runProject(validSpecPath, tempDir, "cli-handoff-relative-run");
+
+    const result = await execFileAsync(
+      process.execPath,
+      [cliEntryPath, "handoff", runResult.statePath, "relative-handoffs"],
+      {
+        cwd: callerDir,
+        encoding: "utf8"
+      }
+    );
+
+    assert.match(result.stdout, /Handoff directory:/);
+    await stat(path.join(tempDir, "cli-handoff-relative-run", "relative-handoffs", "planning-brief.handoff.json"));
+    await assert.rejects(
+      () => stat(path.join(callerDir, "relative-handoffs", "planning-brief.handoff.json"))
+    );
+  });
+
   await runTest("cli review-bundle parses --no-archive even when the flag appears before positional args", async () => {
     const sourceDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-cli-review-source-"));
     const outputDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-cli-review-output-"));

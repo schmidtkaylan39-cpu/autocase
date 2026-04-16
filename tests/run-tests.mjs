@@ -125,7 +125,16 @@ async function createDispatchReadyRun(validSpecPath, tempDir, runId, doctorOverr
 }
 
 async function limitDispatchToDescriptors(indexPath, runId, descriptors) {
+  const existingIndex = await (async () => {
+    try {
+      return JSON.parse(await readFile(indexPath, "utf8"));
+    } catch {
+      return {};
+    }
+  })();
+
   await writeJson(indexPath, {
+    ...existingIndex,
     generatedAt: new Date().toISOString(),
     runId,
     readyTaskCount: descriptors.length,
@@ -399,6 +408,26 @@ async function main() {
     assert.match(handoffDescriptor.launcherScript, /C:\/persisted\/workspace/);
   });
 
+  await runTest("handoff resolves relative output directories from the run directory", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-handoff-relative-output-"));
+    const callerDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-handoff-relative-caller-"));
+    const runResult = await runProject(validSpecPath, tempDir, "handoff-relative-output-run");
+    const originalCwd = process.cwd();
+
+    process.chdir(callerDir);
+
+    try {
+      const result = await createRunHandoffs(runResult.statePath, "relative-handoffs");
+      const expectedOutputDir = path.join(path.dirname(runResult.statePath), "relative-handoffs");
+
+      assert.equal(result.outputDir, expectedOutputDir);
+      await stat(path.join(expectedOutputDir, "planning-brief.handoff.json"));
+      await assert.rejects(() => stat(path.join(callerDir, "relative-handoffs", "planning-brief.handoff.json")));
+    } finally {
+      process.chdir(originalCwd);
+    }
+  });
+
   await runTest("handoff defaults doctor report lookup to the workspace root", async () => {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), "ai-factory-workspace-doctor-"));
     const workspace = path.join(tempRoot, "workspace");
@@ -454,6 +483,45 @@ async function main() {
     assert.equal(implementationTask?.status, "ready");
     assert.match(report, /\[completed\] planning-brief ->/);
     assert.match(report, /\[ready\] implement-spec-intake ->/);
+  });
+
+  await runTest("manual or hybrid result artifacts reject stale handoffs from older output directories", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-apply-stale-handoff-"));
+    const runResult = await runProject(validSpecPath, tempDir, "apply-stale-handoff-run");
+    const firstHandoffDir = path.join(tempDir, "handoff-a");
+    const secondHandoffDir = path.join(tempDir, "handoff-b");
+    const firstHandoff = await createRunHandoffs(runResult.statePath, firstHandoffDir);
+    const secondHandoff = await createRunHandoffs(runResult.statePath, secondHandoffDir);
+    const firstDescriptor = firstHandoff.descriptors.find((descriptor) => descriptor.taskId === "planning-brief");
+    const secondDescriptor = secondHandoff.descriptors.find((descriptor) => descriptor.taskId === "planning-brief");
+
+    if (!firstDescriptor || !secondDescriptor) {
+      throw new Error("Expected planning-brief descriptors in both handoff directories.");
+    }
+
+    await writeJson(firstDescriptor.resultPath, withArtifactIdentity({
+      status: "completed",
+      summary: "stale handoff should be rejected",
+      changedFiles: [],
+      verification: ["manual review"],
+      notes: ["stale handoff artifact"]
+    }, {
+      runId: runResult.runId,
+      taskId: "planning-brief",
+      handoffId: firstDescriptor.handoffId
+    }));
+
+    await assert.rejects(
+      () => applyTaskResult(runResult.statePath, "planning-brief", firstDescriptor.resultPath),
+      /path mismatch|handoffId mismatch/i
+    );
+
+    const runState = JSON.parse(await readFile(runResult.statePath, "utf8"));
+    const planningTask = runState.taskLedger.find((task) => task.id === "planning-brief");
+
+    assert.equal(planningTask?.status, "ready");
+    assert.equal(path.resolve(planningTask?.activeResultPath ?? ""), path.resolve(secondDescriptor.resultPath));
+    assert.equal(planningTask?.activeHandoffId, secondDescriptor.handoffId);
   });
 
   await runTest("applying an invalid manual or hybrid result artifact fails fast", async () => {
@@ -559,11 +627,11 @@ async function main() {
 
     await assert.rejects(
       () => applyTaskResult(runResult.statePath, "planning-brief", foreignRunResultPath),
-      /belongs to run/i
+      /runId mismatch/i
     );
     await assert.rejects(
       () => applyTaskResult(runResult.statePath, "planning-brief", foreignTaskResultPath),
-      /belongs to task/i
+      /taskId mismatch/i
     );
   });
 
@@ -906,6 +974,42 @@ async function main() {
     assert.equal(dispatchResult.summary.total, 2);
     assert.ok(dispatchResult.results.every((item) => item.status === "would_execute"));
     await stat(path.join(tempDir, "dispatch-run", "handoffs", "dispatch-results.json"));
+  });
+
+  await runTest("dispatch execute syncs custom handoff output directories through the indexed run-state path", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-dispatch-custom-output-"));
+    const runResult = await runProject(validSpecPath, tempDir, "dispatch-custom-output-run");
+    const doctorReportPath = path.join(tempDir, "dispatch-custom-output-run.doctor.json");
+    const customHandoffDir = path.join(tempDir, "separate-handoffs");
+
+    await updateRunTask(runResult.statePath, "planning-brief", "completed", "planner finished");
+    await writeFakeDoctorReport(doctorReportPath, {
+      codex: { ok: true }
+    });
+
+    const handoffResult = await createRunHandoffs(runResult.statePath, customHandoffDir, doctorReportPath);
+    const [descriptor] = handoffResult.descriptors;
+
+    await limitDispatchToDescriptors(handoffResult.indexPath, handoffResult.runId, [descriptor]);
+    await writeFile(
+      descriptor.launcherPath,
+      bindArtifactScriptIdentity(buildResultArtifactScript(descriptor.resultPath, {
+        status: "completed",
+        summary: "custom handoff directory success",
+        changedFiles: ["src/custom-output.mjs"],
+        verification: ["npm test"],
+        notes: ["custom handoff"]
+      }), descriptor),
+      "utf8"
+    );
+
+    const dispatchResult = await dispatchHandoffs(handoffResult.indexPath, "execute");
+    const runState = JSON.parse(await readFile(runResult.statePath, "utf8"));
+    const updatedTask = runState.taskLedger.find((task) => task.id === descriptor.taskId);
+
+    assert.equal(dispatchResult.results[0].status, "completed");
+    assert.equal(updatedTask?.status, "completed");
+    assert.equal(dispatchResult.runStateSync?.runStatePath, runResult.statePath);
   });
 
   await runTest("dispatch execute writes blocked state and report when no result artifact is written", async () => {

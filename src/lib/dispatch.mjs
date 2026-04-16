@@ -5,10 +5,12 @@ import { promisify } from "node:util";
 
 import { ensureDirectory, readJson, writeJson } from "./fs-utils.mjs";
 import { buildPowerShellFileArgs, getPowerShellInvocation } from "./powershell.mjs";
+import { validateResultArtifact } from "./result-artifact.mjs";
 import { renderRunReport, updateTaskInRunState } from "./run-state.mjs";
 
 const execFileAsync = promisify(execFile);
 const dispatchLockSuffix = ".dispatch.lock";
+const descriptorExecutionLockSuffix = ".execute.lock";
 const dispatchLockTimeoutMs = 15000;
 const dispatchLockRetryDelayMs = 100;
 const dispatchLockStaleMs = 120000;
@@ -162,16 +164,44 @@ async function withDispatchLock(runStatePath, action) {
   }
 }
 
-function isNonEmptyString(value) {
-  return typeof value === "string" && value.trim().length > 0;
+function resolveDescriptorExecutionLockPath(descriptor) {
+  const lockTarget = descriptor.resultPath ?? descriptor.launcherPath;
+  return `${path.resolve(lockTarget)}${descriptorExecutionLockSuffix}`;
 }
 
-function isStringArray(value, { allowEmpty = false } = {}) {
-  return (
-    Array.isArray(value) &&
-    (allowEmpty || value.length > 0) &&
-    value.every((item) => isNonEmptyString(item))
-  );
+async function tryAcquireDescriptorExecutionLock(descriptor) {
+  const lockPath = resolveDescriptorExecutionLockPath(descriptor);
+
+  try {
+    const lockHandle = await open(lockPath, "wx");
+    await lockHandle.writeFile(`${process.pid} ${new Date().toISOString()}\n`, "utf8");
+
+    return async () => {
+      await lockHandle.close().catch(() => undefined);
+      await rm(lockPath, { force: true }).catch(() => undefined);
+    };
+  } catch (error) {
+    if (!(error instanceof Error) || !("code" in error) || error.code !== "EEXIST") {
+      throw error;
+    }
+
+    try {
+      const existingLockStats = await stat(lockPath);
+
+      if (Date.now() - existingLockStats.mtimeMs > dispatchLockStaleMs) {
+        await rm(lockPath, { force: true });
+        return tryAcquireDescriptorExecutionLock(descriptor);
+      }
+    } catch (statError) {
+      if (!(statError instanceof Error) || !("code" in statError) || statError.code !== "ENOENT") {
+        throw statError;
+      }
+
+      return tryAcquireDescriptorExecutionLock(descriptor);
+    }
+
+    return null;
+  }
 }
 
 async function readResultArtifactForExecution(
@@ -207,27 +237,26 @@ async function readResultArtifactForExecution(
     }
 
     const artifact = await readJson(resultPath);
-    const validStatus = new Set(["completed", "failed", "blocked"]);
-    const valid =
-      isNonEmptyString(artifact.runId) &&
-      isNonEmptyString(artifact.taskId) &&
-      isNonEmptyString(artifact.handoffId) &&
-      (runId === null || artifact.runId === runId) &&
-      (taskId === null || artifact.taskId === taskId) &&
-      (handoffId === null || artifact.handoffId === handoffId) &&
-      isNonEmptyString(artifact.summary) &&
-      artifact.summary.trim().length >= 5 &&
-      validStatus.has(artifact.status) &&
-      isStringArray(artifact.changedFiles, { allowEmpty: true }) &&
-      isStringArray(artifact.verification) &&
-      isStringArray(artifact.notes);
 
-    return {
-      exists: true,
-      valid,
-      artifact,
-      reason: valid ? null : "Result artifact exists but does not match the expected schema."
-    };
+    try {
+      return {
+        exists: true,
+        valid: true,
+        artifact: validateResultArtifact(artifact, {
+          runId: runId ?? undefined,
+          taskId: taskId ?? undefined,
+          handoffId: handoffId ?? undefined
+        }),
+        reason: null
+      };
+    } catch (validationError) {
+      return {
+        exists: true,
+        valid: false,
+        artifact,
+        reason: validationError instanceof Error ? validationError.message : String(validationError)
+      };
+    }
   } catch (error) {
     return {
       exists: true,
@@ -301,39 +330,57 @@ export async function dispatchHandoffs(indexPath, mode = "dry-run") {
     }
 
     try {
-      await removeExistingResultArtifact(descriptor.resultPath ?? null);
-      const launcherStartedAtMs = Date.now();
-      const execution = await runPowerShellScript(descriptor.launcherPath);
-      const resultArtifact = await readResultArtifactForExecution(descriptor.resultPath ?? null, {
-        runId: descriptor.runId ?? handoffIndex.runId ?? null,
-        taskId: descriptor.taskId,
-        handoffId: descriptor.handoffId ?? null,
-        minimumMtimeMs: launcherStartedAtMs
-      });
-      let status = "incomplete";
-      let note = resultArtifact.reason ?? "Launcher finished but no result artifact was written.";
+      const releaseExecutionLock = await tryAcquireDescriptorExecutionLock(descriptor);
 
-      if (resultArtifact.valid && resultArtifact.artifact?.status === "completed") {
-        status = "completed";
-        note = "Launcher finished and result artifact passed validation.";
-      } else if (resultArtifact.valid && resultArtifact.artifact?.status === "failed") {
-        status = "failed";
-        note = "Runtime reported a failed task in the result artifact.";
-      } else if (resultArtifact.valid && resultArtifact.artifact?.status === "blocked") {
-        note = "Runtime reported a blocked task in the result artifact.";
+      if (!releaseExecutionLock) {
+        results.push({
+          taskId: descriptor.taskId,
+          runtime: runtimeId,
+          status: "skipped",
+          launcherPath: descriptor.launcherPath,
+          resultPath: descriptor.resultPath ?? null,
+          note: "Another dispatch process is already executing this handoff."
+        });
+        continue;
       }
 
-      results.push({
-        taskId: descriptor.taskId,
-        runtime: runtimeId,
-        status,
-        launcherPath: descriptor.launcherPath,
-        resultPath: descriptor.resultPath ?? null,
-        stdout: execution.stdout.trim(),
-        stderr: execution.stderr.trim(),
-        note,
-        artifact: resultArtifact.artifact
-      });
+      try {
+        await removeExistingResultArtifact(descriptor.resultPath ?? null);
+        const launcherStartedAtMs = Date.now();
+        const execution = await runPowerShellScript(descriptor.launcherPath);
+        const resultArtifact = await readResultArtifactForExecution(descriptor.resultPath ?? null, {
+          runId: descriptor.runId ?? handoffIndex.runId ?? null,
+          taskId: descriptor.taskId,
+          handoffId: descriptor.handoffId ?? null,
+          minimumMtimeMs: launcherStartedAtMs
+        });
+        let status = "incomplete";
+        let note = resultArtifact.reason ?? "Launcher finished but no result artifact was written.";
+
+        if (resultArtifact.valid && resultArtifact.artifact?.status === "completed") {
+          status = "completed";
+          note = "Launcher finished and result artifact passed validation.";
+        } else if (resultArtifact.valid && resultArtifact.artifact?.status === "failed") {
+          status = "failed";
+          note = "Runtime reported a failed task in the result artifact.";
+        } else if (resultArtifact.valid && resultArtifact.artifact?.status === "blocked") {
+          note = "Runtime reported a blocked task in the result artifact.";
+        }
+
+        results.push({
+          taskId: descriptor.taskId,
+          runtime: runtimeId,
+          status,
+          launcherPath: descriptor.launcherPath,
+          resultPath: descriptor.resultPath ?? null,
+          stdout: execution.stdout.trim(),
+          stderr: execution.stderr.trim(),
+          note,
+          artifact: resultArtifact.artifact
+        });
+      } finally {
+        await releaseExecutionLock();
+      }
     } catch (error) {
       results.push({
         taskId: descriptor.taskId,
@@ -364,8 +411,12 @@ export async function dispatchHandoffs(indexPath, mode = "dry-run") {
   let runStateSync = null;
 
   if (mode === "execute") {
-    const runDirectory = path.resolve(outputDir, "..");
-    const runStatePath = path.join(runDirectory, "run-state.json");
+    const runDirectory = handoffIndex.runDirectory
+      ? path.resolve(handoffIndex.runDirectory)
+      : path.resolve(outputDir, "..");
+    const runStatePath = handoffIndex.runStatePath
+      ? path.resolve(handoffIndex.runStatePath)
+      : path.join(runDirectory, "run-state.json");
     const planPath = path.join(runDirectory, "execution-plan.json");
     const reportPath = path.join(runDirectory, "report.md");
 
