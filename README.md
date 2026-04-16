@@ -61,6 +61,9 @@ Important behavior:
 - `dispatch dry-run` reports `would_execute` or `would_skip`.
 - `dispatch execute` auto-executes only `openclaw`, `codex`, and `local-ci`.
 - `cursor` remains hybrid by design and is currently not auto-executed by dispatch.
+- runtime routing and model routing are separate:
+  - runtime routing chooses `openclaw` / `cursor` / `codex` / `local-ci` / `manual`
+  - model routing chooses `codex`, `gpt-5.4`, or `gpt-5.4-pro` inside the selected surface
 - `run` persists the workspace root into `run-state.json`, so later `handoff` and `tick` calls keep launcher paths stable even when they are invoked from another directory.
 - Result artifact contract requires:
   `runId`, `taskId`, `handoffId`, `status` (`completed|failed|blocked`), `summary`, `changedFiles[]`, `verification[]`, `notes[]`.
@@ -68,6 +71,30 @@ Important behavior:
 - In `execute` mode, dispatch maps outcomes back into run ledger:
   `completed -> completed`, `failed -> failed`, `incomplete -> blocked`.
 - When run files are present, dispatch updates `run-state.json` and regenerates `report.md`.
+
+## Model Routing
+
+The starter now snapshots a `modelPolicy` into `run-state.json` and applies it automatically during handoff generation.
+
+Default model policy:
+
+- `orchestrator` -> `openclaw`
+- `planner` -> `gpt-5.4`
+- `reviewer` -> `gpt-5.4`
+- `executor` -> `codex`
+- `verifier` -> `local-ci`
+
+Auto-escalation to `gpt-5.4-pro` currently applies to planner/reviewer tasks when any configured trigger is hit, for example:
+
+- repeated retries
+- repeated attempts
+- `attention_required` runs
+- prior blocked/failed history
+- task text matching configured high-risk patterns such as `dispatch`, `handoff`, `retry`, `artifact`, `run-state`, `risk`, `security`, or `release`
+
+The selected model is written into each handoff descriptor and prompt so the surface can follow it consistently.
+
+Detailed policy reference: `docs/model-routing.md`.
 
 ## GitHub Governance
 

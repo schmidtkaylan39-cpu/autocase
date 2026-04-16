@@ -66,6 +66,11 @@ The execution plan and the default factory config use these high-level labels:
 Those labels are descriptive. Actual runtime routing is decided later by
 `src/lib/runtime-registry.mjs` and the doctor report.
 
+Model routing is a second layer on top of runtime routing:
+
+- runtime routing decides which surface/tool handles the task
+- model routing decides which model should be preferred inside that surface
+
 ## Runtime Definitions
 
 The runtime registry currently defines:
@@ -100,6 +105,28 @@ This now aligns the starter with its intended operating model:
 - Cursor / Claude stays the planning and review surface
 - Codex executes implementation work
 - local CI verifies
+
+## Model Policy
+
+`src/lib/model-policy.mjs` selects a preferred model per task.
+
+Default mapping:
+
+- orchestrator -> `openclaw`
+- planner -> `gpt-5.4`
+- reviewer -> `gpt-5.4`
+- executor -> `codex`
+- verifier -> `local-ci`
+
+Planner and reviewer tasks can auto-escalate to `gpt-5.4-pro` based on:
+
+- retry count
+- attempt count
+- `attention_required` run status
+- prior blocked/dispatch-failure history
+- configured task ids or task-text patterns
+
+The resolved model selection is written into each handoff descriptor so downstream surfaces or operators can follow the same routing decision.
 
 ## How Handoff Generation Works
 

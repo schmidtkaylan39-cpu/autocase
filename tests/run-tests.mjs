@@ -197,6 +197,8 @@ async function main() {
     await stat(path.join(tempDir, "test-run", "roles.json"));
     await stat(path.join(tempDir, "test-run", "task-briefs", "planning-brief.md"));
     assert.equal(runState.workspacePath, projectRoot);
+    assert.equal(runState.modelPolicy.planner.defaultModel, "gpt-5.4");
+    assert.equal(runState.modelPolicy.executor.defaultModel, "codex");
   });
 
   await runTest("run resolves workspace config and launcher roots from the spec workspace", async () => {
@@ -320,10 +322,54 @@ async function main() {
     await stat(path.join(tempDir, "handoff-run", "handoffs", "results"));
     assert.match(handoffDescriptor.handoffId ?? "", /^[0-9a-f-]{36}$/i);
     assert.match(handoffDescriptor.paths.resultPath, /implement-spec-intake\.[0-9a-f-]{36}\.result\.json$/i);
+    assert.equal(handoffDescriptor.model.preferredModel, "codex");
     assert.match(promptText, new RegExp(`- handoffId: ${handoffDescriptor.handoffId}`));
+    assert.match(promptText, /# Model Routing/);
+    assert.match(promptText, /preferredModel: codex/);
     assert.match(promptText, /"runId"/);
     assert.match(promptText, /"taskId"/);
     assert.match(promptText, /"handoffId"/);
+  });
+
+  await runTest("handoff model routing can be overridden from workspace config and auto-escalates to gpt-5.4-pro", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "ai-factory-model-policy-"));
+    const workspace = path.join(tempRoot, "workspace");
+    const specPath = path.join(workspace, "specs", "project-spec.json");
+    const configPath = path.join(workspace, "config", "factory.config.json");
+    const doctorReportPath = path.join(workspace, "reports", "runtime-doctor.json");
+
+    await mkdir(path.join(workspace, "specs"), { recursive: true });
+    await mkdir(path.join(workspace, "config"), { recursive: true });
+    await mkdir(path.join(workspace, "reports"), { recursive: true });
+    await writeFile(specPath, await readFile(validSpecPath, "utf8"), "utf8");
+    await writeJson(configPath, {
+      modelPolicy: {
+        planner: {
+          defaultModel: "gpt-5.4",
+          escalatedModel: "gpt-5.4-pro",
+          autoSwitch: true
+        }
+      }
+    });
+    await writeFakeDoctorReport(doctorReportPath, {
+      cursor: { ok: true }
+    });
+
+    const runResult = await runProject(specPath, path.join(workspace, "runs"), "model-policy-run");
+    const runStatePath = runResult.statePath;
+    const runState = JSON.parse(await readFile(runStatePath, "utf8"));
+
+    runState.status = "attention_required";
+    await writeJson(runStatePath, runState);
+
+    const handoffResult = await createRunHandoffs(runStatePath, undefined, doctorReportPath);
+    const handoffDescriptor = JSON.parse(
+      await readFile(path.join(handoffResult.outputDir, "planning-brief.handoff.json"), "utf8")
+    );
+
+    assert.equal(handoffDescriptor.model.preferredModel, "gpt-5.4-pro");
+    assert.equal(handoffDescriptor.model.selectionMode, "escalated");
+    assert.match(handoffDescriptor.promptText, /preferredModel: gpt-5\.4-pro/);
   });
 
   await runTest("handoff generation uses the workspace path persisted in run-state", async () => {

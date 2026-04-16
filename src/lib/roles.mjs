@@ -1,3 +1,5 @@
+import { defaultModelPolicy } from "./model-policy.mjs";
+
 export const defaultFactoryConfig = {
   version: 1,
   roles: {
@@ -55,6 +57,7 @@ export const defaultFactoryConfig = {
     stopOnRiskRules: true,
     maxConsecutiveFailures: 3
   },
+  modelPolicy: defaultModelPolicy,
   artifacts: {
     runDirectory: "runs",
     briefDirectory: "task-briefs",

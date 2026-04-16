@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 
+import { selectModelForTask } from "./model-policy.mjs";
 import { describeRuntime, normalizeRuntimeChecks, pickRuntimeForRole } from "./runtime-registry.mjs";
 import { toPowerShellSingleQuotedLiteral } from "./powershell.mjs";
 
@@ -29,6 +30,7 @@ export function buildPromptDocument({
   spec,
   task,
   handoffId,
+  modelSelection,
   rolePromptTemplate,
   briefPath,
   resultPath,
@@ -43,12 +45,28 @@ export function buildPromptDocument({
     `- role: ${titleForRole(task.role)}`,
     `- taskId: ${task.id}`,
     `- handoffId: ${handoffId}`,
+    `- preferredModel: ${modelSelection.preferredModel}`,
+    `- modelSelectionMode: ${modelSelection.selectionMode}`,
     "",
     "# Execution Rules",
     "- Read the attached task brief first.",
     "- Follow the risk stop rules exactly.",
     "- Do not claim the whole project is complete from this task alone.",
     "- Make every result verifiable.",
+    ...(modelSelection.autoSwitch
+      ? [
+          "- If your current surface lets you choose a model, use the preferred model listed below."
+        ]
+      : []),
+    "",
+    "# Model Routing",
+    `- preferredModel: ${modelSelection.preferredModel}`,
+    `- fallbackModel: ${modelSelection.fallbackModel}`,
+    `- selectionMode: ${modelSelection.selectionMode}`,
+    `- selectionReason: ${modelSelection.selectionReason}`,
+    ...(modelSelection.triggers.length > 0
+      ? modelSelection.triggers.map((trigger) => `- trigger: ${trigger}`)
+      : ["- trigger: none"]),
     "",
     "# Required Result Artifact",
     `Write a JSON file to this exact path when you finish: ${resultPath}`,
@@ -76,12 +94,16 @@ function buildOpenClawLauncher(promptPath) {
   ].join("\n");
 }
 
-function buildCursorLauncher(workspacePath, briefPath, promptPath) {
+function buildCursorLauncher(workspacePath, briefPath, promptPath, modelSelection) {
   const workspaceLiteral = toPowerShellSingleQuotedLiteral(workspacePath);
   const briefLiteral = toPowerShellSingleQuotedLiteral(briefPath);
   const promptLiteral = toPowerShellSingleQuotedLiteral(promptPath);
+  const preferredModelLiteral = toPowerShellSingleQuotedLiteral(modelSelection.preferredModel);
+  const selectionReasonLiteral = toPowerShellSingleQuotedLiteral(modelSelection.selectionReason);
 
   return [
+    `Write-Host ('Preferred model: ' + ${preferredModelLiteral})`,
+    `Write-Host ('Model reason: ' + ${selectionReasonLiteral})`,
     `& cursor -n ${workspaceLiteral} ${briefLiteral} ${promptLiteral}`,
     "",
     "# Cursor is currently treated as a planning or review surface.",
@@ -110,22 +132,28 @@ function buildLocalCiLauncher(workspacePath, mandatoryGates = []) {
   ].join("\n");
 }
 
-function buildCodexLauncher(promptPath, workspacePath) {
+function buildCodexLauncher(promptPath, workspacePath, modelSelection) {
   const promptLiteral = toPowerShellSingleQuotedLiteral(promptPath);
   const workspaceLiteral = toPowerShellSingleQuotedLiteral(workspacePath);
+  const preferredModelLiteral = toPowerShellSingleQuotedLiteral(modelSelection.preferredModel);
 
   return [
     `Set-Location -LiteralPath ${workspaceLiteral}`,
+    `Write-Host ('Preferred model: ' + ${preferredModelLiteral})`,
     `$prompt = Get-Content -Raw -LiteralPath ${promptLiteral}`,
     "$prompt | & codex -a never exec -C . -s workspace-write -"
   ].join("\n");
 }
 
-function buildManualLauncher(promptPath, briefPath) {
+function buildManualLauncher(promptPath, briefPath, modelSelection) {
   const promptLiteral = toPowerShellSingleQuotedLiteral(promptPath);
   const briefLiteral = toPowerShellSingleQuotedLiteral(briefPath);
+  const preferredModelLiteral = toPowerShellSingleQuotedLiteral(modelSelection.preferredModel);
+  const selectionReasonLiteral = toPowerShellSingleQuotedLiteral(modelSelection.selectionReason);
   return [
     "Write-Host 'Please handle this task manually.'",
+    `Write-Host ('Preferred model: ' + ${preferredModelLiteral})`,
+    `Write-Host ('Model reason: ' + ${selectionReasonLiteral})`,
     `Write-Host ('Prompt: ' + ${promptLiteral})`,
     `Write-Host ('Brief: ' + ${briefLiteral})`
   ].join("\n");
@@ -147,6 +175,7 @@ export function buildHandoffDescriptor({
   const runtimeChecks = normalizeRuntimeChecks(doctorReport);
   const selected = pickRuntimeForRole(task.role, runtimeChecks);
   const runtime = describeRuntime(selected.runtimeId);
+  const modelSelection = selectModelForTask(task, runState);
   const alternatives = Object.entries(runtimeChecks)
     .filter(([runtimeId]) => runtimeId !== selected.runtimeId)
     .map(([runtimeId, status]) => ({
@@ -157,22 +186,23 @@ export function buildHandoffDescriptor({
     spec,
     task,
     handoffId,
+    modelSelection,
     rolePromptTemplate,
     briefPath,
     resultPath,
     runState
   });
 
-  let launcherScript = buildManualLauncher(promptPath, briefPath);
+  let launcherScript = buildManualLauncher(promptPath, briefPath, modelSelection);
 
   if (selected.runtimeId === "openclaw") {
     launcherScript = buildOpenClawLauncher(promptPath);
   } else if (selected.runtimeId === "cursor") {
-    launcherScript = buildCursorLauncher(workspacePath, briefPath, promptPath);
+    launcherScript = buildCursorLauncher(workspacePath, briefPath, promptPath, modelSelection);
   } else if (selected.runtimeId === "local-ci") {
     launcherScript = buildLocalCiLauncher(workspacePath, runState.mandatoryGates);
   } else if (selected.runtimeId === "codex") {
-    launcherScript = buildCodexLauncher(promptPath, workspacePath);
+    launcherScript = buildCodexLauncher(promptPath, workspacePath, modelSelection);
   }
 
   return {
@@ -188,6 +218,7 @@ export function buildHandoffDescriptor({
       selectionStatus: selected.status,
       selectionReason: selected.reason
     },
+    model: modelSelection,
     project: {
       name: spec.projectName,
       summary: spec.summary
@@ -222,6 +253,8 @@ export function renderHandoffMarkdown(descriptor, baseDir) {
     `- role: ${titleForRole(descriptor.role)}`,
     `- recommended runtime: ${descriptor.runtime.label}`,
     `- selection reason: ${descriptor.runtime.selectionReason}`,
+    `- preferred model: ${descriptor.model.preferredModel}`,
+    `- model reason: ${descriptor.model.selectionReason}`,
     "",
     "## Project",
     `- name: ${descriptor.project.name}`,

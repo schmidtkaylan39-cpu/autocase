@@ -55,6 +55,48 @@
     "stopOnRiskRules": true,
     "maxConsecutiveFailures": 3
   },
+  "modelPolicy": {
+    "orchestrator": {
+      "defaultModel": "openclaw",
+      "autoSwitch": false
+    },
+    "planner": {
+      "defaultModel": "gpt-5.4",
+      "escalatedModel": "gpt-5.4-pro",
+      "autoSwitch": true
+    },
+    "reviewer": {
+      "defaultModel": "gpt-5.4",
+      "escalatedModel": "gpt-5.4-pro",
+      "autoSwitch": true
+    },
+    "executor": {
+      "defaultModel": "codex",
+      "autoSwitch": false
+    },
+    "verifier": {
+      "defaultModel": "local-ci",
+      "autoSwitch": false
+    },
+    "escalation": {
+      "minimumRetryCount": 2,
+      "minimumAttempts": 2,
+      "escalateOnAttentionRequired": true,
+      "escalateOnBlockedHistory": true,
+      "escalateOnDispatchFailure": true,
+      "forceProTaskIds": [],
+      "forceProTaskPatterns": [
+        "dispatch",
+        "handoff",
+        "retry",
+        "artifact",
+        "run-state",
+        "risk",
+        "security",
+        "release"
+      ]
+    }
+  },
   "artifacts": {
     "runDirectory": "runs",
     "briefDirectory": "task-briefs",

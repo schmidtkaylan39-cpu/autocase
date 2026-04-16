@@ -79,6 +79,7 @@ Each generated prompt includes:
 
 - the role prompt template
 - run and project context
+- preferred model metadata and model-selection reason
 - execution rules
 - the exact required result artifact path
 - the required JSON shape:
@@ -169,6 +170,7 @@ Each handoff descriptor records:
 - run identity and a per-handoff `handoffId`
 - task identity
 - selected runtime
+- selected model
 - selection status and reason
 - alternative runtimes and their doctor status
 - task summary and acceptance criteria

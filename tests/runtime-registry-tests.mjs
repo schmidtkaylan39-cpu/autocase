@@ -150,6 +150,8 @@ async function main() {
     assert.equal(descriptor.runtime.id, "manual");
     assert.equal(descriptor.runtime.mode, "manual");
     assert.equal(descriptor.runtime.selectionStatus, "fallback");
+    assert.equal(descriptor.model.preferredModel, "gpt-5.4");
+    assert.equal(descriptor.model.selectionMode, "default");
     assert.match(descriptor.runtime.selectionReason, /(falls back|fallback)/i);
     assert.match(descriptor.launcherScript, /Please handle this task manually/i);
   });
@@ -173,6 +175,7 @@ async function main() {
     assert.equal(descriptor.runtime.id, "cursor");
     assert.equal(descriptor.runtime.mode, "hybrid");
     assert.equal(descriptor.runtime.selectionStatus, "ready");
+    assert.equal(descriptor.model.preferredModel, "gpt-5.4");
 
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-runtime-routing-"));
     const handoffDir = path.join(tempDir, "handoffs");
@@ -199,6 +202,58 @@ async function main() {
     const executeResult = await dispatchHandoffs(indexPath, "execute");
     assert.equal(executeResult.results[0].status, "skipped");
     assert.match(executeResult.results[0].note ?? "", /manual or hybrid/i);
+  });
+
+  await runTest("planner and reviewer descriptors escalate to gpt-5.4-pro when the run needs attention", async () => {
+    const descriptor = buildHandoffDescriptor({
+      workspacePath: "C:/workspace/demo",
+      spec: {
+        projectName: "Runtime Routing Demo",
+        summary: "Validate runtime routing behavior."
+      },
+      runState: {
+        runId: "routing-run",
+        status: "attention_required",
+        mandatoryGates: ["build", "lint"],
+        modelPolicy: {
+          planner: {
+            defaultModel: "gpt-5.4",
+            escalatedModel: "gpt-5.4-pro",
+            autoSwitch: true
+          }
+        }
+      },
+      plan: {
+        phases: [{ id: "planning" }]
+      },
+      task: {
+        id: "planning-brief",
+        role: "planner",
+        title: "Review release risk",
+        description: "Clarify the release gating and dispatch risk.",
+        dependsOn: [],
+        acceptanceCriteria: ["must be clear"],
+        attempts: 0,
+        retryCount: 0
+      },
+      rolePromptTemplate: "# role prompt",
+      promptPath: "C:/handoffs/planning.prompt.md",
+      briefPath: "C:/handoffs/planning.brief.md",
+      resultPath: "C:/handoffs/results/planning.result.json",
+      doctorReport: {
+        checks: [
+          {
+            id: "cursor",
+            installed: true,
+            ok: true
+          }
+        ]
+      }
+    });
+
+    assert.equal(descriptor.model.preferredModel, "gpt-5.4-pro");
+    assert.equal(descriptor.model.selectionMode, "escalated");
+    assert.match(descriptor.promptText, /preferredModel: gpt-5\.4-pro/);
   });
 
   await runTest("launcher scripts use literal paths and preserve special characters", async () => {
@@ -239,7 +294,9 @@ async function main() {
     });
 
     assert.equal(descriptor.runtime.id, "codex");
+    assert.equal(descriptor.model.preferredModel, "codex");
     assert.match(descriptor.launcherScript, /Set-Location -LiteralPath 'C:\/workspace\/\$demo & path'/);
+    assert.match(descriptor.launcherScript, /Preferred model: /);
     assert.match(
       descriptor.launcherScript,
       /Get-Content -Raw -LiteralPath 'C:\/handoffs\/prompt ''\$demo'' & work\.md'/
