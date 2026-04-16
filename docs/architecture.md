@@ -313,5 +313,4 @@ Those gates are copied into verifier tasks and into generated local CI launchers
 
 The current codebase still has these important behavior gaps:
 
-- `dispatch` does not mark tasks `in_progress` automatically
 - `cursor` remains a hybrid runtime and is not auto-executed by `dispatch`

@@ -66,11 +66,18 @@ function taskText(task) {
     .toLowerCase();
 }
 
+function buildUnicodeBoundaryPattern(pattern) {
+  return new RegExp(
+    `(^|[^\\p{L}\\p{N}])${escapeRegExp(pattern)}([^\\p{L}\\p{N}]|$)`,
+    "iu"
+  );
+}
+
 function matchesConfiguredTaskPattern(task, modelPolicy) {
   const patterns = normalizePatternList(modelPolicy?.escalation?.forceProTaskPatterns);
   const haystack = taskText(task);
 
-  return patterns.find((pattern) => new RegExp(`(^|[^a-z0-9])${escapeRegExp(pattern)}([^a-z0-9]|$)`, "i").test(haystack)) ?? null;
+  return patterns.find((pattern) => buildUnicodeBoundaryPattern(pattern).test(haystack)) ?? null;
 }
 
 function hasBlockedHistory(task) {
