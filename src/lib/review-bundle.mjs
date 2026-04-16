@@ -698,7 +698,19 @@ export async function createReviewBundle({
   await writeBundleMetadata(finalManifest);
 
   if (archive && archiveResult.archiveFormat !== "directory") {
-    archiveResult = await createArchive(bundleDirectory, bundleDirectory, plannedArchiveFormat);
+    try {
+      archiveResult = await createArchive(bundleDirectory, bundleDirectory, plannedArchiveFormat);
+    } catch {
+      archiveResult = {
+        archivePath: null,
+        archiveFormat: "directory"
+      };
+      finalManifest = buildManifest({
+        format: "directory",
+        path: null
+      });
+      await writeBundleMetadata(finalManifest);
+    }
   }
 
   return {

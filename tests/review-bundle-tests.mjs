@@ -273,6 +273,52 @@ async function main() {
     }
   });
 
+  await runTest("review bundle falls back to directory metadata when archive creation fails", async () => {
+    if (process.platform !== "win32") {
+      return;
+    }
+
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "ai-factory-review-bundle-fallback-"));
+    const sourceDir = path.join(tempRoot, "source");
+    const outputDir = path.join(tempRoot, "output");
+    const previousPowerShellCommand = process.env.AI_FACTORY_POWERSHELL_COMMAND;
+
+    await mkdir(path.join(sourceDir, "src"), { recursive: true });
+    await writeJson(path.join(sourceDir, "package.json"), {
+      name: "bundle-fallback-fixture",
+      version: "0.0.1"
+    });
+    await writeFile(path.join(sourceDir, "README.md"), "# Fallback Fixture\n", "utf8");
+    await writeFile(path.join(sourceDir, "src", "index.mjs"), "export const fallback = true;\n", "utf8");
+
+    process.env.AI_FACTORY_POWERSHELL_COMMAND = "definitely-missing-powershell-for-test";
+
+    try {
+      const result = await createReviewBundle({
+        sourceDir,
+        outputDir,
+        bundleName: "fixture-fallback",
+        archive: true
+      });
+
+      const manifest = JSON.parse(await readFile(result.manifestPath, "utf8"));
+      const reviewBrief = await readFile(result.reviewBriefPath, "utf8");
+
+      assert.equal(result.archiveFormat, "directory");
+      assert.equal(result.archivePath, null);
+      assert.equal(manifest.archive.format, "directory");
+      assert.equal(manifest.archive.path, null);
+      assert.match(reviewBrief, /Archive:\s+directory only/i);
+      await assert.rejects(() => stat(path.join(outputDir, "fixture-fallback.zip")));
+    } finally {
+      if (previousPowerShellCommand === undefined) {
+        delete process.env.AI_FACTORY_POWERSHELL_COMMAND;
+      } else {
+        process.env.AI_FACTORY_POWERSHELL_COMMAND = previousPowerShellCommand;
+      }
+    }
+  });
+
   console.log("Review bundle tests passed.");
 }
 
