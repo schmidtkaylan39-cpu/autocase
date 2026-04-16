@@ -264,6 +264,8 @@ export async function dispatchHandoffs(indexPath, mode = "dry-run") {
       } else if (resultArtifact.valid && resultArtifact.artifact?.status === "failed") {
         status = "failed";
         note = "Runtime reported a failed task in the result artifact.";
+      } else if (resultArtifact.valid && resultArtifact.artifact?.status === "blocked") {
+        note = "Runtime reported a blocked task in the result artifact.";
       }
 
       results.push({

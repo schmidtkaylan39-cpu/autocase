@@ -1,5 +1,6 @@
 import { access, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { ensureDirectory, readJson, writeJson } from "./fs-utils.mjs";
 import { buildHandoffDescriptor, renderHandoffMarkdown } from "./handoffs.mjs";
@@ -17,8 +18,41 @@ import { sampleProjectSpec } from "./sample-spec.mjs";
 import { summarizeSpec, validateProjectSpec } from "./spec.mjs";
 import { buildExecutionPlan, renderPlanMarkdown } from "./workflow.mjs";
 
-async function loadFactoryConfig(configPath = "config/factory.config.json") {
-  const resolvedConfigPath = path.resolve(configPath);
+const packageRootDirectory = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+
+function inferWorkspaceRootFromSpecPath(specPath) {
+  const resolvedSpecPath = path.resolve(specPath);
+  const specDirectory = path.dirname(resolvedSpecPath);
+  const containerDirectoryName = path.basename(specDirectory).toLowerCase();
+
+  if (containerDirectoryName === "specs" || containerDirectoryName === "examples") {
+    return path.dirname(specDirectory);
+  }
+
+  return specDirectory;
+}
+
+function resolveWorkspaceRelativePath(workspaceRoot, targetPath) {
+  return path.isAbsolute(targetPath) ? targetPath : path.resolve(workspaceRoot, targetPath);
+}
+
+function inferWorkspaceRootFromRunState(runState, resolvedRunStatePath) {
+  if (typeof runState?.workspacePath === "string" && runState.workspacePath.trim().length > 0) {
+    return path.resolve(runState.workspacePath);
+  }
+
+  const runDirectory = path.dirname(resolvedRunStatePath);
+  const runsDirectory = path.dirname(runDirectory);
+
+  if (path.basename(runsDirectory).toLowerCase() === "runs") {
+    return path.dirname(runsDirectory);
+  }
+
+  return runsDirectory;
+}
+
+async function loadFactoryConfig(configPath = "config/factory.config.json", workspaceRoot = process.cwd()) {
+  const resolvedConfigPath = resolveWorkspaceRelativePath(workspaceRoot, configPath);
 
   try {
     await access(resolvedConfigPath);
@@ -62,8 +96,11 @@ function addMinutes(timestamp, minutes) {
   return new Date(timestamp.getTime() + minutes * 60 * 1000).toISOString();
 }
 
-async function loadDoctorReport(doctorReportPath = "reports/runtime-doctor.json") {
-  const resolvedDoctorReportPath = path.resolve(doctorReportPath);
+async function loadDoctorReport(
+  doctorReportPath = "reports/runtime-doctor.json",
+  workspaceRoot = process.cwd()
+) {
+  const resolvedDoctorReportPath = resolveWorkspaceRelativePath(workspaceRoot, doctorReportPath);
 
   try {
     await access(resolvedDoctorReportPath);
@@ -153,6 +190,8 @@ export async function runProject(
   configPath = "config/factory.config.json"
 ) {
   const resolvedSpecPath = path.resolve(specPath);
+  const workspaceRoot = inferWorkspaceRootFromSpecPath(resolvedSpecPath);
+  const resolvedOutputDir = resolveWorkspaceRelativePath(workspaceRoot, outputDir);
   const spec = await readJson(resolvedSpecPath);
   const validation = validateProjectSpec(spec);
 
@@ -163,10 +202,10 @@ export async function runProject(
     };
   }
 
-  const { config, resolvedConfigPath } = await loadFactoryConfig(configPath);
+  const { config, resolvedConfigPath } = await loadFactoryConfig(configPath, workspaceRoot);
   const plan = buildExecutionPlan(spec);
-  const runState = createRunState(spec, plan, config, requestedRunId, process.cwd());
-  const artifactPaths = createArtifactPaths(outputDir, config, runState.runId);
+  const runState = createRunState(spec, plan, config, requestedRunId, workspaceRoot);
+  const artifactPaths = createArtifactPaths(resolvedOutputDir, config, runState.runId);
 
   await ensureDirectory(artifactPaths.runDirectory);
   await ensureDirectory(artifactPaths.briefsDirectory);
@@ -241,7 +280,9 @@ export async function scheduleTaskRetry(
 ) {
   const resolvedRunStatePath = path.resolve(runStatePath);
   const runDirectory = path.dirname(resolvedRunStatePath);
-  const { config } = await loadFactoryConfig(configPath);
+  const existingRunState = await readJson(resolvedRunStatePath);
+  const workspaceRoot = inferWorkspaceRootFromRunState(existingRunState, resolvedRunStatePath);
+  const { config } = await loadFactoryConfig(configPath, workspaceRoot);
   const retryConfig = config.retryPolicy.hybridSurface ?? {
     maxAttempts: 3,
     retryDelayMinutes: 3,
@@ -256,11 +297,16 @@ export async function scheduleTaskRetry(
     typeof retryConfig.unlockAfterMinutes === "number" && Number.isFinite(retryConfig.unlockAfterMinutes)
       ? retryConfig.unlockAfterMinutes
       : null;
-  const existingRunState = await readJson(resolvedRunStatePath);
   const targetTask = existingRunState.taskLedger.find((task) => task.id === taskId);
 
   if (!targetTask) {
     throw new Error(`Task not found: ${taskId}`);
+  }
+
+  if (!["ready", "in_progress", "waiting_retry"].includes(targetTask.status)) {
+    throw new Error(
+      `Cannot schedule a retry for task ${taskId} while it is ${targetTask.status}.`
+    );
   }
 
   const retryCount = (targetTask.retryCount ?? 0) + 1;
@@ -322,6 +368,7 @@ export async function tickProjectRun(
 ) {
   const resolvedRunStatePath = path.resolve(runStatePath);
   const previousRunState = await readJson(resolvedRunStatePath);
+  const workspaceRoot = inferWorkspaceRootFromRunState(previousRunState, resolvedRunStatePath);
   const refreshedRunState = refreshRunState(previousRunState);
   const runDirectory = path.dirname(resolvedRunStatePath);
   const plan = await readJson(path.join(runDirectory, "execution-plan.json"));
@@ -353,7 +400,7 @@ export async function tickProjectRun(
   const handoffResult = await createRunHandoffs(
     resolvedRunStatePath,
     outputDir,
-    doctorReportPath
+    resolveWorkspaceRelativePath(workspaceRoot, doctorReportPath)
   );
   const nextRunState = await readJson(resolvedRunStatePath);
 
@@ -416,8 +463,21 @@ export async function applyTaskResult(runStatePath, taskId, resultPath) {
   const runDirectory = path.dirname(resolvedRunStatePath);
   const artifact = validateResultArtifact(await readJson(resolvedResultPath));
   const nextStatus = mapArtifactStatusToTaskStatus(artifact.status);
+  const existingRunState = await readJson(resolvedRunStatePath);
+  const targetTask = existingRunState.taskLedger.find((task) => task.id === taskId);
+
+  if (!targetTask) {
+    throw new Error(`Task not found: ${taskId}`);
+  }
+
+  if (!["ready", "in_progress", "waiting_retry"].includes(targetTask.status)) {
+    throw new Error(
+      `Cannot apply a result artifact to task ${taskId} while it is ${targetTask.status}.`
+    );
+  }
+
   const nextRunState = updateTaskInRunState(
-    await readJson(resolvedRunStatePath),
+    existingRunState,
     taskId,
     nextStatus,
     `result:${artifact.status}`
@@ -447,9 +507,10 @@ export async function createRunHandoffs(
   const runDirectory = path.dirname(resolvedRunStatePath);
   const resolvedOutputDir = path.resolve(outputDir || path.join(runDirectory, "handoffs"));
   const runState = refreshRunState(await readJson(resolvedRunStatePath));
+  const workspaceRoot = inferWorkspaceRootFromRunState(runState, resolvedRunStatePath);
   const plan = await readJson(path.join(runDirectory, "execution-plan.json"));
   const spec = await readJson(path.join(runDirectory, "spec.snapshot.json"));
-  const { report: doctorReport } = await loadDoctorReport(doctorReportPath);
+  const { report: doctorReport } = await loadDoctorReport(doctorReportPath, workspaceRoot);
   const resultsDirectory = path.join(resolvedOutputDir, "results");
 
   await ensureDirectory(resolvedOutputDir);
@@ -528,5 +589,5 @@ async function readRolePrompt(role) {
     orchestrator: "planner.md"
   };
   const fileName = mapping[role] ?? "planner.md";
-  return readFile(path.resolve("prompts", fileName), "utf8");
+  return readFile(path.join(packageRootDirectory, "prompts", fileName), "utf8");
 }

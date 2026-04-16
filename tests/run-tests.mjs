@@ -177,6 +177,52 @@ async function main() {
     assert.equal(runState.workspacePath, projectRoot);
   });
 
+  await runTest("run resolves workspace config and launcher roots from the spec workspace", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "ai-factory-workspace-config-"));
+    const workspace = path.join(tempRoot, "workspace");
+    const specPath = path.join(workspace, "specs", "project-spec.json");
+    const configPath = path.join(workspace, "config", "factory.config.json");
+    const doctorReportPath = path.join(workspace, "reports", "runtime-doctor.json");
+
+    await mkdir(path.join(workspace, "specs"), { recursive: true });
+    await mkdir(path.join(workspace, "config"), { recursive: true });
+    await mkdir(path.join(workspace, "reports"), { recursive: true });
+    await writeFile(specPath, await readFile(validSpecPath, "utf8"), "utf8");
+    await writeJson(configPath, {
+      roles: {
+        verifier: {
+          tool: "Workspace CI",
+          automation: "automated",
+          responsibilities: ["build"],
+          finalAuthority: true
+        }
+      },
+      mandatoryGates: ["build"]
+    });
+    await writeFakeDoctorReport(doctorReportPath, {
+      codex: { ok: true }
+    });
+
+    const runResult = await runProject(specPath, path.join(workspace, "runs"), "workspace-config-run");
+    const runState = JSON.parse(await readFile(runResult.statePath, "utf8"));
+
+    assert.equal(runResult.configPath, configPath);
+    assert.equal(runState.workspacePath, workspace);
+    assert.deepEqual(runState.mandatoryGates, ["build"]);
+    assert.equal(runState.roles.verifier.tool, "Workspace CI");
+
+    await updateRunTask(runResult.statePath, "planning-brief", "completed", "planner finished");
+    const handoffResult = await createRunHandoffs(runResult.statePath, undefined, doctorReportPath);
+    const handoffDescriptor = JSON.parse(
+      await readFile(path.join(handoffResult.outputDir, "implement-spec-intake.handoff.json"), "utf8")
+    );
+
+    assert.match(
+      handoffDescriptor.launcherScript.split(/\r?\n/)[0] ?? "",
+      new RegExp(workspace.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    );
+  });
+
   await runTest("report rewrites report from run state", async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-report-"));
     const runResult = await runProject(validSpecPath, tempDir, "report-run");
@@ -271,6 +317,31 @@ async function main() {
     assert.match(handoffDescriptor.launcherScript, /C:\/persisted\/workspace/);
   });
 
+  await runTest("handoff defaults doctor report lookup to the workspace root", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "ai-factory-workspace-doctor-"));
+    const workspace = path.join(tempRoot, "workspace");
+    const specPath = path.join(workspace, "specs", "project-spec.json");
+    const doctorReportPath = path.join(workspace, "reports", "runtime-doctor.json");
+
+    await mkdir(path.join(workspace, "specs"), { recursive: true });
+    await mkdir(path.join(workspace, "reports"), { recursive: true });
+    await writeFile(specPath, await readFile(validSpecPath, "utf8"), "utf8");
+    await writeJson(doctorReportPath, {
+      checks: [
+        { id: "cursor", installed: true, ok: false, error: "workspace doctor says no cursor" }
+      ]
+    });
+
+    const runResult = await runProject(specPath, path.join(workspace, "runs"), "workspace-doctor-run");
+    const handoffResult = await createRunHandoffs(runResult.statePath);
+    const handoffDescriptor = JSON.parse(
+      await readFile(path.join(handoffResult.outputDir, "planning-brief.handoff.json"), "utf8")
+    );
+
+    assert.equal(handoffDescriptor.runtime.id, "manual");
+    assert.equal(handoffDescriptor.runtime.selectionStatus, "fallback");
+  });
+
   await runTest("manual or hybrid result artifact can be applied back into the run-state", async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-apply-result-"));
     const runResult = await runProject(validSpecPath, tempDir, "apply-result-run");
@@ -341,6 +412,31 @@ async function main() {
     );
   });
 
+  await runTest("result artifacts cannot complete tasks whose prerequisites are still pending", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-apply-out-of-order-"));
+    const runResult = await runProject(validSpecPath, tempDir, "apply-out-of-order-run");
+    const resultsDirectory = path.join(tempDir, "apply-out-of-order-run", "handoffs", "results");
+    const resultPath = path.join(resultsDirectory, "review-spec-intake.result.json");
+
+    await mkdir(resultsDirectory, { recursive: true });
+    await writeJson(resultPath, {
+      status: "completed",
+      summary: "review completed out of order",
+      changedFiles: ["src/review.md"],
+      verification: ["manual review"],
+      notes: ["out of order"]
+    });
+
+    await assert.rejects(
+      () => applyTaskResult(runResult.statePath, "review-spec-intake", resultPath),
+      /(while it is pending|dependencies are completed)/i
+    );
+
+    const runState = JSON.parse(await readFile(runResult.statePath, "utf8"));
+    assert.equal(runState.taskLedger.find((task) => task.id === "review-spec-intake")?.status, "pending");
+    assert.equal(runState.taskLedger.find((task) => task.id === "verify-spec-intake")?.status, "pending");
+  });
+
   await runTest("hybrid retry schedules a waiting window and records retry metadata", async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-retry-"));
     const runResult = await runProject(validSpecPath, tempDir, "retry-run");
@@ -369,6 +465,25 @@ async function main() {
     await assert.rejects(
       () => scheduleTaskRetry(runResult.statePath, "missing-task", "temporary server timeout"),
       /task not found/i
+    );
+  });
+
+  await runTest("retry rejects tasks that are already completed", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-retry-completed-"));
+    const runResult = await runProject(validSpecPath, tempDir, "retry-completed-run");
+
+    await updateRunTask(runResult.statePath, "planning-brief", "completed", "planner finished");
+    await assert.rejects(
+      () => scheduleTaskRetry(runResult.statePath, "planning-brief", "force retry"),
+      /cannot schedule a retry/i
+    );
+
+    const runState = JSON.parse(await readFile(runResult.statePath, "utf8"));
+    assert.equal(runState.taskLedger.find((task) => task.id === "planning-brief")?.status, "completed");
+    assert.ok(
+      runState.taskLedger
+        .filter((task) => task.id.startsWith("implement-"))
+        .every((task) => task.status === "ready")
     );
   });
 
@@ -609,6 +724,36 @@ async function main() {
     assert.equal(result.readyTaskCount, 0);
     assert.equal(planningTask?.status, "waiting_retry");
     assert.equal(planningTask?.nextRetryAt, "not-a-date");
+  });
+
+  await runTest("refresh downgrades ready tasks when a dependency is manually reopened in state", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-refresh-downgrade-"));
+    const runResult = await runProject(validSpecPath, tempDir, "refresh-downgrade-run");
+
+    await updateRunTask(runResult.statePath, "planning-brief", "completed", "planner finished");
+    const runState = JSON.parse(await readFile(runResult.statePath, "utf8"));
+    const modifiedRunState = {
+      ...runState,
+      taskLedger: runState.taskLedger.map((task) =>
+        task.id === "planning-brief"
+          ? {
+              ...task,
+              status: "ready"
+            }
+          : task
+      )
+    };
+
+    await writeJson(runResult.statePath, modifiedRunState);
+    await reportProjectRun(runResult.statePath);
+
+    const refreshedRunState = JSON.parse(await readFile(runResult.statePath, "utf8"));
+    assert.equal(refreshedRunState.taskLedger.find((task) => task.id === "planning-brief")?.status, "ready");
+    assert.ok(
+      refreshedRunState.taskLedger
+        .filter((task) => task.id.startsWith("implement-"))
+        .every((task) => task.status === "pending")
+    );
   });
 
   await runTest("dispatch dry-run produces dispatch results", async () => {

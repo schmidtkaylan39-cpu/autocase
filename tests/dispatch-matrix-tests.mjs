@@ -263,6 +263,7 @@ async function main() {
 
     assert.equal(result.status, "incomplete");
     assert.equal(result.artifact?.status, "blocked");
+    assert.match(result.note ?? "", /blocked task/i);
     assert.equal(dispatchResult.summary.incomplete, 1);
     assert.deepEqual(dispatchResult.runStateSync?.updatedTasks[0], {
       taskId: descriptor.taskId,

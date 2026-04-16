@@ -71,6 +71,8 @@ And it writes an aggregate index:
 
 - `handoffs/index.json`
 
+Role prompt templates are resolved from the installed package itself, not from the caller's current working directory. That keeps `handoff` and `tick` usable when the CLI is invoked from another folder.
+
 ## Prompt document contents
 
 Each generated prompt includes:

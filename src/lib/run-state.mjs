@@ -190,6 +190,26 @@ function hasElapsedRetryWindow(task, now) {
   return Number.isFinite(retryAtMs) && retryAtMs <= now;
 }
 
+function validateTaskTransition(task, nextStatus, taskLedger) {
+  const transitionGraph = {
+    pending: new Set(["pending", "ready"]),
+    ready: new Set(["ready", "pending", "in_progress", "completed", "failed", "blocked", "waiting_retry"]),
+    in_progress: new Set(["in_progress", "ready", "completed", "failed", "blocked", "waiting_retry"]),
+    waiting_retry: new Set(["waiting_retry", "ready", "completed", "failed", "blocked"]),
+    blocked: new Set(["blocked", "ready"]),
+    completed: new Set(["completed"]),
+    failed: new Set(["failed"])
+  };
+
+  if (!transitionGraph[task.status]?.has(nextStatus)) {
+    throw new Error(`Cannot move task ${task.id} from ${task.status} to ${nextStatus}.`);
+  }
+
+  if (nextStatus !== "pending" && !areDependenciesCompleted(task, taskLedger)) {
+    throw new Error(`Cannot move task ${task.id} to ${nextStatus} before dependencies are completed.`);
+  }
+}
+
 function inferRunStatus(taskLedger) {
   const failedTasks = taskLedger.filter((task) => task.status === "failed");
   const blockedTasks = taskLedger.filter((task) => task.status === "blocked");
@@ -231,6 +251,13 @@ export function refreshRunState(runState) {
       }
 
       return task;
+    }
+
+    if (task.status === "ready" && !areDependenciesCompleted(task, runState.taskLedger)) {
+      return {
+        ...task,
+        status: "pending"
+      };
     }
 
     if (task.status !== "pending") {
@@ -280,6 +307,8 @@ export function updateTaskInRunState(runState, taskId, nextStatus, note = "") {
   if (!targetTask) {
     throw new Error(`Task not found: ${taskId}`);
   }
+
+  validateTaskTransition(targetTask, nextStatus, runState.taskLedger);
 
   const taskLedger = runState.taskLedger.map((task) => {
     if (task.id !== taskId) {
