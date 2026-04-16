@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 
 import { describeRuntime, normalizeRuntimeChecks, pickRuntimeForRole } from "./runtime-registry.mjs";
@@ -27,6 +28,7 @@ function titleForRole(role) {
 export function buildPromptDocument({
   spec,
   task,
+  handoffId,
   rolePromptTemplate,
   briefPath,
   resultPath,
@@ -40,6 +42,7 @@ export function buildPromptDocument({
     `- project: ${spec.projectName}`,
     `- role: ${titleForRole(task.role)}`,
     `- taskId: ${task.id}`,
+    `- handoffId: ${handoffId}`,
     "",
     "# Execution Rules",
     "- Read the attached task brief first.",
@@ -51,6 +54,9 @@ export function buildPromptDocument({
     `Write a JSON file to this exact path when you finish: ${resultPath}`,
     "",
     "The JSON must include:",
+    '- `"runId"`: this exact run id',
+    '- `"taskId"`: this exact task id',
+    '- `"handoffId"`: this exact handoff id',
     '- `"status"`: one of `"completed"`, `"failed"`, or `"blocked"`',
     '- `"summary"`: a short plain-English summary',
     '- `"changedFiles"`: an array of changed file paths',
@@ -131,6 +137,7 @@ export function buildHandoffDescriptor({
   runState,
   plan,
   task,
+  handoffId = randomUUID(),
   rolePromptTemplate,
   promptPath,
   briefPath,
@@ -149,6 +156,7 @@ export function buildHandoffDescriptor({
   const promptText = buildPromptDocument({
     spec,
     task,
+    handoffId,
     rolePromptTemplate,
     briefPath,
     resultPath,
@@ -168,8 +176,9 @@ export function buildHandoffDescriptor({
   }
 
   return {
-    version: 2,
+    version: 3,
     runId: runState.runId,
+    handoffId,
     taskId: task.id,
     role: task.role,
     runtime: {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, stat } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -23,9 +23,9 @@ async function runTest(name, fn) {
   }
 }
 
-async function runCli(args) {
+async function runCli(args, cwd = projectRoot) {
   return execFileAsync(process.execPath, [cliEntryPath, ...args], {
-    cwd: projectRoot,
+    cwd,
     encoding: "utf8"
   });
 }
@@ -66,6 +66,28 @@ async function main() {
 
     assert.match(result.stdout, /Handoff directory:/);
     await stat(path.join(tempDir, "cli-handoff-run", "handoffs", "planning-brief.handoff.json"));
+  });
+
+  await runTest("cli review-bundle parses --no-archive even when the flag appears before positional args", async () => {
+    const sourceDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-cli-review-source-"));
+    const outputDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-cli-review-output-"));
+
+    await mkdir(path.join(sourceDir, "src"), { recursive: true });
+    await writeFile(
+      path.join(sourceDir, "package.json"),
+      JSON.stringify({ name: "cli-review-fixture", version: "0.0.1" }, null, 2),
+      "utf8"
+    );
+    await writeFile(path.join(sourceDir, "README.md"), "# CLI Review Fixture\n", "utf8");
+    await writeFile(path.join(sourceDir, "src", "index.mjs"), "export const fixture = true;\n", "utf8");
+
+    const result = await runCli(["review-bundle", "--no-archive", outputDir, "cli-no-archive"], sourceDir);
+    const outputEntries = await readdir(outputDir);
+
+    assert.match(result.stdout, /Archive: directory only/);
+    assert.ok(outputEntries.includes("cli-no-archive"));
+    assert.ok(!outputEntries.includes("--no-archive"));
+    await stat(path.join(outputDir, "cli-no-archive", "metadata", "bundle-manifest.json"));
   });
 
   console.log("CLI entry tests passed.");

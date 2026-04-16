@@ -33,7 +33,8 @@ For each descriptor, the result is:
 Each descriptor is processed in order.
 
 - If the runtime is not auto-executable, the task is marked `skipped`.
-- If the runtime is auto-executable, the `.ps1` launcher is run with `powershell.exe -File`.
+- If the runtime is auto-executable, the `.ps1` launcher is run with the platform PowerShell runtime (`powershell.exe` on Windows, `pwsh` elsewhere).
+- Before launch, any existing file at `resultPath` is removed so stale artifacts cannot be reused.
 
 ## Auto-executable runtimes
 
@@ -55,7 +56,7 @@ In `execute` mode, a task can end up in one of these states:
 - `completed`
   - the launcher exited successfully
   - and `resultPath` exists after execution
-  - and the result artifact matches the expected schema
+  - and the result artifact matches the expected schema and handoff identity
 - `incomplete`
   - the launcher exited successfully
   - but no result artifact was written
@@ -92,6 +93,12 @@ When `resultPath` exists, `dispatch` parses and validates the JSON artifact.
 
 The expected fields are:
 
+- `runId`
+  - must match the descriptor/run being executed
+- `taskId`
+  - must match the descriptor task
+- `handoffId`
+  - must match the specific handoff attempt
 - `status`
   - one of `completed`, `failed`, or `blocked`
 - `summary`
@@ -104,6 +111,7 @@ The expected fields are:
   - an array
 
 If the artifact shape is invalid, the dispatch result is `incomplete`.
+If the artifact belongs to another run, task, or handoff, the dispatch result is also `incomplete`.
 
 ## Run-state sync behavior
 

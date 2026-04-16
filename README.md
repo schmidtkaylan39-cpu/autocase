@@ -32,7 +32,7 @@ The workflow is intentionally file-first and auditable:
    `run-state.json`, `report.md`, `task-briefs/*`, `roles.json`, `spec.snapshot.json`.
 4. `handoff`
    Generates runnable handoff packages for `ready` tasks:
-   `*.prompt.md`, `*.handoff.json`, `*.handoff.md`, `*.launch.ps1`, plus expected `results/*.result.json`.
+   `*.prompt.md`, `*.handoff.json`, `*.handoff.md`, `*.launch.ps1`, plus expected `results/<taskId>.<handoffId>.result.json`.
 5. `dispatch` (`dry-run` or `execute`)
    Runs auto-executable launchers, validates result artifact contract, writes dispatch reports, and in `execute` mode syncs outcomes back into run artifacts.
 
@@ -63,7 +63,8 @@ Important behavior:
 - `cursor` remains hybrid by design and is currently not auto-executed by dispatch.
 - `run` persists the workspace root into `run-state.json`, so later `handoff` and `tick` calls keep launcher paths stable even when they are invoked from another directory.
 - Result artifact contract requires:
-  `status` (`completed|failed|blocked`), `summary`, `changedFiles[]`, `verification[]`, `notes[]`.
+  `runId`, `taskId`, `handoffId`, `status` (`completed|failed|blocked`), `summary`, `changedFiles[]`, `verification[]`, `notes[]`.
+- `handoff` uses attempt-specific result paths and `dispatch execute` clears any pre-existing result file before launching, so stale artifacts are not silently reused.
 - In `execute` mode, dispatch maps outcomes back into run ledger:
   `completed -> completed`, `failed -> failed`, `incomplete -> blocked`.
 - When run files are present, dispatch updates `run-state.json` and regenerates `report.md`.

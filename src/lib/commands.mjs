@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { access, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -94,6 +95,10 @@ function classifyHybridIssue(reason = "") {
 
 function addMinutes(timestamp, minutes) {
   return new Date(timestamp.getTime() + minutes * 60 * 1000).toISOString();
+}
+
+function isNonEmptyString(value) {
+  return typeof value === "string" && value.trim().length > 0;
 }
 
 async function loadDoctorReport(
@@ -418,6 +423,9 @@ export async function tickProjectRun(
 
 function validateResultArtifact(artifact) {
   const validStatuses = new Set(["completed", "failed", "blocked"]);
+  const validRunId = isNonEmptyString(artifact?.runId);
+  const validTaskId = isNonEmptyString(artifact?.taskId);
+  const validHandoffId = isNonEmptyString(artifact?.handoffId);
   const validChangedFiles =
     Array.isArray(artifact?.changedFiles) &&
     artifact.changedFiles.every((filePath) => typeof filePath === "string" && filePath.trim().length > 0);
@@ -433,6 +441,9 @@ function validateResultArtifact(artifact) {
     typeof artifact?.summary === "string" && artifact.summary.trim().length >= 5;
 
   if (
+    !validRunId ||
+    !validTaskId ||
+    !validHandoffId ||
     !validSummary ||
     !validStatuses.has(artifact?.status) ||
     !validChangedFiles ||
@@ -443,6 +454,26 @@ function validateResultArtifact(artifact) {
   }
 
   return artifact;
+}
+
+async function resolveExpectedHandoffId(runDirectory, taskId, resultPath) {
+  const handoffDescriptorPath = path.join(runDirectory, "handoffs", `${taskId}.handoff.json`);
+
+  try {
+    const descriptor = await readJson(handoffDescriptorPath);
+
+    if (
+      typeof descriptor?.handoffId === "string" &&
+      descriptor.handoffId.trim().length > 0 &&
+      path.resolve(descriptor.paths?.resultPath ?? descriptor.resultPath ?? "") === path.resolve(resultPath)
+    ) {
+      return descriptor.handoffId;
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
 }
 
 function mapArtifactStatusToTaskStatus(status) {
@@ -461,8 +492,6 @@ export async function applyTaskResult(runStatePath, taskId, resultPath) {
   const resolvedRunStatePath = path.resolve(runStatePath);
   const resolvedResultPath = path.resolve(resultPath);
   const runDirectory = path.dirname(resolvedRunStatePath);
-  const artifact = validateResultArtifact(await readJson(resolvedResultPath));
-  const nextStatus = mapArtifactStatusToTaskStatus(artifact.status);
   const existingRunState = await readJson(resolvedRunStatePath);
   const targetTask = existingRunState.taskLedger.find((task) => task.id === taskId);
 
@@ -475,6 +504,29 @@ export async function applyTaskResult(runStatePath, taskId, resultPath) {
       `Cannot apply a result artifact to task ${taskId} while it is ${targetTask.status}.`
     );
   }
+
+  const expectedHandoffId = await resolveExpectedHandoffId(runDirectory, taskId, resolvedResultPath);
+  const artifact = validateResultArtifact(await readJson(resolvedResultPath));
+
+  if (artifact.runId !== existingRunState.runId) {
+    throw new Error(
+      `Result artifact belongs to run ${artifact.runId}, but this command is updating run ${existingRunState.runId}.`
+    );
+  }
+
+  if (artifact.taskId !== taskId) {
+    throw new Error(
+      `Result artifact belongs to task ${artifact.taskId}, but this command is updating task ${taskId}.`
+    );
+  }
+
+  if (expectedHandoffId && artifact.handoffId !== expectedHandoffId) {
+    throw new Error(
+      `Result artifact belongs to handoff ${artifact.handoffId}, but the current handoff expects ${expectedHandoffId}.`
+    );
+  }
+
+  const nextStatus = mapArtifactStatusToTaskStatus(artifact.status);
 
   const nextRunState = updateTaskInRunState(
     existingRunState,
@@ -522,16 +574,18 @@ export async function createRunHandoffs(
   const descriptors = [];
 
   for (const task of readyTasks) {
+    const handoffId = randomUUID();
     const rolePromptTemplate = await readRolePrompt(task.role);
     const promptPath = path.join(resolvedOutputDir, `${task.id}.prompt.md`);
     const briefPath = path.join(runDirectory, "task-briefs", `${task.id}.md`);
-    const resultPath = path.join(resultsDirectory, `${task.id}.result.json`);
+    const resultPath = path.join(resultsDirectory, `${task.id}.${handoffId}.result.json`);
     const descriptor = buildHandoffDescriptor({
       workspacePath: runState.workspacePath ?? process.cwd(),
       spec,
       runState,
       plan,
       task,
+      handoffId,
       rolePromptTemplate,
       promptPath,
       briefPath,
@@ -553,7 +607,9 @@ export async function createRunHandoffs(
     await writeFile(launcherPath, `${descriptor.launcherScript}\n`, "utf8");
 
     descriptors.push({
+      runId: runState.runId,
       taskId: task.id,
+      handoffId: descriptor.handoffId,
       runtime: descriptor.runtime,
       handoffJsonPath,
       handoffMarkdownPath,

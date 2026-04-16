@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { inflateRawSync } from "node:zlib";
 
 import { writeJson } from "../src/lib/fs-utils.mjs";
 import { createReviewBundle } from "../src/lib/review-bundle.mjs";
@@ -14,6 +15,98 @@ async function runTest(name, fn) {
     console.error(`FAIL ${name}`);
     throw error;
   }
+}
+
+async function listRelativeFiles(rootDirectory, currentDirectory = rootDirectory) {
+  const entries = await readdir(currentDirectory, {
+    withFileTypes: true
+  });
+  const files = [];
+
+  for (const entry of entries) {
+    const absolutePath = path.join(currentDirectory, entry.name);
+
+    if (entry.isDirectory()) {
+      files.push(...(await listRelativeFiles(rootDirectory, absolutePath)));
+      continue;
+    }
+
+    if (entry.isFile()) {
+      files.push(path.relative(rootDirectory, absolutePath).split(path.sep).join("/"));
+    }
+  }
+
+  return files.sort();
+}
+
+function parseZipEntries(zipBuffer) {
+  const endOfCentralDirectorySignature = 0x06054b50;
+  const centralDirectorySignature = 0x02014b50;
+  const localFileHeaderSignature = 0x04034b50;
+  let endOfCentralDirectoryOffset = -1;
+
+  for (let offset = zipBuffer.length - 22; offset >= 0; offset -= 1) {
+    if (zipBuffer.readUInt32LE(offset) === endOfCentralDirectorySignature) {
+      endOfCentralDirectoryOffset = offset;
+      break;
+    }
+  }
+
+  if (endOfCentralDirectoryOffset === -1) {
+    throw new Error("ZIP end-of-central-directory record was not found.");
+  }
+
+  const centralDirectorySize = zipBuffer.readUInt32LE(endOfCentralDirectoryOffset + 12);
+  const centralDirectoryOffset = zipBuffer.readUInt32LE(endOfCentralDirectoryOffset + 16);
+  const entries = [];
+  let cursor = centralDirectoryOffset;
+
+  while (cursor < centralDirectoryOffset + centralDirectorySize) {
+    if (zipBuffer.readUInt32LE(cursor) !== centralDirectorySignature) {
+      throw new Error("Invalid ZIP central directory entry.");
+    }
+
+    const compressionMethod = zipBuffer.readUInt16LE(cursor + 10);
+    const compressedSize = zipBuffer.readUInt32LE(cursor + 20);
+    const fileNameLength = zipBuffer.readUInt16LE(cursor + 28);
+    const extraFieldLength = zipBuffer.readUInt16LE(cursor + 30);
+    const commentLength = zipBuffer.readUInt16LE(cursor + 32);
+    const localHeaderOffset = zipBuffer.readUInt32LE(cursor + 42);
+    const nameStart = cursor + 46;
+    const nameEnd = nameStart + fileNameLength;
+
+    entries.push({
+      name: zipBuffer.toString("utf8", nameStart, nameEnd),
+      compressionMethod,
+      compressedSize,
+      localHeaderOffset
+    });
+
+    cursor = nameEnd + extraFieldLength + commentLength;
+  }
+
+  return entries.map((entry) => {
+    if (zipBuffer.readUInt32LE(entry.localHeaderOffset) !== localFileHeaderSignature) {
+      throw new Error("Invalid ZIP local file header.");
+    }
+
+    const fileNameLength = zipBuffer.readUInt16LE(entry.localHeaderOffset + 26);
+    const extraFieldLength = zipBuffer.readUInt16LE(entry.localHeaderOffset + 28);
+    const contentStart = entry.localHeaderOffset + 30 + fileNameLength + extraFieldLength;
+    const compressedContent = zipBuffer.subarray(contentStart, contentStart + entry.compressedSize);
+    let content = compressedContent;
+
+    if (entry.compressionMethod === 8) {
+      content = inflateRawSync(compressedContent);
+    } else if (entry.compressionMethod !== 0) {
+      throw new Error(`Unsupported ZIP compression method: ${entry.compressionMethod}`);
+    }
+
+    return {
+      name: entry.name,
+      text: content.toString("utf8")
+    };
+  });
 }
 
 async function main() {
@@ -104,6 +197,7 @@ async function main() {
     const reviewBrief = await readFile(result.reviewBriefPath, "utf8");
     const reviewPrompt = await readFile(result.reviewPromptPath, "utf8");
     const sourceFileList = await readFile(path.join(result.metadataDirectory, "source-file-list.txt"), "utf8");
+    const bundleFiles = await listRelativeFiles(result.bundleDirectory);
 
     assert.equal(manifest.package.name, "bundle-fixture");
     assert.equal(manifest.package.version, "1.2.3");
@@ -117,6 +211,8 @@ async function main() {
     assert.match(reviewBrief, /repo\/src\/lib\/dispatch\.mjs/);
     assert.match(sourceFileList, /repo\/README\.md/);
     assert.match(sourceFileList, /repo\/src\/index\.mjs/);
+    assert.equal(manifest.inventory.fileCount, bundleFiles.length);
+    assert.deepEqual(sourceFileList.trim().split(/\r?\n/).sort(), bundleFiles);
     assert.doesNotMatch(sourceFileList, /node_modules/);
     assert.doesNotMatch(sourceFileList, /review-bundles\/old-bundle/);
     assert.equal(result.archivePath, null);
@@ -145,6 +241,23 @@ async function main() {
     assert.match(result.archiveFormat, /zip|tar\.gz/);
     assert.ok(typeof result.archivePath === "string" && result.archivePath.length > 0);
     await stat(result.archivePath);
+
+    if (result.archiveFormat === "zip") {
+      const zipEntries = parseZipEntries(await readFile(result.archivePath));
+      const manifestEntry = zipEntries.find((entry) => entry.name.endsWith("/metadata/bundle-manifest.json"));
+      const briefEntry = zipEntries.find((entry) =>
+        entry.name.endsWith("/metadata/external-ai-review-brief.md")
+      );
+
+      assert.ok(manifestEntry);
+      assert.ok(briefEntry);
+      assert.ok(zipEntries.every((entry) => !entry.name.includes("\\")));
+
+      const archivedManifest = JSON.parse(manifestEntry.text);
+      assert.equal(archivedManifest.archive.format, "zip");
+      assert.ok(typeof archivedManifest.archive.path === "string" && archivedManifest.archive.path.length > 0);
+      assert.match(briefEntry.text, /Archive:\s+(?!directory only).+/i);
+    }
   });
 
   console.log("Review bundle tests passed.");

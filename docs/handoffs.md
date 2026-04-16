@@ -65,7 +65,7 @@ For each ready task, `handoff` writes:
 
 It also reserves a result path under:
 
-- `handoffs/results/<taskId>.result.json`
+- `handoffs/results/<taskId>.<handoffId>.result.json`
 
 And it writes an aggregate index:
 
@@ -82,6 +82,9 @@ Each generated prompt includes:
 - execution rules
 - the exact required result artifact path
 - the required JSON shape:
+  - `runId`
+  - `taskId`
+  - `handoffId`
   - `status`
   - `summary`
   - `changedFiles`
@@ -108,7 +111,7 @@ This is currently treated as a hybrid surface for planning or review, not a full
 After Cursor finishes and writes the required `result.json`, apply it back into the run with:
 
 ```bash
-node src/index.mjs result runs/example-run/run-state.json <taskId> runs/example-run/handoffs/results/<taskId>.result.json
+node src/index.mjs result runs/example-run/run-state.json <taskId> runs/example-run/handoffs/results/<taskId>.<handoffId>.result.json
 ```
 
 If Cursor hits a transient failure such as rate limiting, timeout, or a server-side error, do not mark the task complete.
@@ -163,6 +166,7 @@ Manual handlers should still write the same result artifact contract and apply i
 
 Each handoff descriptor records:
 
+- run identity and a per-handoff `handoffId`
 - task identity
 - selected runtime
 - selection status and reason

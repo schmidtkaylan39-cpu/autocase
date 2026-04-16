@@ -62,9 +62,15 @@ function toPowerShellLiteral(value) {
 
 function buildResultArtifactScript(resultPath, artifact) {
   const escapedResultPath = escapePowerShellSingleQuoted(resultPath);
+  const completeArtifact = {
+    runId: "{{RUN_ID}}",
+    taskId: "{{TASK_ID}}",
+    handoffId: "{{HANDOFF_ID}}",
+    ...artifact
+  };
   const lines = ["$result = @{"];
 
-  for (const [key, value] of Object.entries(artifact)) {
+  for (const [key, value] of Object.entries(completeArtifact)) {
     lines.push(`  ${key} = ${toPowerShellLiteral(value)}`);
   }
 
@@ -72,6 +78,22 @@ function buildResultArtifactScript(resultPath, artifact) {
   lines.push(`$result | Set-Content -Path '${escapedResultPath}' -Encoding utf8`);
 
   return lines.join("\n");
+}
+
+function withArtifactIdentity(artifact, identity = {}) {
+  return {
+    runId: identity.runId ?? "fixture-run",
+    taskId: identity.taskId ?? "fixture-task",
+    handoffId: identity.handoffId ?? "fixture-handoff",
+    ...artifact
+  };
+}
+
+function bindArtifactScriptIdentity(script, descriptor) {
+  return script
+    .replaceAll("{{RUN_ID}}", descriptor.runId ?? "fixture-run")
+    .replaceAll("{{TASK_ID}}", descriptor.taskId)
+    .replaceAll("{{HANDOFF_ID}}", descriptor.handoffId ?? "fixture-handoff");
 }
 
 async function writeFakeDoctorReport(filePath, overrides = {}) {
@@ -283,11 +305,25 @@ async function main() {
     );
 
     assert.equal(result.readyTaskCount, 2);
+    const handoffDescriptor = JSON.parse(
+      await readFile(path.join(tempDir, "handoff-run", "handoffs", "implement-spec-intake.handoff.json"), "utf8")
+    );
+    const promptText = await readFile(
+      path.join(tempDir, "handoff-run", "handoffs", "implement-spec-intake.prompt.md"),
+      "utf8"
+    );
+
     await stat(path.join(tempDir, "handoff-run", "handoffs", "implement-spec-intake.prompt.md"));
     await stat(path.join(tempDir, "handoff-run", "handoffs", "implement-spec-intake.handoff.json"));
     await stat(path.join(tempDir, "handoff-run", "handoffs", "implement-spec-intake.handoff.md"));
     await stat(path.join(tempDir, "handoff-run", "handoffs", "implement-spec-intake.launch.ps1"));
     await stat(path.join(tempDir, "handoff-run", "handoffs", "results"));
+    assert.match(handoffDescriptor.handoffId ?? "", /^[0-9a-f-]{36}$/i);
+    assert.match(handoffDescriptor.paths.resultPath, /implement-spec-intake\.[0-9a-f-]{36}\.result\.json$/i);
+    assert.match(promptText, new RegExp(`- handoffId: ${handoffDescriptor.handoffId}`));
+    assert.match(promptText, /"runId"/);
+    assert.match(promptText, /"taskId"/);
+    assert.match(promptText, /"handoffId"/);
   });
 
   await runTest("handoff generation uses the workspace path persisted in run-state", async () => {
@@ -349,13 +385,16 @@ async function main() {
     const planningResultPath = path.join(planningResultsDirectory, "planning-brief.result.json");
 
     await mkdir(planningResultsDirectory, { recursive: true });
-    await writeJson(planningResultPath, {
+    await writeJson(planningResultPath, withArtifactIdentity({
       status: "completed",
       summary: "planner completed the brief",
       changedFiles: [],
       verification: ["reviewed brief and prompt"],
       notes: ["cursor surface result"]
-    });
+    }, {
+      runId: "apply-result-run",
+      taskId: "planning-brief"
+    }));
 
     const result = await applyTaskResult(runResult.statePath, "planning-brief", planningResultPath);
     const runState = JSON.parse(await readFile(runResult.statePath, "utf8"));
@@ -383,11 +422,14 @@ async function main() {
     const invalidResultPath = path.join(invalidResultsDirectory, "planning-brief.result.json");
 
     await mkdir(invalidResultsDirectory, { recursive: true });
-    await writeJson(invalidResultPath, {
+    await writeJson(invalidResultPath, withArtifactIdentity({
       status: "completed",
       summary: "missing required arrays",
       changedFiles: "src/index.mjs"
-    });
+    }, {
+      runId: "apply-invalid-result-run",
+      taskId: "planning-brief"
+    }));
 
     await assert.rejects(
       () => applyTaskResult(runResult.statePath, "planning-brief", invalidResultPath),
@@ -419,13 +461,16 @@ async function main() {
     const resultPath = path.join(resultsDirectory, "review-spec-intake.result.json");
 
     await mkdir(resultsDirectory, { recursive: true });
-    await writeJson(resultPath, {
+    await writeJson(resultPath, withArtifactIdentity({
       status: "completed",
       summary: "review completed out of order",
       changedFiles: ["src/review.md"],
       verification: ["manual review"],
       notes: ["out of order"]
-    });
+    }, {
+      runId: "apply-out-of-order-run",
+      taskId: "review-spec-intake"
+    }));
 
     await assert.rejects(
       () => applyTaskResult(runResult.statePath, "review-spec-intake", resultPath),
@@ -435,6 +480,45 @@ async function main() {
     const runState = JSON.parse(await readFile(runResult.statePath, "utf8"));
     assert.equal(runState.taskLedger.find((task) => task.id === "review-spec-intake")?.status, "pending");
     assert.equal(runState.taskLedger.find((task) => task.id === "verify-spec-intake")?.status, "pending");
+  });
+
+  await runTest("applyTaskResult rejects artifacts from another run or task", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-apply-foreign-result-"));
+    const runResult = await runProject(validSpecPath, tempDir, "apply-foreign-result-run");
+    const resultsDirectory = path.join(tempDir, "apply-foreign-result-run", "handoffs", "results");
+    const foreignRunResultPath = path.join(resultsDirectory, "planning-brief.foreign-run.result.json");
+    const foreignTaskResultPath = path.join(resultsDirectory, "planning-brief.foreign-task.result.json");
+
+    await mkdir(resultsDirectory, { recursive: true });
+    await writeJson(foreignRunResultPath, withArtifactIdentity({
+      status: "completed",
+      summary: "foreign run should be rejected",
+      changedFiles: [],
+      verification: ["manual check"],
+      notes: ["wrong run id"]
+    }, {
+      runId: "different-run",
+      taskId: "planning-brief"
+    }));
+    await writeJson(foreignTaskResultPath, withArtifactIdentity({
+      status: "completed",
+      summary: "foreign task should be rejected",
+      changedFiles: [],
+      verification: ["manual check"],
+      notes: ["wrong task id"]
+    }, {
+      runId: "apply-foreign-result-run",
+      taskId: "implement-spec-intake"
+    }));
+
+    await assert.rejects(
+      () => applyTaskResult(runResult.statePath, "planning-brief", foreignRunResultPath),
+      /belongs to run/i
+    );
+    await assert.rejects(
+      () => applyTaskResult(runResult.statePath, "planning-brief", foreignTaskResultPath),
+      /belongs to task/i
+    );
   });
 
   await runTest("hybrid retry schedules a waiting window and records retry metadata", async () => {
@@ -825,12 +909,12 @@ async function main() {
     await limitDispatchToDescriptors(handoffResult.indexPath, handoffResult.runId, [descriptor]);
     await writeFile(
       descriptor.launcherPath,
-      buildResultArtifactScript(descriptor.resultPath, {
+      bindArtifactScriptIdentity(buildResultArtifactScript(descriptor.resultPath, {
         status: "completed",
         summary: "missing notes array on purpose",
         changedFiles: "src/index.mjs",
         verification: ["npm test"]
-      }),
+      }), descriptor),
       "utf8"
     );
 
@@ -843,6 +927,9 @@ async function main() {
     assert.equal(dispatchResult.results[0].status, "incomplete");
     assert.match(dispatchResult.results[0].note ?? "", /expected schema/i);
     assert.deepEqual(dispatchResult.results[0].artifact, {
+      runId: descriptor.runId,
+      taskId: descriptor.taskId,
+      handoffId: descriptor.handoffId,
       status: "completed",
       summary: "missing notes array on purpose",
       changedFiles: "src/index.mjs",
@@ -870,13 +957,13 @@ async function main() {
     for (const [index, descriptor] of handoffResult.descriptors.entries()) {
       await writeFile(
         descriptor.launcherPath,
-        buildResultArtifactScript(descriptor.resultPath, {
+        bindArtifactScriptIdentity(buildResultArtifactScript(descriptor.resultPath, {
           status: "completed",
           summary: `completed ${descriptor.taskId}`,
           changedFiles: [`src/features/${index}.mjs`],
           verification: ["npm test", "npm run test:e2e"],
           notes: [`artifact ok for ${descriptor.taskId}`]
-        }),
+        }), descriptor),
         "utf8"
       );
     }

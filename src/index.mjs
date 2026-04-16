@@ -161,7 +161,9 @@ async function runTick(runStatePath, doctorReportPath, outputDir) {
 }
 
 async function runReviewBundle(args) {
-  const [outputDir, bundleName, ...flags] = args;
+  const flags = args.filter((arg) => arg.startsWith("--"));
+  const positionals = args.filter((arg) => !arg.startsWith("--"));
+  const [outputDir, bundleName] = positionals;
   const archive = !flags.includes("--no-archive");
   const result = await createReviewBundle({
     outputDir,

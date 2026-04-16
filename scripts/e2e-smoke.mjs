@@ -46,9 +46,15 @@ function toPowerShellLiteral(value) {
 
 function buildResultArtifactScript(resultPath, artifact) {
   const escapedResultPath = escapePowerShellSingleQuoted(resultPath);
+  const completeArtifact = {
+    runId: "{{RUN_ID}}",
+    taskId: "{{TASK_ID}}",
+    handoffId: "{{HANDOFF_ID}}",
+    ...artifact
+  };
   const lines = ["$result = @{"];
 
-  for (const [key, value] of Object.entries(artifact)) {
+  for (const [key, value] of Object.entries(completeArtifact)) {
     lines.push(`  ${key} = ${toPowerShellLiteral(value)}`);
   }
 
@@ -56,6 +62,13 @@ function buildResultArtifactScript(resultPath, artifact) {
   lines.push(`$result | Set-Content -Path '${escapedResultPath}' -Encoding utf8`);
 
   return `${lines.join("\n")}\n`;
+}
+
+function bindArtifactScriptIdentity(script, descriptor) {
+  return script
+    .replaceAll("{{RUN_ID}}", descriptor.runId ?? "e2e-run")
+    .replaceAll("{{TASK_ID}}", descriptor.taskId)
+    .replaceAll("{{HANDOFF_ID}}", descriptor.handoffId ?? "e2e-handoff");
 }
 
 async function main() {
@@ -115,13 +128,13 @@ async function main() {
   for (const descriptor of implementationHandoffIndex.descriptors) {
     await writeFile(
       descriptor.launcherPath,
-      buildResultArtifactScript(descriptor.resultPath, {
+      bindArtifactScriptIdentity(buildResultArtifactScript(descriptor.resultPath, {
         status: "completed",
         summary: `synthetic completion for ${descriptor.taskId}`,
         changedFiles: [`src/generated/${descriptor.taskId}.mjs`],
         verification: ["synthetic dispatch execute smoke"],
         notes: ["e2e synthetic artifact"]
-      }),
+      }), descriptor),
       "utf8"
     );
   }

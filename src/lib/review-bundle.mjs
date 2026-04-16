@@ -231,6 +231,7 @@ function shouldExcludeEntry(entryPath, sourceDir, outputRootInSourceTree) {
 function renderReviewBrief(manifest) {
   const git = manifest.git;
   const evidence = manifest.evidence;
+  const archiveLabel = manifest.archive?.path ?? "directory only";
   const runLines =
     evidence.runs.length > 0
       ? evidence.runs.map(
@@ -248,7 +249,7 @@ function renderReviewBrief(manifest) {
     `- Bundle: ${manifest.bundleName}`,
     `- Generated at: ${manifest.generatedAt}`,
     `- Package: ${manifest.package.name ?? "unknown"}@${manifest.package.version ?? "unknown"}`,
-    `- Archive: ${manifest.archivePath ? manifest.archivePath : "directory only"}`,
+    `- Archive: ${archiveLabel}`,
     `- Files copied: ${manifest.inventory.fileCount}`,
     "",
     "## Repo Snapshot",
@@ -392,16 +393,28 @@ async function createArchive(bundleDirectory, destinationBasePath) {
   if (process.platform === "win32") {
     const archivePath = `${destinationBasePath}.zip`;
     const runtime = getPowerShellInvocation();
-    const normalizedBundleDirectory = bundleDirectory.replace(/\\/g, "/");
-    const normalizedArchivePath = archivePath.replace(/\\/g, "/");
     const command = [
-      `Compress-Archive`,
-      `-Path`,
-      toPowerShellSingleQuotedLiteral(normalizedBundleDirectory),
-      `-DestinationPath`,
-      toPowerShellSingleQuotedLiteral(normalizedArchivePath),
-      `-Force`
-    ].join(" ");
+      "Add-Type -AssemblyName System.IO.Compression",
+      "Add-Type -AssemblyName System.IO.Compression.FileSystem",
+      `$sourceDir = ${toPowerShellSingleQuotedLiteral(bundleDirectory)}`,
+      `$archivePath = ${toPowerShellSingleQuotedLiteral(archivePath)}`,
+      `$entryRoot = ${toPowerShellSingleQuotedLiteral(path.basename(bundleDirectory))}`,
+      "$sourceRoot = [System.IO.Path]::GetFullPath((Resolve-Path -LiteralPath $sourceDir).ProviderPath).TrimEnd('\\')",
+      "$sourceRootUri = New-Object System.Uri(($sourceRoot + '\\'))",
+      "if (Test-Path -LiteralPath $archivePath) { Remove-Item -LiteralPath $archivePath -Force }",
+      "$zip = [System.IO.Compression.ZipFile]::Open($archivePath, [System.IO.Compression.ZipArchiveMode]::Create)",
+      "try {",
+      "  Get-ChildItem -LiteralPath $sourceDir -Recurse -File | ForEach-Object {",
+      "    $filePath = [System.IO.Path]::GetFullPath($_.FullName)",
+      "    $fileUri = New-Object System.Uri($filePath)",
+      "    $relative = [System.Uri]::UnescapeDataString($sourceRootUri.MakeRelativeUri($fileUri).ToString())",
+      "    $entryName = ($entryRoot + '/' + $relative).Replace('\\\\', '/')",
+      "    [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $_.FullName, $entryName) | Out-Null",
+      "  }",
+      "} finally {",
+      "  $zip.Dispose()",
+      "}"
+    ].join("\n");
 
     await execFileAsync(runtime.command, buildPowerShellCommandArgs(command), {
       encoding: "utf8",
@@ -509,16 +522,16 @@ export async function createReviewBundle({
     collectGitMetadata(resolvedSourceDir),
     collectEvidenceSummary(resolvedSourceDir)
   ]);
-  const copiedFiles = await listRelativeFiles(bundleDirectory);
+  const manifestPath = path.join(metadataDirectory, "bundle-manifest.json");
+  const reviewBriefPath = path.join(metadataDirectory, "external-ai-review-brief.md");
+  const reviewPromptPath = path.join(metadataDirectory, "external-ai-review-prompt.md");
+  const sourceFileListPath = path.join(metadataDirectory, "source-file-list.txt");
+  const topLevelEntries = await readdir(bundleSourceDirectory);
 
-  await writeFile(
-    path.join(metadataDirectory, "source-file-list.txt"),
-    `${copiedFiles.join("\n")}\n`,
-    "utf8"
-  );
   await writeGitArtifacts(metadataDirectory, gitMetadata);
+  await writeFile(reviewPromptPath, `${renderReviewPrompt()}\n`, "utf8");
 
-  const manifest = {
+  const baseManifest = {
     generatedAt: new Date().toISOString(),
     bundleName: effectiveBundleName,
     package: {
@@ -526,11 +539,6 @@ export async function createReviewBundle({
       version: packageJson?.version ?? null
     },
     git: gitMetadata,
-    inventory: {
-      fileCount: copiedFiles.length,
-      topLevelEntries: await readdir(bundleSourceDirectory),
-      sourceFileListPath: "metadata/source-file-list.txt"
-    },
     evidence: evidenceSummary,
     paths: {
       repoRoot: "repo",
@@ -543,42 +551,69 @@ export async function createReviewBundle({
     }
   };
 
-  const manifestPath = path.join(metadataDirectory, "bundle-manifest.json");
-  const reviewBriefPath = path.join(metadataDirectory, "external-ai-review-brief.md");
-  const reviewPromptPath = path.join(metadataDirectory, "external-ai-review-prompt.md");
+  const writeBundleMetadata = async (manifest) => {
+    await writeJson(manifestPath, manifest);
+    await writeFile(reviewBriefPath, `${renderReviewBrief(manifest)}\n`, "utf8");
+  };
 
-  await writeJson(manifestPath, manifest);
-  await writeFile(reviewBriefPath, `${renderReviewBrief({ ...manifest, archivePath: null })}\n`, "utf8");
-  await writeFile(reviewPromptPath, `${renderReviewPrompt()}\n`, "utf8");
+  await writeBundleMetadata({
+    ...baseManifest,
+    inventory: {
+      fileCount: 0,
+      topLevelEntries,
+      sourceFileListPath: "metadata/source-file-list.txt"
+    },
+    archive: {
+      format: "directory",
+      path: null
+    }
+  });
+  await writeFile(sourceFileListPath, "", "utf8");
+
+  const copiedFiles = await listRelativeFiles(bundleDirectory);
+  await writeFile(sourceFileListPath, `${copiedFiles.join("\n")}\n`, "utf8");
+
+  const buildManifest = (archiveInfo) => ({
+    ...baseManifest,
+    inventory: {
+      fileCount: copiedFiles.length,
+      topLevelEntries,
+      sourceFileListPath: "metadata/source-file-list.txt"
+    },
+    archive: archiveInfo
+  });
 
   let archiveResult = {
     archivePath: null,
     archiveFormat: "directory"
   };
 
+  let finalManifest = buildManifest({
+    format: "directory",
+    path: null
+  });
+
+  await writeBundleMetadata(finalManifest);
+
   if (archive) {
     archiveResult = await createArchive(bundleDirectory, bundleDirectory);
-  }
-
-  const finalManifest = {
-    ...manifest,
-    archive: {
+    finalManifest = buildManifest({
       format: archiveResult.archiveFormat,
       path: archiveResult.archivePath
         ? safePathLabel(path.relative(bundleDirectory, archiveResult.archivePath))
         : null
-    }
-  };
+    });
+    await writeBundleMetadata(finalManifest);
 
-  await writeJson(manifestPath, finalManifest);
-  await writeFile(
-    reviewBriefPath,
-    `${renderReviewBrief({
-      ...finalManifest,
-      archivePath: archiveResult.archivePath
-    })}\n`,
-    "utf8"
-  );
+    if (archiveResult.archivePath) {
+      archiveResult = await createArchive(bundleDirectory, bundleDirectory);
+      finalManifest = buildManifest({
+        format: archiveResult.archiveFormat,
+        path: safePathLabel(path.relative(bundleDirectory, archiveResult.archivePath))
+      });
+      await writeBundleMetadata(finalManifest);
+    }
+  }
 
   return {
     bundleDirectory,

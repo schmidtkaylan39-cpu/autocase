@@ -153,7 +153,7 @@ Current behavior:
 - `handoff` writes the refreshed ledger back to `run-state.json`
 - `handoff` regenerates `report.md` before writing handoff artifacts
 - `dispatch` runs or skips generated launchers
-- `dispatch` validates any written result artifact against the expected JSON contract
+- `dispatch` validates any written result artifact against the expected JSON contract and matching run/task/handoff identity
 - `dispatch` writes dispatch result files
 - `dispatch execute` writes back to `run-state.json` when the parent run directory is available
 - `dispatch execute` regenerates `report.md` when `execution-plan.json` is present

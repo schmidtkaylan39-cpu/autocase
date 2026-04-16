@@ -51,9 +51,15 @@ function toPowerShellLiteral(value) {
 
 function buildResultArtifactScript(resultPath, artifact) {
   const escapedResultPath = escapePowerShellSingleQuoted(resultPath);
+  const completeArtifact = {
+    runId: "{{RUN_ID}}",
+    taskId: "{{TASK_ID}}",
+    handoffId: "{{HANDOFF_ID}}",
+    ...artifact
+  };
   const lines = ["$result = @{"];
 
-  for (const [key, value] of Object.entries(artifact)) {
+  for (const [key, value] of Object.entries(completeArtifact)) {
     lines.push(`  ${key} = ${toPowerShellLiteral(value)}`);
   }
 
@@ -61,6 +67,13 @@ function buildResultArtifactScript(resultPath, artifact) {
   lines.push(`$result | Set-Content -Path '${escapedResultPath}' -Encoding utf8`);
 
   return `${lines.join("\n")}\n`;
+}
+
+function bindArtifactScriptIdentity(script, descriptor) {
+  return script
+    .replaceAll("{{RUN_ID}}", descriptor.runId ?? "fixture-run")
+    .replaceAll("{{TASK_ID}}", descriptor.taskId)
+    .replaceAll("{{HANDOFF_ID}}", descriptor.handoffId ?? "fixture-handoff");
 }
 
 function buildRawResultScript(resultPath, rawContent) {
@@ -165,7 +178,10 @@ async function runSingleDescriptorDispatchScenario({
   };
 
   await limitDispatchToDescriptors(handoffResult.indexPath, handoffResult.runId, [descriptor]);
-  const resolvedLauncherScript = launcherScript.replaceAll("{{RESULT_PATH}}", descriptor.resultPath);
+  const resolvedLauncherScript = bindArtifactScriptIdentity(
+    launcherScript.replaceAll("{{RESULT_PATH}}", descriptor.resultPath),
+    descriptor
+  );
   await writeFile(descriptor.launcherPath, resolvedLauncherScript, "utf8");
 
   const dispatchResult = await dispatchHandoffs(handoffResult.indexPath, "execute");
@@ -238,6 +254,7 @@ async function main() {
 
     assert.equal(result.status, "failed");
     assert.equal(dispatchResult.summary.failed, 1);
+    assert.equal(dispatchResult.summary.executed, 1);
     assert.deepEqual(dispatchResult.runStateSync?.updatedTasks[0], {
       taskId: descriptor.taskId,
       nextStatus: "failed"
@@ -362,6 +379,65 @@ async function main() {
     assert.match(report, new RegExp(`\\[blocked\\] ${descriptor.taskId} ->`));
   });
 
+  await runTest("matrix: stale pre-existing result artifacts are deleted before execution", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-matrix-stale-"));
+    const { runResult, handoffResult, descriptor, reportPath } = await createDispatchReadyRun(
+      tempDir,
+      `stale-result-${Date.now()}`,
+      { codex: { ok: true } }
+    );
+
+    await limitDispatchToDescriptors(handoffResult.indexPath, handoffResult.runId, [descriptor]);
+    await writeJson(descriptor.resultPath, {
+      runId: descriptor.runId,
+      taskId: descriptor.taskId,
+      handoffId: descriptor.handoffId,
+      status: "completed",
+      summary: "stale artifact should not be reused",
+      changedFiles: ["src/lib/dispatch.mjs"],
+      verification: ["npm test"],
+      notes: ["old result"]
+    });
+    await writeFile(descriptor.launcherPath, "Write-Output 'launcher produced no new artifact'\n", "utf8");
+
+    const dispatchResult = await dispatchHandoffs(handoffResult.indexPath, "execute");
+    const runState = JSON.parse(await readFile(runResult.statePath, "utf8"));
+    const report = await readFile(reportPath, "utf8");
+    const task = runState.taskLedger.find((item) => item.id === descriptor.taskId);
+    const result = dispatchResult.results[0];
+
+    assert.equal(result.status, "incomplete");
+    assert.match(result.note ?? "", /not written/i);
+    assert.equal(task?.status, "blocked");
+    assert.match(report, new RegExp(`\\[blocked\\] ${descriptor.taskId} ->`));
+  });
+
+  await runTest("matrix: artifacts with mismatched handoff identity are rejected", async () => {
+    const scenario = await runSingleDescriptorDispatchScenario({
+      tempPrefix: "ai-factory-matrix-identity-",
+      runtimeId: "codex",
+      launcherScript: buildResultArtifactScript("{{RESULT_PATH}}", {
+        handoffId: "foreign-handoff",
+        status: "completed",
+        summary: "identity mismatch should be rejected",
+        changedFiles: ["src/lib/dispatch.mjs"],
+        verification: ["npm test"],
+        notes: ["wrong handoff id"]
+      })
+    });
+    const { descriptor, dispatchResult, report, task } = scenario;
+    const result = dispatchResult.results[0];
+
+    assert.equal(result.status, "incomplete");
+    assert.match(result.note ?? "", /expected schema/i);
+    assert.deepEqual(dispatchResult.runStateSync?.updatedTasks[0], {
+      taskId: descriptor.taskId,
+      nextStatus: "blocked"
+    });
+    assert.equal(task.status, "blocked");
+    assert.match(report, new RegExp(`\\[blocked\\] ${descriptor.taskId} ->`));
+  });
+
   await runTest("matrix: missing launcher path fails fast with a clear error", async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-matrix-missing-launcher-"));
     const { runResult, handoffResult, descriptor, reportPath } = await createDispatchReadyRun(
@@ -461,12 +537,16 @@ async function main() {
     await mkdir(path.join(handoffDir, "results"), { recursive: true });
     await writeFile(
       launcherPath,
-      buildResultArtifactScript(resultPath, {
+      bindArtifactScriptIdentity(buildResultArtifactScript(resultPath, {
         status: "completed",
         summary: "standalone dispatch execute",
         changedFiles: [],
         verification: ["matrix standalone"],
         notes: ["no run-state in this scenario"]
+      }), {
+        runId: "standalone-dispatch-run",
+        taskId: "standalone-task",
+        handoffId: "standalone-handoff"
       }),
       "utf8"
     );
@@ -525,7 +605,7 @@ async function main() {
 
     await writeFile(
       firstDescriptor.launcherPath,
-      buildBarrierResultArtifactScript(
+      bindArtifactScriptIdentity(buildBarrierResultArtifactScript(
         firstDescriptor.resultPath,
         {
           status: "completed",
@@ -537,12 +617,12 @@ async function main() {
         syncDirectory,
         "first",
         2
-      ),
+      ), firstDescriptor),
       "utf8"
     );
     await writeFile(
       secondDescriptor.launcherPath,
-      buildBarrierResultArtifactScript(
+      bindArtifactScriptIdentity(buildBarrierResultArtifactScript(
         secondDescriptor.resultPath,
         {
           status: "completed",
@@ -554,7 +634,7 @@ async function main() {
         syncDirectory,
         "second",
         2
-      ),
+      ), secondDescriptor),
       "utf8"
     );
     await limitDispatchToDescriptors(firstIndexPath, handoffResult.runId, [firstDescriptor]);

@@ -6,6 +6,7 @@ import { promisify } from "node:util";
 import { ensureDirectory, writeJson } from "./fs-utils.mjs";
 import {
   buildPowerShellCommandArgs,
+  checkPowerShellAvailability,
   getPowerShellInvocation,
   toPowerShellSingleQuotedLiteral
 } from "./powershell.mjs";
@@ -271,6 +272,34 @@ async function checkLocalCi() {
   }
 }
 
+function applyPowerShellLauncherRequirement(check, powerShellStatus) {
+  if (!["openclaw", "codex", "local-ci"].includes(check.id)) {
+    return check;
+  }
+
+  const details = {
+    ...(check.details ?? {}),
+    launcherShell: powerShellStatus.command,
+    launcherShellReady: powerShellStatus.ok
+  };
+
+  if (powerShellStatus.ok) {
+    return {
+      ...check,
+      details
+    };
+  }
+
+  const dependencyMessage = `PowerShell launcher runtime is unavailable: ${powerShellStatus.command}`;
+
+  return {
+    ...check,
+    ok: false,
+    details,
+    error: check.error ? `${check.error}\n${dependencyMessage}` : dependencyMessage
+  };
+}
+
 function renderDoctorReport(checks) {
   return [
     "# Runtime Doctor",
@@ -323,12 +352,13 @@ function renderDoctorReport(checks) {
 }
 
 export async function runRuntimeDoctor(outputDir = "reports") {
-  const checks = [];
-
-  checks.push(await checkOpenClaw());
-  checks.push(await checkCursor());
-  checks.push(await checkCodex());
-  checks.push(await checkLocalCi());
+  const powerShellStatus = await checkPowerShellAvailability();
+  const checks = [
+    applyPowerShellLauncherRequirement(await checkOpenClaw(), powerShellStatus),
+    await checkCursor(),
+    applyPowerShellLauncherRequirement(await checkCodex(), powerShellStatus),
+    applyPowerShellLauncherRequirement(await checkLocalCi(), powerShellStatus)
+  ];
 
   const resolvedOutputDir = path.resolve(outputDir);
   await ensureDirectory(resolvedOutputDir);

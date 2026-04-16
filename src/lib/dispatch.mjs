@@ -62,12 +62,23 @@ async function runPowerShellScript(scriptPath) {
     );
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
+    const powerShellMissing =
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      error.code === "ENOENT";
     const timedOut =
       (typeof error === "object" &&
         error !== null &&
         (("code" in error && error.code === "ETIMEDOUT") ||
           ("killed" in error && error.killed === true && "signal" in error && error.signal === "SIGTERM"))) ||
       /timed out/i.test(errorMessage);
+
+    if (powerShellMissing) {
+      throw new Error(`PowerShell runtime is not available: ${runtime.command}`, {
+        cause: error
+      });
+    }
 
     if (timedOut) {
       throw new Error(`Launcher timed out after ${powerShellTimeoutMs / 1000} seconds: ${scriptPath}`, {
@@ -163,7 +174,15 @@ function isStringArray(value, { allowEmpty = false } = {}) {
   );
 }
 
-async function readResultArtifact(resultPath) {
+async function readResultArtifactForExecution(
+  resultPath,
+  {
+    runId = null,
+    taskId = null,
+    handoffId = null,
+    minimumMtimeMs = null
+  } = {}
+) {
   if (!resultPath || !(await fileExists(resultPath))) {
     return {
       exists: false,
@@ -174,9 +193,28 @@ async function readResultArtifact(resultPath) {
   }
 
   try {
+    const resultStats = await stat(resultPath);
+    const minimumArtifactMtimeMs =
+      typeof minimumMtimeMs === "number" ? minimumMtimeMs - 1000 : null;
+
+    if (typeof minimumArtifactMtimeMs === "number" && resultStats.mtimeMs < minimumArtifactMtimeMs) {
+      return {
+        exists: true,
+        valid: false,
+        artifact: null,
+        reason: "Result artifact predates this launcher execution."
+      };
+    }
+
     const artifact = await readJson(resultPath);
     const validStatus = new Set(["completed", "failed", "blocked"]);
     const valid =
+      isNonEmptyString(artifact.runId) &&
+      isNonEmptyString(artifact.taskId) &&
+      isNonEmptyString(artifact.handoffId) &&
+      (runId === null || artifact.runId === runId) &&
+      (taskId === null || artifact.taskId === taskId) &&
+      (handoffId === null || artifact.handoffId === handoffId) &&
       isNonEmptyString(artifact.summary) &&
       artifact.summary.trim().length >= 5 &&
       validStatus.has(artifact.status) &&
@@ -198,6 +236,16 @@ async function readResultArtifact(resultPath) {
       reason: error instanceof Error ? error.message : String(error)
     };
   }
+}
+
+async function removeExistingResultArtifact(resultPath) {
+  if (!resultPath) {
+    return;
+  }
+
+  await rm(resultPath, {
+    force: true
+  });
 }
 
 function mapDispatchResultToTaskStatus(result) {
@@ -253,8 +301,15 @@ export async function dispatchHandoffs(indexPath, mode = "dry-run") {
     }
 
     try {
+      await removeExistingResultArtifact(descriptor.resultPath ?? null);
+      const launcherStartedAtMs = Date.now();
       const execution = await runPowerShellScript(descriptor.launcherPath);
-      const resultArtifact = await readResultArtifact(descriptor.resultPath ?? null);
+      const resultArtifact = await readResultArtifactForExecution(descriptor.resultPath ?? null, {
+        runId: descriptor.runId ?? handoffIndex.runId ?? null,
+        taskId: descriptor.taskId,
+        handoffId: descriptor.handoffId ?? null,
+        minimumMtimeMs: launcherStartedAtMs
+      });
       let status = "incomplete";
       let note = resultArtifact.reason ?? "Launcher finished but no result artifact was written.";
 
@@ -295,7 +350,9 @@ export async function dispatchHandoffs(indexPath, mode = "dry-run") {
     generatedAt: new Date().toISOString(),
     mode,
     total: results.length,
-    executed: results.filter((item) => item.status === "completed" || item.status === "incomplete").length,
+    executed: results.filter((item) =>
+      item.status === "completed" || item.status === "incomplete" || item.status === "failed"
+    ).length,
     completed: results.filter((item) => item.status === "completed").length,
     incomplete: results.filter((item) => item.status === "incomplete").length,
     wouldExecute: results.filter((item) => item.status === "would_execute").length,

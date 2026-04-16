@@ -119,13 +119,16 @@ For each `ready` task it writes:
 - `<task-id>.handoff.json`
 - `<task-id>.handoff.md`
 - `<task-id>.launch.ps1`
-- `results/<task-id>.result.json` as the expected output location
+- `results/<task-id>.<handoff-id>.result.json` as the expected output location
 - `index.json` as the handoff index
 
 Each prompt tells the selected runtime to write a JSON result artifact to the exact
 `resultPath`. The prompt asks for these fields:
 
 - `status`
+- `runId`
+- `taskId`
+- `handoffId`
 - `summary`
 - `changedFiles`
 - `verification`
@@ -205,6 +208,7 @@ Execution result states are currently:
   Launcher exited successfully and the expected result artifact exists with a valid schema.
 - `incomplete`
   Launcher exited successfully but no valid result artifact was produced.
+  `dispatch` deletes any pre-existing result file before launch and also checks that the written artifact belongs to the expected run/task/handoff.
 - `failed`
   Launcher execution itself failed.
 - `skipped`
@@ -229,7 +233,7 @@ When `dispatch execute` finds a sibling `run-state.json`, it also:
 For `cursor` or `manual` follow-up, the same result contract can now be applied with:
 
 ```bash
-node src/index.mjs result runs/example-run/run-state.json planning-brief runs/example-run/handoffs/results/planning-brief.result.json
+node src/index.mjs result runs/example-run/run-state.json planning-brief runs/example-run/handoffs/results/planning-brief.<handoffId>.result.json
 ```
 
 For transient Cursor-side failures such as rate limits, timeout prompts, or server errors, schedule a timed retry with:
@@ -248,6 +252,13 @@ node src/index.mjs retry runs/example-run/run-state.json planning-brief "request
 Handoff generation uses the runtime doctor report by default from:
 
 - `reports/runtime-doctor.json`
+
+Automated runtimes also depend on the PowerShell launcher runtime being available for the current platform:
+
+- `powershell.exe` on Windows
+- `pwsh` on Linux/macOS
+
+If that launcher shell is unavailable, doctor marks `openclaw`, `codex`, and `local-ci` as not ready so routing can fall back cleanly instead of failing only at dispatch time.
 
 If that report is missing, the loader returns an empty check list. Runtime
 normalization then treats all non-manual runtimes as not ready, so routing falls
