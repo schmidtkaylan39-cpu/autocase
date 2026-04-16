@@ -17,6 +17,7 @@ import {
 } from "./lib/commands.mjs";
 import { dispatchHandoffs } from "./lib/dispatch.mjs";
 import { runRuntimeDoctor } from "./lib/doctor.mjs";
+import { createReviewBundle } from "./lib/review-bundle.mjs";
 
 const require = createRequire(import.meta.url);
 const packageMetadata = require("../package.json");
@@ -34,6 +35,7 @@ Usage:
   ${packageMetadata.name} result <runStatePath> <taskId> <resultPath>
   ${packageMetadata.name} retry <runStatePath> <taskId> [reason] [delayMinutes]
   ${packageMetadata.name} tick <runStatePath> [doctorReportPath] [outputDir]
+  ${packageMetadata.name} review-bundle [outputDir] [bundleName] [--no-archive]
   ${packageMetadata.name} doctor [outputDir]
   ${packageMetadata.name} handoff <runStatePath> [outputDir] [doctorReportPath]
   ${packageMetadata.name} dispatch <handoffIndexPath> [dry-run|execute]
@@ -158,6 +160,30 @@ async function runTick(runStatePath, doctorReportPath, outputDir) {
   console.log(JSON.stringify(result.summary, null, 2));
 }
 
+async function runReviewBundle(args) {
+  const [outputDir, bundleName, ...flags] = args;
+  const archive = !flags.includes("--no-archive");
+  const result = await createReviewBundle({
+    outputDir,
+    bundleName,
+    archive
+  });
+  console.log(`Review bundle directory: ${result.bundleDirectory}`);
+  console.log(`Review manifest: ${result.manifestPath}`);
+  console.log(`Review brief: ${result.reviewBriefPath}`);
+  console.log(`Archive: ${result.archivePath ?? "directory only"}`);
+  console.log(
+    JSON.stringify(
+      {
+        archiveFormat: result.archiveFormat,
+        fileCount: result.fileCount
+      },
+      null,
+      2
+    )
+  );
+}
+
 async function runDoctor(outputDir = "reports") {
   const result = await runRuntimeDoctor(outputDir);
   console.log(`Doctor JSON: ${result.jsonPath}`);
@@ -200,7 +226,8 @@ async function runDispatch(handoffIndexPath, mode = "dry-run") {
 }
 
 async function main() {
-  const [command, arg1, arg2, arg3, arg4] = process.argv.slice(2);
+  const [command, ...args] = process.argv.slice(2);
+  const [arg1, arg2, arg3, arg4] = args;
 
   switch (command) {
     case "init":
@@ -253,6 +280,9 @@ async function main() {
         throw new Error("Please provide a run-state path.");
       }
       await runTick(arg1, arg2, arg3);
+      break;
+    case "review-bundle":
+      await runReviewBundle(args);
       break;
     case "doctor":
       await runDoctor(arg1);

@@ -86,6 +86,28 @@ One-time bootstrap for a fresh remote:
 
 The detailed contributor and operator flow is documented in `CONTRIBUTING.md`.
 
+## External AI Review Bundle
+
+When you want another AI or reviewer to audit the repository, generate a self-contained review bundle:
+
+```bash
+npm run review:bundle
+```
+
+Or with the CLI directly:
+
+```bash
+node src/index.mjs review-bundle [outputDir] [bundleName] [--no-archive]
+```
+
+The bundle includes:
+
+- a filtered repo snapshot without `.git`, `node_modules`, or prior `review-bundles`
+- review metadata and git context
+- an external-AI review brief
+- copied reports and run artifacts already present in the repository
+- a compressed archive when the current platform supports it
+
 ## Release Verification (Delivery Baseline)
 
 Use this as the minimum release gate before promoting changes.
@@ -179,6 +201,7 @@ node src/index.mjs plan <specPath> [outputDir]
   node src/index.mjs result <runStatePath> <taskId> <resultPath>
   node src/index.mjs retry <runStatePath> <taskId> [reason] [delayMinutes]
   node src/index.mjs tick <runStatePath> [doctorReportPath] [outputDir]
+  node src/index.mjs review-bundle [outputDir] [bundleName] [--no-archive]
   node src/index.mjs doctor [outputDir]
   node src/index.mjs handoff <runStatePath> [outputDir] [doctorReportPath]
   node src/index.mjs dispatch <handoffIndexPath> [dry-run|execute]

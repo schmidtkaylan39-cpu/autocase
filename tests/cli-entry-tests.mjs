@@ -34,6 +34,7 @@ async function main() {
 
     assert.match(help.stdout, new RegExp(`${packageJson.name} v${packageJson.version}`));
     assert.match(help.stdout, new RegExp(`${packageJson.name} dispatch <handoffIndexPath>`));
+    assert.match(help.stdout, new RegExp(`${packageJson.name} review-bundle \\[outputDir\\]`));
   });
 
   await runTest("cli version prints package version", async () => {
