@@ -1,5 +1,8 @@
 # AI Factory Starter
 
+[![CI](https://github.com/schmidtkaylan39-cpu/autocase/actions/workflows/ci.yml/badge.svg)](https://github.com/schmidtkaylan39-cpu/autocase/actions/workflows/ci.yml)
+[![Release Readiness](https://github.com/schmidtkaylan39-cpu/autocase/actions/workflows/release-readiness.yml/badge.svg)](https://github.com/schmidtkaylan39-cpu/autocase/actions/workflows/release-readiness.yml)
+
 This repository is a local starter for a multi-AI software factory workflow. It focuses on reproducible handoffs, dispatch execution, and release-grade verification evidence.
 
 The repository can still be driven from source with `node src/index.mjs`, and it now also exposes an installable CLI entrypoint as `ai-factory-starter`.
@@ -64,6 +67,24 @@ Important behavior:
 - In `execute` mode, dispatch maps outcomes back into run ledger:
   `completed -> completed`, `failed -> failed`, `incomplete -> blocked`.
 - When run files are present, dispatch updates `run-state.json` and regenerates `report.md`.
+
+## GitHub Governance
+
+Recommended steady state for a published repo:
+
+- protect `main` as the release branch
+- keep agent work on `codex/*` or other task branches
+- require the four CI checks from `.github/workflows/ci.yml` before merge
+- use `.github/pull_request_template.md` plus release-readiness evidence for promotions
+
+One-time bootstrap for a fresh remote:
+
+1. Push the current green working branch.
+2. Create and push `main` from that green commit.
+3. In GitHub settings, switch the default branch to `main`.
+4. Add branch protection for `main`.
+
+The detailed contributor and operator flow is documented in `CONTRIBUTING.md`.
 
 ## Release Verification (Delivery Baseline)
 
