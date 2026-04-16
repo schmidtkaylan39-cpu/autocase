@@ -1,3 +1,6 @@
+#!/usr/bin/env node
+
+import { createRequire } from "node:module";
 import process from "node:process";
 
 import {
@@ -12,20 +15,29 @@ import {
 import { dispatchHandoffs } from "./lib/dispatch.mjs";
 import { runRuntimeDoctor } from "./lib/doctor.mjs";
 
+const require = createRequire(import.meta.url);
+const packageMetadata = require("../package.json");
+
 function printHelp() {
-  console.log(`ai-factory-starter
+  console.log(`${packageMetadata.name} v${packageMetadata.version}
 
 Usage:
-  node src/index.mjs init [targetDir]
-  node src/index.mjs validate <specPath>
-  node src/index.mjs plan <specPath> [outputDir]
-  node src/index.mjs run <specPath> [outputDir] [runId]
-  node src/index.mjs report <runStatePath>
-  node src/index.mjs task <runStatePath> <taskId> <status> [note]
-  node src/index.mjs doctor [outputDir]
-  node src/index.mjs handoff <runStatePath> [outputDir] [doctorReportPath]
-  node src/index.mjs dispatch <handoffIndexPath> [dry-run|execute]
+  ${packageMetadata.name} init [targetDir]
+  ${packageMetadata.name} validate <specPath>
+  ${packageMetadata.name} plan <specPath> [outputDir]
+  ${packageMetadata.name} run <specPath> [outputDir] [runId]
+  ${packageMetadata.name} report <runStatePath>
+  ${packageMetadata.name} task <runStatePath> <taskId> <status> [note]
+  ${packageMetadata.name} doctor [outputDir]
+  ${packageMetadata.name} handoff <runStatePath> [outputDir] [doctorReportPath]
+  ${packageMetadata.name} dispatch <handoffIndexPath> [dry-run|execute]
+  ${packageMetadata.name} --help
+  ${packageMetadata.name} --version
 `);
+}
+
+function printVersion() {
+  console.log(packageMetadata.version);
 }
 
 async function runInit(targetDir = ".") {
@@ -191,6 +203,11 @@ async function main() {
     case "-h":
     case undefined:
       printHelp();
+      break;
+    case "version":
+    case "--version":
+    case "-v":
+      printVersion();
       break;
     default:
       throw new Error(`Unknown command: ${command}`);

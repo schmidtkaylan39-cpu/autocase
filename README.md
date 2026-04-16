@@ -2,6 +2,8 @@
 
 This repository is a local starter for a multi-AI software factory workflow. It focuses on reproducible handoffs, dispatch execution, and release-grade verification evidence.
 
+The repository can still be driven from source with `node src/index.mjs`, and it now also exposes an installable CLI entrypoint as `ai-factory-starter`.
+
 ## Current Runtime Positioning
 
 This is the current intended role model and routing baseline:
@@ -76,6 +78,7 @@ Baseline command set:
 ```bash
 npm run validate:workflows
 npm run build
+npm run pack:check
 npm run lint
 npm run typecheck
 npm test
@@ -91,6 +94,8 @@ npm run burnin
 ```
 
 `npm run burnin` runs build/lint/typecheck/test/integration/e2e/doctor in 3 rounds and writes summary evidence to `reports/release-burnin-summary.json`.
+
+`npm run pack:check` creates a tarball, installs it into a temporary workspace, and verifies that the packaged `ai-factory-starter` binary can run `--help`, `--version`, `init`, and `validate`.
 
 CI matrix and soak role split:
 
@@ -125,6 +130,13 @@ npm run doctor
 npm run handoff:example
 npm run dispatch:example
 npm test
+```
+
+Installed CLI usage:
+
+```bash
+ai-factory-starter --help
+ai-factory-starter --version
 ```
 
 To test full dispatch loop on a run:

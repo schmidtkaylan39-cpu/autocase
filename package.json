@@ -4,10 +4,23 @@
   "private": true,
   "description": "Starter CLI for a multi-agent software factory workflow.",
   "type": "module",
+  "bin": {
+    "ai-factory-starter": "src/index.mjs"
+  },
+  "files": [
+    "src",
+    "config",
+    "prompts",
+    "templates",
+    "examples",
+    "docs",
+    "README.md"
+  ],
   "scripts": {
     "start": "node src/index.mjs",
     "init": "node src/index.mjs init",
     "build": "node scripts/build-check.mjs",
+    "pack:check": "node scripts/pack-check.mjs",
     "validate:workflows": "node scripts/validate-workflows.mjs",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",

@@ -17,6 +17,7 @@ Snapshot date: 2026-04-16 (Asia/Shanghai).
   - `report.md` regeneration when run artifacts are present
 - Tests cover dispatch execute outcomes (missing artifact, invalid artifact, valid artifact) and verify run-state/report sync.
 - E2E smoke includes CLI-level `dispatch execute` synthetic validation.
+- Packaged CLI installability is covered by `npm run pack:check`, which validates tarball contents and executes the installed binary.
 - Local CI verifier contract is standardized on six required scripts:
   - `build`, `lint`, `typecheck`, `test`, `test:integration`, `test:e2e`
 - GitHub Actions CI baseline exists at `.github/workflows/ci.yml` and enforces build/lint/typecheck/tests plus example pipeline smoke.
@@ -34,6 +35,7 @@ Run all commands from repository root:
 ```bash
 npm run validate:workflows
 npm run build
+npm run pack:check
 npm run lint
 npm run typecheck
 npm test

@@ -35,6 +35,7 @@ const stepPresets = {
   quality: [
     { name: "validate:workflows", args: ["run", "validate:workflows"] },
     { name: "build", args: ["run", "build"] },
+    { name: "pack:check", args: ["run", "pack:check"] },
     { name: "lint", args: ["run", "lint"] },
     { name: "typecheck", args: ["run", "typecheck"] },
     { name: "test", args: ["test"] },
