@@ -208,7 +208,21 @@ Collaboration hygiene:
 ## Quick Start
 
 ```bash
-npm run init
+mkdir demo-workspace
+npm run init -- demo-workspace
+node src/index.mjs validate demo-workspace/specs/project-spec.json
+node src/index.mjs run demo-workspace/specs/project-spec.json demo-workspace/runs demo-run
+node src/index.mjs report demo-workspace/runs/demo-run/run-state.json
+node src/index.mjs doctor demo-workspace/reports
+node src/index.mjs handoff demo-workspace/runs/demo-run/run-state.json
+node src/index.mjs dispatch demo-workspace/runs/demo-run/handoffs/index.json dry-run
+```
+
+`npm run init -- <targetDir>` bootstraps a new workspace and writes a starter `AGENTS.md` file only when that workspace does not already have one.
+
+To exercise the bundled sample flow inside this repo, use the `*:example` scripts:
+
+```bash
 npm run validate:example
 npm run plan:example
 npm run run:example
@@ -218,8 +232,6 @@ npm run handoff:example
 npm run dispatch:example
 npm test
 ```
-
-`npm run init` now also writes a starter `AGENTS.md` file into the target workspace.
 
 Installed CLI usage:
 

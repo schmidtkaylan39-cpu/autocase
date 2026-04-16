@@ -53,6 +53,17 @@ async function runInit(targetDir = ".") {
   console.log(`Starter structure created: ${result.targetDir}`);
   console.log(`Sample spec: ${result.sampleSpecPath}`);
   console.log(`Factory config: ${result.configPath}`);
+  console.log(`Agents guide: ${result.agentsPath}`);
+
+  if (Array.isArray(result.createdFiles) && result.createdFiles.length > 0) {
+    console.log("Created files:");
+    result.createdFiles.forEach((filePath) => console.log(`- ${filePath}`));
+  }
+
+  if (Array.isArray(result.preservedFiles) && result.preservedFiles.length > 0) {
+    console.log("Preserved existing files:");
+    result.preservedFiles.forEach((filePath) => console.log(`- ${filePath}`));
+  }
 }
 
 async function runValidate(specPath) {

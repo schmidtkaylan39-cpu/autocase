@@ -22,6 +22,33 @@ import { buildExecutionPlan, renderPlanMarkdown } from "./workflow.mjs";
 
 const packageRootDirectory = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
+async function fileExists(targetPath) {
+  try {
+    await access(targetPath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function writeJsonIfMissing(targetPath, value) {
+  if (await fileExists(targetPath)) {
+    return false;
+  }
+
+  await writeJson(targetPath, value);
+  return true;
+}
+
+async function writeTextFileIfMissing(targetPath, value) {
+  if (await fileExists(targetPath)) {
+    return false;
+  }
+
+  await writeFile(targetPath, value, "utf8");
+  return true;
+}
+
 function inferWorkspaceRootFromSpecPath(specPath) {
   const resolvedSpecPath = path.resolve(specPath);
   const specDirectory = path.dirname(resolvedSpecPath);
@@ -149,15 +176,35 @@ export async function initProject(targetDir = ".") {
   const sampleSpecPath = path.join(specsDir, "project-spec.json");
   const configPath = path.join(configDir, "factory.config.json");
   const agentsPath = path.resolve(targetDir, "AGENTS.md");
-  await writeJson(sampleSpecPath, sampleProjectSpec);
-  await writeJson(configPath, defaultFactoryConfig);
-  await writeFile(agentsPath, await readFile(agentsTemplatePath, "utf8"), "utf8");
+  const agentsTemplate = await readFile(agentsTemplatePath, "utf8");
+  const createdFiles = [];
+  const preservedFiles = [];
+
+  if (await writeJsonIfMissing(sampleSpecPath, sampleProjectSpec)) {
+    createdFiles.push(sampleSpecPath);
+  } else {
+    preservedFiles.push(sampleSpecPath);
+  }
+
+  if (await writeJsonIfMissing(configPath, defaultFactoryConfig)) {
+    createdFiles.push(configPath);
+  } else {
+    preservedFiles.push(configPath);
+  }
+
+  if (await writeTextFileIfMissing(agentsPath, agentsTemplate)) {
+    createdFiles.push(agentsPath);
+  } else {
+    preservedFiles.push(agentsPath);
+  }
 
   return {
     targetDir: path.resolve(targetDir),
     sampleSpecPath,
     configPath,
-    agentsPath
+    agentsPath,
+    createdFiles,
+    preservedFiles
   };
 }
 
@@ -639,7 +686,7 @@ async function readRolePrompt(role) {
     reviewer: "reviewer.md",
     executor: "executor.md",
     verifier: "verifier.md",
-    orchestrator: "planner.md"
+    orchestrator: "orchestrator.md"
   };
   const fileName = mapping[role] ?? "planner.md";
   return readFile(path.join(packageRootDirectory, "prompts", fileName), "utf8");

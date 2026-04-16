@@ -210,6 +210,40 @@ async function main() {
     await stat(path.join(tempDir, "AGENTS.md"));
   });
 
+  await runTest("init preserves an existing workspace harness and config files", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-init-preserve-"));
+    const existingSpec = {
+      projectName: "Existing Spec",
+      objective: "keep my spec",
+      coreFeatures: []
+    };
+    const existingConfig = {
+      mandatoryGates: ["custom-gate"]
+    };
+    const existingAgents = "# Existing Agents\n\nKeep this file.\n";
+
+    await mkdir(path.join(tempDir, "specs"), { recursive: true });
+    await mkdir(path.join(tempDir, "config"), { recursive: true });
+    await writeJson(path.join(tempDir, "specs", "project-spec.json"), existingSpec);
+    await writeJson(path.join(tempDir, "config", "factory.config.json"), existingConfig);
+    await writeFile(path.join(tempDir, "AGENTS.md"), existingAgents, "utf8");
+
+    const result = await initProject(tempDir);
+    const specAfterInit = JSON.parse(await readFile(path.join(tempDir, "specs", "project-spec.json"), "utf8"));
+    const configAfterInit = JSON.parse(await readFile(path.join(tempDir, "config", "factory.config.json"), "utf8"));
+    const agentsAfterInit = await readFile(path.join(tempDir, "AGENTS.md"), "utf8");
+
+    assert.deepEqual(specAfterInit, existingSpec);
+    assert.deepEqual(configAfterInit, existingConfig);
+    assert.equal(agentsAfterInit, existingAgents);
+    assert.deepEqual(result.createdFiles, []);
+    assert.deepEqual(result.preservedFiles.sort(), [
+      path.join(tempDir, "AGENTS.md"),
+      path.join(tempDir, "config", "factory.config.json"),
+      path.join(tempDir, "specs", "project-spec.json")
+    ].sort());
+  });
+
   await runTest("run creates a full run directory with state and briefs", async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-run-"));
     const result = await runProject(validSpecPath, tempDir, "test-run");
@@ -354,6 +388,27 @@ async function main() {
     assert.match(promptText, /"runId"/);
     assert.match(promptText, /"taskId"/);
     assert.match(promptText, /"handoffId"/);
+  });
+
+  await runTest("delivery handoff uses the orchestrator prompt template", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-orchestrator-handoff-"));
+    const runResult = await runProject(validSpecPath, tempDir, "orchestrator-handoff-run");
+
+    const runState = JSON.parse(await readFile(runResult.statePath, "utf8"));
+    const taskIds = runState.taskLedger.filter((task) => task.id !== "delivery-package").map((task) => task.id);
+
+    for (const taskId of taskIds) {
+      await updateRunTask(runResult.statePath, taskId, "completed", `completed ${taskId}`);
+    }
+
+    const handoffResult = await createRunHandoffs(runResult.statePath);
+    const deliveryPrompt = await readFile(path.join(handoffResult.outputDir, "delivery-package.prompt.md"), "utf8");
+
+    assert.equal(handoffResult.readyTaskCount, 1);
+    assert.match(deliveryPrompt, /You are the orchestrator for this software-factory workflow\./);
+    assert.doesNotMatch(deliveryPrompt, /You are the planner for this software-factory workflow\./);
+    assert.match(deliveryPrompt, /# Task Context/);
+    assert.match(deliveryPrompt, /- role: Orchestrator/);
   });
 
   await runTest("handoff model routing can be overridden from workspace config and auto-escalates to gpt-5.4-pro", async () => {

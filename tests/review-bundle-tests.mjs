@@ -117,8 +117,10 @@ async function main() {
 
     await mkdir(path.join(sourceDir, "src"), { recursive: true });
     await mkdir(path.join(sourceDir, "docs"), { recursive: true });
+    await mkdir(path.join(sourceDir, "prompts"), { recursive: true });
     await mkdir(path.join(sourceDir, "reports"), { recursive: true });
     await mkdir(path.join(sourceDir, "runs", "demo-run"), { recursive: true });
+    await mkdir(path.join(sourceDir, "templates"), { recursive: true });
     await mkdir(path.join(sourceDir, ".git"), { recursive: true });
     await mkdir(path.join(sourceDir, "node_modules", "left-pad"), { recursive: true });
     await mkdir(path.join(sourceDir, "review-bundles", "old-bundle"), { recursive: true });
@@ -133,6 +135,17 @@ async function main() {
     await writeFile(path.join(sourceDir, "docs", "notes.md"), "notes\n", "utf8");
     await writeFile(path.join(sourceDir, "docs", "proposal-contract.md"), "# Proposal Contract\n", "utf8");
     await writeFile(path.join(sourceDir, "docs", "failure-feedback.md"), "# Failure Feedback\n", "utf8");
+    await writeFile(path.join(sourceDir, "prompts", "planner.md"), "# Planner Prompt\n", "utf8");
+    await writeFile(path.join(sourceDir, "prompts", "reviewer.md"), "# Reviewer Prompt\n", "utf8");
+    await writeFile(path.join(sourceDir, "prompts", "executor.md"), "# Executor Prompt\n", "utf8");
+    await writeFile(path.join(sourceDir, "prompts", "verifier.md"), "# Verifier Prompt\n", "utf8");
+    await writeFile(path.join(sourceDir, "prompts", "orchestrator.md"), "# Orchestrator Prompt\n", "utf8");
+    await writeJson(path.join(sourceDir, "templates", "proposal-artifact.template.json"), {
+      objective: "demo proposal"
+    });
+    await writeJson(path.join(sourceDir, "templates", "failure-feedback.template.json"), {
+      category: "verification_failed"
+    });
     await writeFile(path.join(sourceDir, ".git", "HEAD"), "ref: refs/heads/main\n", "utf8");
     await writeFile(path.join(sourceDir, "node_modules", "left-pad", "index.js"), "module.exports = {};\n", "utf8");
     await writeFile(path.join(sourceDir, "review-bundles", "old-bundle", "stale.txt"), "stale\n", "utf8");
@@ -190,6 +203,13 @@ async function main() {
     await stat(path.join(result.bundleSourceDirectory, "src", "index.mjs"));
     await stat(path.join(result.bundleSourceDirectory, "reports", "runtime-doctor.json"));
     await stat(path.join(result.bundleSourceDirectory, "runs", "demo-run", "run-state.json"));
+    await stat(path.join(result.bundleSourceDirectory, "prompts", "planner.md"));
+    await stat(path.join(result.bundleSourceDirectory, "prompts", "reviewer.md"));
+    await stat(path.join(result.bundleSourceDirectory, "prompts", "executor.md"));
+    await stat(path.join(result.bundleSourceDirectory, "prompts", "verifier.md"));
+    await stat(path.join(result.bundleSourceDirectory, "prompts", "orchestrator.md"));
+    await stat(path.join(result.bundleSourceDirectory, "templates", "proposal-artifact.template.json"));
+    await stat(path.join(result.bundleSourceDirectory, "templates", "failure-feedback.template.json"));
     await assert.rejects(() => stat(path.join(result.bundleSourceDirectory, ".git", "HEAD")));
     await assert.rejects(
       () => stat(path.join(result.bundleSourceDirectory, "node_modules", "left-pad", "index.js"))
@@ -220,10 +240,24 @@ async function main() {
     assert.match(reviewPrompt, /repo\/docs\/runtime-doctor\.md/);
     assert.match(reviewPrompt, /repo\/docs\/proposal-contract\.md/);
     assert.match(reviewPrompt, /repo\/docs\/failure-feedback\.md/);
+    assert.match(reviewPrompt, /repo\/prompts\/planner\.md/);
+    assert.match(reviewPrompt, /repo\/prompts\/reviewer\.md/);
+    assert.match(reviewPrompt, /repo\/prompts\/executor\.md/);
+    assert.match(reviewPrompt, /repo\/prompts\/verifier\.md/);
+    assert.match(reviewPrompt, /repo\/prompts\/orchestrator\.md/);
+    assert.match(reviewPrompt, /repo\/templates\/proposal-artifact\.template\.json/);
+    assert.match(reviewPrompt, /repo\/templates\/failure-feedback\.template\.json/);
     assert.match(reviewPrompt, /State-transition correctness/);
     assert.match(reviewBrief, /repo\/AGENTS\.md/);
     assert.match(reviewBrief, /repo\/src\/lib\/dispatch\.mjs/);
     assert.match(reviewBrief, /metadata\/patch-notes\.md/);
+    assert.match(reviewBrief, /repo\/prompts\/planner\.md/);
+    assert.match(reviewBrief, /repo\/prompts\/reviewer\.md/);
+    assert.match(reviewBrief, /repo\/prompts\/executor\.md/);
+    assert.match(reviewBrief, /repo\/prompts\/verifier\.md/);
+    assert.match(reviewBrief, /repo\/prompts\/orchestrator\.md/);
+    assert.match(reviewBrief, /repo\/templates\/proposal-artifact\.template\.json/);
+    assert.match(reviewBrief, /repo\/templates\/failure-feedback\.template\.json/);
     assert.match(patchNotes, /# Patch Notes/);
     assert.match(patchNotes, /Included Review Context/);
     assert.match(sourceFileList, /repo\/README\.md/);
