@@ -85,6 +85,7 @@ async function main() {
     await stat(result.metadataDirectory);
     await stat(result.manifestPath);
     await stat(result.reviewBriefPath);
+    await stat(result.reviewPromptPath);
     await stat(path.join(result.metadataDirectory, "source-file-list.txt"));
 
     await stat(path.join(result.bundleSourceDirectory, "README.md"));
@@ -101,14 +102,18 @@ async function main() {
 
     const manifest = JSON.parse(await readFile(result.manifestPath, "utf8"));
     const reviewBrief = await readFile(result.reviewBriefPath, "utf8");
+    const reviewPrompt = await readFile(result.reviewPromptPath, "utf8");
     const sourceFileList = await readFile(path.join(result.metadataDirectory, "source-file-list.txt"), "utf8");
 
     assert.equal(manifest.package.name, "bundle-fixture");
     assert.equal(manifest.package.version, "1.2.3");
     assert.equal(manifest.archive.format, "directory");
+    assert.equal(manifest.paths.reviewPromptPath, "metadata/external-ai-review-prompt.md");
     assert.equal(manifest.evidence.qualityBurnin.roundsPassed, 2);
     assert.equal(manifest.evidence.runs[0]?.runId, "demo-run");
     assert.match(reviewBrief, /External AI Review Brief/);
+    assert.match(reviewPrompt, /External AI Review Prompt/);
+    assert.match(reviewPrompt, /State-transition correctness/);
     assert.match(reviewBrief, /repo\/src\/lib\/dispatch\.mjs/);
     assert.match(sourceFileList, /repo\/README\.md/);
     assert.match(sourceFileList, /repo\/src\/index\.mjs/);

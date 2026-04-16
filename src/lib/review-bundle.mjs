@@ -305,6 +305,67 @@ function renderReviewBrief(manifest) {
   ].join("\n");
 }
 
+function renderReviewPrompt() {
+  return [
+    "# External AI Review Prompt",
+    "",
+    "Use the attached repository bundle as a bug-hunting and risk-review package.",
+    "",
+    "You are reviewing a local CLI project called `ai-factory-starter`.",
+    "",
+    "Read these files first:",
+    "",
+    "- `metadata/bundle-manifest.json`",
+    "- `metadata/external-ai-review-brief.md`",
+    "- `repo/README.md`",
+    "- `repo/docs/architecture.md`",
+    "- `repo/docs/release-readiness.md`",
+    "",
+    "Then review the codebase under `repo/`.",
+    "",
+    "Priority areas:",
+    "",
+    "1. State-transition correctness",
+    "   Focus on `repo/src/lib/commands.mjs`, `repo/src/lib/run-state.mjs`, and `repo/src/lib/dispatch.mjs`.",
+    "2. Hybrid/manual follow-up safety",
+    "   Focus on `result`, `retry`, `tick`, `handoff`, and dispatch result syncing.",
+    "3. Cross-platform behavior",
+    "   Focus on PowerShell invocation, archive generation, CLI behavior, and Windows/Linux compatibility.",
+    "4. Review-bundle completeness",
+    "   Check whether this package omits anything another reviewer would need to find bugs efficiently.",
+    "5. Test gaps",
+    "   Look for missing negative cases, flaky flows, or under-covered execution paths.",
+    "",
+    "What to optimize for:",
+    "",
+    "- real bugs",
+    "- behavioral regressions",
+    "- inconsistent docs vs. implementation",
+    "- unsafe assumptions",
+    "- missing validation",
+    "- edge cases that could silently corrupt run-state or reports",
+    "",
+    "Output requirements:",
+    "",
+    "- Start with findings immediately. Do not begin with a summary.",
+    "- Order findings by severity.",
+    "- For each finding include:",
+    "  - severity",
+    "  - file path",
+    "  - concise explanation",
+    "  - why it matters",
+    "  - suggested fix",
+    "- If no concrete bug is found, explicitly say so and then list residual risks and testing gaps.",
+    "",
+    "Important constraints:",
+    "",
+    "- Be skeptical and precise.",
+    "- Prefer concrete code-level issues over general advice.",
+    "- Do not spend most of the response summarizing the project.",
+    "- Do not assume the included tests prove correctness."
+  ].join("\n");
+}
+
 async function writeGitArtifacts(metadataDirectory, gitMetadata) {
   if (!gitMetadata) {
     return;
@@ -475,6 +536,7 @@ export async function createReviewBundle({
       repoRoot: "repo",
       manifestPath: "metadata/bundle-manifest.json",
       reviewBriefPath: "metadata/external-ai-review-brief.md",
+      reviewPromptPath: "metadata/external-ai-review-prompt.md",
       gitStatusPath: gitMetadata ? "metadata/git-status.txt" : null,
       gitLogPath: gitMetadata ? "metadata/git-log.txt" : null,
       gitRemotesPath: gitMetadata ? "metadata/git-remotes.txt" : null
@@ -483,9 +545,11 @@ export async function createReviewBundle({
 
   const manifestPath = path.join(metadataDirectory, "bundle-manifest.json");
   const reviewBriefPath = path.join(metadataDirectory, "external-ai-review-brief.md");
+  const reviewPromptPath = path.join(metadataDirectory, "external-ai-review-prompt.md");
 
   await writeJson(manifestPath, manifest);
   await writeFile(reviewBriefPath, `${renderReviewBrief({ ...manifest, archivePath: null })}\n`, "utf8");
+  await writeFile(reviewPromptPath, `${renderReviewPrompt()}\n`, "utf8");
 
   let archiveResult = {
     archivePath: null,
@@ -522,6 +586,7 @@ export async function createReviewBundle({
     metadataDirectory,
     manifestPath,
     reviewBriefPath,
+    reviewPromptPath,
     archivePath: archiveResult.archivePath,
     archiveFormat: archiveResult.archiveFormat,
     fileCount: copiedFiles.length
