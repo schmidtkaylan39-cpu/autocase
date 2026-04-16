@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
-import { access, cp, readdir, rm, writeFile } from "node:fs/promises";
+import { access, cp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { inflateRawSync } from "node:zlib";
 import { promisify } from "node:util";
 
 import { ensureDirectory, readJson, writeJson } from "./fs-utils.mjs";
@@ -136,6 +137,72 @@ function summarizeBurninReport(report) {
     roundsFailed: report.totals?.roundsFailed ?? null,
     stepsFailed: report.totals?.stepsFailed ?? null,
     durationMs: report.durationMs ?? null
+  };
+}
+
+function buildValidationResultsArtifact(bundleName, evidenceSummary, generatedAt = new Date().toISOString()) {
+  const reportFiles = Array.isArray(evidenceSummary?.reportFiles) ? evidenceSummary.reportFiles : [];
+  const includeEvidence = (...suffixes) =>
+    reportFiles.filter((reportPath) => suffixes.some((suffix) => reportPath.endsWith(suffix)));
+
+  const results = [];
+
+  if (Array.isArray(evidenceSummary?.runtimeDoctor) && evidenceSummary.runtimeDoctor.length > 0) {
+    results.push({
+      command: "npm run doctor",
+      status: evidenceSummary.runtimeDoctor.every((check) => check.ok) ? "passed" : "failed",
+      startedAt: null,
+      finishedAt: null,
+      durationMs: null,
+      evidence: includeEvidence("/runtime-doctor.json", "/runtime-doctor.md")
+    });
+  }
+
+  if (evidenceSummary?.qualityBurnin) {
+    results.push({
+      command: "npm run burnin",
+      status:
+        evidenceSummary.qualityBurnin.roundsFailed === 0 && evidenceSummary.qualityBurnin.stepsFailed === 0
+          ? "passed"
+          : "failed",
+      startedAt: null,
+      finishedAt: evidenceSummary.qualityBurnin.finishedAt ?? null,
+      durationMs: evidenceSummary.qualityBurnin.durationMs ?? null,
+      evidence: includeEvidence(
+        "/release-burnin-summary.json",
+        "/release-burnin-final-debug.json",
+        "/release-burnin-matrix-ready.json",
+        "/release-burnin-crossplatform-check.json"
+      )
+    });
+  }
+
+  if (evidenceSummary?.exampleBurnin) {
+    results.push({
+      command: "npm run burnin:example",
+      status:
+        evidenceSummary.exampleBurnin.roundsFailed === 0 && evidenceSummary.exampleBurnin.stepsFailed === 0
+          ? "passed"
+          : "failed",
+      startedAt: null,
+      finishedAt: evidenceSummary.exampleBurnin.finishedAt ?? null,
+      durationMs: evidenceSummary.exampleBurnin.durationMs ?? null,
+      evidence: includeEvidence(
+        "/example-smoke-burnin-summary.json",
+        "/example-smoke-burnin-matrix-ready.log",
+        "/example-smoke-burnin.log"
+      )
+    });
+  }
+
+  return {
+    round: bundleName,
+    generatedAt,
+    results,
+    notes: [
+      "This bundle includes machine-readable validation evidence only for checks with captured artifacts.",
+      "Additional claimed validations should be corroborated by patch-notes or external CI logs when present."
+    ]
   };
 }
 
@@ -293,6 +360,7 @@ function renderReviewBrief(manifest) {
     "",
     "## Important Files",
     "- `metadata/bundle-manifest.json`",
+    "- `metadata/validation-results.json`",
     "- `metadata/patch-notes.md`",
     "- `metadata/git-status.txt`",
     "- `metadata/git-log.txt`",
@@ -370,6 +438,7 @@ function renderReviewPrompt() {
     "",
     "- `metadata/bundle-manifest.json`",
     "- `metadata/external-ai-review-brief.md`",
+    "- `metadata/validation-results.json`",
     "- `metadata/patch-notes.md`",
     "- `repo/AGENTS.md`",
     "- `repo/README.md`",
@@ -462,6 +531,91 @@ async function writeGitArtifacts(metadataDirectory, gitMetadata) {
   );
 }
 
+function parseZipEntries(zipBuffer) {
+  const endOfCentralDirectorySignature = 0x06054b50;
+  const centralDirectorySignature = 0x02014b50;
+  const localFileHeaderSignature = 0x04034b50;
+
+  let endOfCentralDirectoryOffset = -1;
+
+  for (let offset = zipBuffer.length - 22; offset >= 0; offset -= 1) {
+    if (zipBuffer.readUInt32LE(offset) === endOfCentralDirectorySignature) {
+      endOfCentralDirectoryOffset = offset;
+      break;
+    }
+  }
+
+  if (endOfCentralDirectoryOffset < 0) {
+    throw new Error("Invalid ZIP archive: missing end of central directory record.");
+  }
+
+  const centralDirectorySize = zipBuffer.readUInt32LE(endOfCentralDirectoryOffset + 12);
+  const centralDirectoryOffset = zipBuffer.readUInt32LE(endOfCentralDirectoryOffset + 16);
+  const entries = [];
+  let cursor = centralDirectoryOffset;
+  const end = centralDirectoryOffset + centralDirectorySize;
+
+  while (cursor < end) {
+    if (zipBuffer.readUInt32LE(cursor) !== centralDirectorySignature) {
+      throw new Error("Invalid ZIP central directory entry.");
+    }
+
+    const compressionMethod = zipBuffer.readUInt16LE(cursor + 10);
+    const compressedSize = zipBuffer.readUInt32LE(cursor + 20);
+    const fileNameLength = zipBuffer.readUInt16LE(cursor + 28);
+    const extraFieldLength = zipBuffer.readUInt16LE(cursor + 30);
+    const commentLength = zipBuffer.readUInt16LE(cursor + 32);
+    const localHeaderOffset = zipBuffer.readUInt32LE(cursor + 42);
+    const nameStart = cursor + 46;
+    const nameEnd = nameStart + fileNameLength;
+
+    entries.push({
+      name: zipBuffer.toString("utf8", nameStart, nameEnd),
+      compressionMethod,
+      compressedSize,
+      localHeaderOffset
+    });
+
+    cursor = nameEnd + extraFieldLength + commentLength;
+  }
+
+  return entries.map((entry) => {
+    if (zipBuffer.readUInt32LE(entry.localHeaderOffset) !== localFileHeaderSignature) {
+      throw new Error("Invalid ZIP local file header.");
+    }
+
+    const fileNameLength = zipBuffer.readUInt16LE(entry.localHeaderOffset + 26);
+    const extraFieldLength = zipBuffer.readUInt16LE(entry.localHeaderOffset + 28);
+    const contentStart = entry.localHeaderOffset + 30 + fileNameLength + extraFieldLength;
+    const compressedContent = zipBuffer.subarray(contentStart, contentStart + entry.compressedSize);
+    let contentBuffer;
+
+    if (entry.compressionMethod === 8) {
+      contentBuffer = inflateRawSync(compressedContent);
+    } else if (entry.compressionMethod === 0) {
+      contentBuffer = compressedContent;
+    } else {
+      throw new Error(`Unsupported ZIP compression method: ${entry.compressionMethod}`);
+    }
+
+    return {
+      name: entry.name,
+      contentBuffer
+    };
+  });
+}
+
+async function validateZipArchiveEntryNames(archivePath) {
+  const zipEntries = parseZipEntries(await readFile(archivePath));
+  const invalidEntry = zipEntries.find((entry) => entry.name.includes("\\"));
+
+  if (invalidEntry) {
+    throw new Error(`ZIP archive contains backslash path separators: ${invalidEntry.name}`);
+  }
+
+  return zipEntries;
+}
+
 async function detectArchiveFormat() {
   if (process.platform === "win32") {
     return "zip";
@@ -492,41 +646,62 @@ async function createZipArchive(bundleDirectory, destinationBasePath) {
   const archivePath = `${destinationBasePath}.zip`;
 
   if (process.platform === "win32") {
-    const runtime = getPowerShellInvocation();
-    const command = [
-      "Add-Type -AssemblyName System.IO.Compression",
-      "Add-Type -AssemblyName System.IO.Compression.FileSystem",
-      `$sourceDir = ${toPowerShellSingleQuotedLiteral(bundleDirectory)}`,
-      `$archivePath = ${toPowerShellSingleQuotedLiteral(archivePath)}`,
-      `$entryRoot = ${toPowerShellSingleQuotedLiteral(path.basename(bundleDirectory))}`,
-      "$sourceRoot = [System.IO.Path]::GetFullPath((Resolve-Path -LiteralPath $sourceDir).ProviderPath).TrimEnd('\\')",
-      "$sourceRootUri = New-Object System.Uri(($sourceRoot + '\\'))",
-      "if (Test-Path -LiteralPath $archivePath) { Remove-Item -LiteralPath $archivePath -Force }",
-      "$zip = [System.IO.Compression.ZipFile]::Open($archivePath, [System.IO.Compression.ZipArchiveMode]::Create)",
-      "try {",
-      "  Get-ChildItem -LiteralPath $sourceDir -Recurse -File | ForEach-Object {",
-      "    $filePath = [System.IO.Path]::GetFullPath($_.FullName)",
-      "    $fileUri = New-Object System.Uri($filePath)",
-      "    $relative = [System.Uri]::UnescapeDataString($sourceRootUri.MakeRelativeUri($fileUri).ToString())",
-      "    $entryName = ($entryRoot + '/' + $relative).Replace('\\\\', '/')",
-      "    [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $_.FullName, $entryName) | Out-Null",
-      "  }",
-      "} finally {",
-      "  $zip.Dispose()",
-      "}"
-    ].join("\n");
+    const archiveDirectory = path.dirname(bundleDirectory);
+    const archiveName = path.basename(archivePath);
+    const bundleName = path.basename(bundleDirectory);
 
-    await execFileAsync(runtime.command, buildPowerShellCommandArgs(command), {
-      encoding: "utf8",
-      windowsHide: runtime.windowsHide,
-      timeout: 180000,
-      maxBuffer: 10 * 1024 * 1024
-    });
+    try {
+      await execFileAsync("tar", ["-a", "-cf", archiveName, bundleName], {
+        cwd: archiveDirectory,
+        encoding: "utf8",
+        timeout: 180000,
+        maxBuffer: 10 * 1024 * 1024,
+        windowsHide: true
+      });
+      await validateZipArchiveEntryNames(archivePath);
 
-    return {
-      archivePath,
-      archiveFormat: "zip"
-    };
+      return {
+        archivePath,
+        archiveFormat: "zip"
+      };
+    } catch {
+      const runtime = getPowerShellInvocation();
+      const command = [
+        "Add-Type -AssemblyName System.IO.Compression",
+        "Add-Type -AssemblyName System.IO.Compression.FileSystem",
+        `$sourceDir = ${toPowerShellSingleQuotedLiteral(bundleDirectory)}`,
+        `$archivePath = ${toPowerShellSingleQuotedLiteral(archivePath)}`,
+        `$entryRoot = ${toPowerShellSingleQuotedLiteral(path.basename(bundleDirectory))}`,
+        "$sourceRoot = [System.IO.Path]::GetFullPath((Resolve-Path -LiteralPath $sourceDir).ProviderPath).TrimEnd('\\')",
+        "$sourceRootUri = New-Object System.Uri(($sourceRoot + '\\'))",
+        "if (Test-Path -LiteralPath $archivePath) { Remove-Item -LiteralPath $archivePath -Force }",
+        "$zip = [System.IO.Compression.ZipFile]::Open($archivePath, [System.IO.Compression.ZipArchiveMode]::Create)",
+        "try {",
+        "  Get-ChildItem -LiteralPath $sourceDir -Recurse -File | ForEach-Object {",
+        "    $filePath = [System.IO.Path]::GetFullPath($_.FullName)",
+        "    $fileUri = New-Object System.Uri($filePath)",
+        "    $relative = [System.Uri]::UnescapeDataString($sourceRootUri.MakeRelativeUri($fileUri).ToString())",
+        "    $entryName = ($entryRoot + '/' + $relative).Replace('\\\\', '/')",
+        "    [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $_.FullName, $entryName) | Out-Null",
+        "  }",
+        "} finally {",
+        "  $zip.Dispose()",
+        "}"
+      ].join("\n");
+
+      await execFileAsync(runtime.command, buildPowerShellCommandArgs(command), {
+        encoding: "utf8",
+        windowsHide: runtime.windowsHide,
+        timeout: 180000,
+        maxBuffer: 10 * 1024 * 1024
+      });
+      await validateZipArchiveEntryNames(archivePath);
+
+      return {
+        archivePath,
+        archiveFormat: "zip"
+      };
+    }
   }
 
   await execFileAsync("zip", ["-qr", archivePath, path.basename(bundleDirectory)], {
@@ -535,6 +710,7 @@ async function createZipArchive(bundleDirectory, destinationBasePath) {
     timeout: 180000,
     maxBuffer: 10 * 1024 * 1024
   });
+  await validateZipArchiveEntryNames(archivePath);
 
   return {
     archivePath,
@@ -635,11 +811,14 @@ export async function createReviewBundle({
   const reviewBriefPath = path.join(metadataDirectory, "external-ai-review-brief.md");
   const reviewPromptPath = path.join(metadataDirectory, "external-ai-review-prompt.md");
   const patchNotesPath = path.join(metadataDirectory, "patch-notes.md");
+  const validationResultsPath = path.join(metadataDirectory, "validation-results.json");
   const sourceFileListPath = path.join(metadataDirectory, "source-file-list.txt");
   const topLevelEntries = await readdir(bundleSourceDirectory);
 
   await writeGitArtifacts(metadataDirectory, gitMetadata);
   await writeFile(reviewPromptPath, `${renderReviewPrompt()}\n`, "utf8");
+  const validationResults = buildValidationResultsArtifact(effectiveBundleName, evidenceSummary);
+  await writeJson(validationResultsPath, validationResults);
 
   const baseManifest = {
     generatedAt: new Date().toISOString(),
@@ -655,6 +834,7 @@ export async function createReviewBundle({
       manifestPath: "metadata/bundle-manifest.json",
       reviewBriefPath: "metadata/external-ai-review-brief.md",
       reviewPromptPath: "metadata/external-ai-review-prompt.md",
+      validationResultsPath: "metadata/validation-results.json",
       patchNotesPath: "metadata/patch-notes.md",
       gitStatusPath: gitMetadata ? "metadata/git-status.txt" : null,
       gitLogPath: gitMetadata ? "metadata/git-log.txt" : null,
@@ -753,6 +933,7 @@ export async function createReviewBundle({
     reviewBriefPath,
     reviewPromptPath,
     patchNotesPath,
+    validationResultsPath,
     archivePath: archiveResult.archivePath,
     archiveFormat: archiveResult.archiveFormat,
     fileCount: copiedFiles.length

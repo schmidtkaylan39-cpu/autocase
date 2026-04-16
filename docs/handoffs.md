@@ -92,6 +92,7 @@ Each generated prompt includes:
   - `changedFiles`
   - `verification`
   - `notes`
+- the workspace root path
 - the task brief path
 
 ## Launcher behavior by runtime
@@ -159,7 +160,7 @@ npm test
 
 ### `manual`
 
-The launcher only prints the prompt and brief locations for manual handling.
+The launcher prints the workspace root along with the prompt and brief locations for manual handling.
 
 Manual handlers should still write the same result artifact contract and apply it with the `result` command above.
 
@@ -174,7 +175,7 @@ Each handoff descriptor records:
 - selection status and reason
 - alternative runtimes and their doctor status
 - task summary and acceptance criteria
-- prompt, brief, and result paths
+- workspace, prompt, brief, and result paths
 - the generated launcher script text
 
 ## Example

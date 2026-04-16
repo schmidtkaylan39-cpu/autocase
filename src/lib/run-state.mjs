@@ -373,6 +373,7 @@ export function renderTaskBrief(spec, runState, task) {
     `- Role: ${task.role}`,
     `- Owner: ${task.owner}`,
     `- Current status: ${task.status}`,
+    `- Workspace root: ${runState.workspacePath ?? process.cwd()}`,
     "",
     "## Task Description",
     task.description,

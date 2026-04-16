@@ -41,6 +41,7 @@ function titleForRole(role) {
 }
 
 export function buildPromptDocument({
+  workspacePath,
   spec,
   task,
   handoffId,
@@ -59,6 +60,7 @@ export function buildPromptDocument({
     `- role: ${titleForRole(task.role)}`,
     `- taskId: ${task.id}`,
     `- handoffId: ${handoffId}`,
+    `- workspaceRoot: ${workspacePath}`,
     `- preferredModel: ${modelSelection.preferredModel}`,
     `- modelSelectionMode: ${modelSelection.selectionMode}`,
     "",
@@ -94,6 +96,9 @@ export function buildPromptDocument({
     '- `"changedFiles"`: an array of changed file paths',
     '- `"verification"`: an array of checks you ran',
     '- `"notes"`: an array of notable decisions or issues',
+    "",
+    "# Workspace Root Path",
+    workspacePath,
     "",
     "# Task Brief Path",
     briefPath
@@ -205,8 +210,9 @@ function buildCodexLauncher(promptPath, workspacePath, modelSelection, platform 
   ].join("\n");
 }
 
-function buildManualLauncher(promptPath, briefPath, modelSelection, platform = process.platform) {
+function buildManualLauncher(workspacePath, promptPath, briefPath, modelSelection, platform = process.platform) {
   if (platform === "win32") {
+    const workspaceLiteral = toPowerShellSingleQuotedLiteral(workspacePath);
     const promptLiteral = toPowerShellSingleQuotedLiteral(promptPath);
     const briefLiteral = toPowerShellSingleQuotedLiteral(briefPath);
     const preferredModelLiteral = toPowerShellSingleQuotedLiteral(modelSelection.preferredModel);
@@ -215,11 +221,13 @@ function buildManualLauncher(promptPath, briefPath, modelSelection, platform = p
       "Write-Host 'Please handle this task manually.'",
       `Write-Host ('Preferred model: ' + ${preferredModelLiteral})`,
       `Write-Host ('Model reason: ' + ${selectionReasonLiteral})`,
+      `Write-Host ('Workspace root: ' + ${workspaceLiteral})`,
       `Write-Host ('Prompt: ' + ${promptLiteral})`,
       `Write-Host ('Brief: ' + ${briefLiteral})`
     ].join("\n");
   }
 
+  const workspaceLiteral = toShellSingleQuotedLiteral(workspacePath);
   const promptLiteral = toShellSingleQuotedLiteral(promptPath);
   const briefLiteral = toShellSingleQuotedLiteral(briefPath);
   const preferredModelLiteral = toShellSingleQuotedLiteral(modelSelection.preferredModel);
@@ -229,6 +237,7 @@ function buildManualLauncher(promptPath, briefPath, modelSelection, platform = p
     "echo 'Please handle this task manually.'",
     `printf 'Preferred model: %s\\n' ${preferredModelLiteral}`,
     `printf 'Model reason: %s\\n' ${selectionReasonLiteral}`,
+    `printf 'Workspace root: %s\\n' ${workspaceLiteral}`,
     `printf 'Prompt: %s\\n' ${promptLiteral}`,
     `printf 'Brief: %s\\n' ${briefLiteral}`
   ].join("\n");
@@ -259,6 +268,7 @@ export function buildHandoffDescriptor({
       ok: status.ok
     }));
   const promptText = buildPromptDocument({
+    workspacePath,
     spec,
     task,
     handoffId,
@@ -270,7 +280,7 @@ export function buildHandoffDescriptor({
   });
   const launcher = getLauncherMetadata(platform);
 
-  let launcherScript = buildManualLauncher(promptPath, briefPath, modelSelection, platform);
+  let launcherScript = buildManualLauncher(workspacePath, promptPath, briefPath, modelSelection, platform);
 
   if (selected.runtimeId === "openclaw") {
     launcherScript = buildOpenClawLauncher(promptPath, platform);
@@ -311,6 +321,7 @@ export function buildHandoffDescriptor({
       mandatoryGates: runState.mandatoryGates
     },
     paths: {
+      workspacePath,
       promptPath,
       briefPath,
       resultPath
@@ -345,6 +356,7 @@ export function renderHandoffMarkdown(descriptor, baseDir) {
     ...descriptor.task.acceptanceCriteria.map((item) => `- acceptance: ${item}`),
     "",
     "## Files",
+    `- workspace: ${relativeLabel(baseDir, descriptor.paths.workspacePath)}`,
     `- prompt: ${relativeLabel(baseDir, descriptor.paths.promptPath)}`,
     `- brief: ${relativeLabel(baseDir, descriptor.paths.briefPath)}`,
     `- result: ${relativeLabel(baseDir, descriptor.paths.resultPath)}`,

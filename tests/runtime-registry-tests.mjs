@@ -153,7 +153,11 @@ async function main() {
     assert.equal(descriptor.model.preferredModel, "gpt-5.4");
     assert.equal(descriptor.model.selectionMode, "default");
     assert.match(descriptor.runtime.selectionReason, /manual surface by default/i);
+    assert.equal(descriptor.paths.workspacePath, "C:/workspace/demo");
+    assert.ok(descriptor.promptText.includes("- workspaceRoot: C:/workspace/demo"));
+    assert.ok(descriptor.promptText.includes("# Workspace Root Path\nC:/workspace/demo"));
     assert.match(descriptor.launcherScript, /Please handle this task manually/i);
+    assert.match(descriptor.launcherScript, /Workspace root:/i);
   });
 
   await runTest("manual planner or reviewer surfaces are skipped by dispatch execute", async () => {

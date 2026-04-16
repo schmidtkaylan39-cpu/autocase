@@ -203,6 +203,7 @@ async function main() {
     await stat(result.reviewBriefPath);
     await stat(result.reviewPromptPath);
     await stat(result.patchNotesPath);
+    await stat(result.validationResultsPath);
     await stat(path.join(result.metadataDirectory, "source-file-list.txt"));
 
     await stat(path.join(result.bundleSourceDirectory, "AGENTS.md"));
@@ -234,6 +235,7 @@ async function main() {
     const reviewBrief = await readFile(result.reviewBriefPath, "utf8");
     const reviewPrompt = await readFile(result.reviewPromptPath, "utf8");
     const patchNotes = await readFile(result.patchNotesPath, "utf8");
+    const validationResults = JSON.parse(await readFile(result.validationResultsPath, "utf8"));
     const sourceFileList = await readFile(path.join(result.metadataDirectory, "source-file-list.txt"), "utf8");
     const bundleFiles = await listRelativeFiles(result.bundleDirectory);
 
@@ -241,12 +243,14 @@ async function main() {
     assert.equal(manifest.package.version, "1.2.3");
     assert.equal(manifest.archive.format, "directory");
     assert.equal(manifest.paths.patchNotesPath, "metadata/patch-notes.md");
+    assert.equal(manifest.paths.validationResultsPath, "metadata/validation-results.json");
     assert.equal(manifest.paths.reviewPromptPath, "metadata/external-ai-review-prompt.md");
     assert.equal(manifest.evidence.qualityBurnin.roundsPassed, 2);
     assert.equal(manifest.evidence.runs[0]?.runId, "demo-run");
     assert.match(reviewBrief, /External AI Review Brief/);
     assert.match(reviewPrompt, /External AI Review Prompt/);
     assert.match(reviewPrompt, /repo\/AGENTS\.md/);
+    assert.match(reviewPrompt, /metadata\/validation-results\.json/);
     assert.match(reviewPrompt, /metadata\/patch-notes\.md/);
     assert.match(reviewPrompt, /repo\/docs\/dispatch\.md/);
     assert.match(reviewPrompt, /repo\/docs\/artifact-contract\.md/);
@@ -267,6 +271,7 @@ async function main() {
     assert.match(reviewPrompt, /State-transition correctness/);
     assert.match(reviewBrief, /repo\/AGENTS\.md/);
     assert.match(reviewBrief, /repo\/src\/lib\/dispatch\.mjs/);
+    assert.match(reviewBrief, /metadata\/validation-results\.json/);
     assert.match(reviewBrief, /metadata\/patch-notes\.md/);
     assert.match(reviewBrief, /repo\/docs\/artifact-contract\.md/);
     assert.match(reviewBrief, /repo\/prompts\/planner\.md/);
@@ -282,6 +287,8 @@ async function main() {
     assert.match(reviewBrief, /repo\/templates\/validation-results\.template\.json/);
     assert.match(patchNotes, /# Patch Notes/);
     assert.match(patchNotes, /Included Review Context/);
+    assert.ok(Array.isArray(validationResults.results));
+    assert.match(sourceFileList, /metadata\/validation-results\.json/);
     assert.match(sourceFileList, /repo\/README\.md/);
     assert.match(sourceFileList, /repo\/src\/index\.mjs/);
     assert.equal(manifest.inventory.fileCount, bundleFiles.length);
@@ -322,10 +329,14 @@ async function main() {
         entry.name.endsWith("/metadata/external-ai-review-brief.md")
       );
       const patchNotesEntry = zipEntries.find((entry) => entry.name.endsWith("/metadata/patch-notes.md"));
+      const validationResultsEntry = zipEntries.find((entry) =>
+        entry.name.endsWith("/metadata/validation-results.json")
+      );
 
       assert.ok(manifestEntry);
       assert.ok(briefEntry);
       assert.ok(patchNotesEntry);
+      assert.ok(validationResultsEntry);
       assert.ok(zipEntries.every((entry) => !entry.name.includes("\\")));
 
       const archivedManifest = JSON.parse(manifestEntry.text);
@@ -334,6 +345,7 @@ async function main() {
       assert.ok(typeof archivedManifest.archive.path === "string" && archivedManifest.archive.path.length > 0);
       assert.match(briefEntry.text, /Archive:\s+(?!directory only).+/i);
       assert.match(patchNotesEntry.text, /# Patch Notes/);
+      assert.ok(Array.isArray(JSON.parse(validationResultsEntry.text).results));
     }
   });
 
@@ -346,8 +358,11 @@ async function main() {
     const sourceDir = path.join(tempRoot, "source");
     const outputDir = path.join(tempRoot, "output");
     const previousPowerShellCommand = process.env.AI_FACTORY_POWERSHELL_COMMAND;
+    const previousPath = process.env.PATH;
+    const missingBinDir = path.join(tempRoot, "missing-bin");
 
     await mkdir(path.join(sourceDir, "src"), { recursive: true });
+    await mkdir(missingBinDir, { recursive: true });
     await writeJson(path.join(sourceDir, "package.json"), {
       name: "bundle-fallback-fixture",
       version: "0.0.1"
@@ -356,6 +371,7 @@ async function main() {
     await writeFile(path.join(sourceDir, "src", "index.mjs"), "export const fallback = true;\n", "utf8");
 
     process.env.AI_FACTORY_POWERSHELL_COMMAND = "definitely-missing-powershell-for-test";
+    process.env.PATH = missingBinDir;
 
     try {
       const result = await createReviewBundle({
@@ -379,6 +395,12 @@ async function main() {
         delete process.env.AI_FACTORY_POWERSHELL_COMMAND;
       } else {
         process.env.AI_FACTORY_POWERSHELL_COMMAND = previousPowerShellCommand;
+      }
+
+      if (previousPath === undefined) {
+        delete process.env.PATH;
+      } else {
+        process.env.PATH = previousPath;
       }
     }
   });

@@ -367,6 +367,7 @@ async function main() {
     const handoffDescriptor = JSON.parse(
       await readFile(path.join(tempDir, "handoff-run", "handoffs", "implement-spec-intake.handoff.json"), "utf8")
     );
+    const runState = JSON.parse(await readFile(path.join(tempDir, "handoff-run", "run-state.json"), "utf8"));
     const promptText = await readFile(
       path.join(tempDir, "handoff-run", "handoffs", "implement-spec-intake.prompt.md"),
       "utf8"
@@ -380,14 +381,45 @@ async function main() {
     );
     await stat(path.join(tempDir, "handoff-run", "handoffs", "results"));
     assert.match(handoffDescriptor.handoffId ?? "", /^[0-9a-f-]{36}$/i);
+    assert.equal(handoffDescriptor.paths.workspacePath, runState.workspacePath);
     assert.match(handoffDescriptor.paths.resultPath, /implement-spec-intake\.[0-9a-f-]{36}\.result\.json$/i);
     assert.equal(handoffDescriptor.model.preferredModel, "codex");
     assert.match(promptText, new RegExp(`- handoffId: ${handoffDescriptor.handoffId}`));
+    assert.ok(promptText.includes(`- workspaceRoot: ${runState.workspacePath}`));
+    assert.ok(promptText.includes(`# Workspace Root Path\n${runState.workspacePath}`));
     assert.match(promptText, /# Model Routing/);
     assert.match(promptText, /preferredModel: codex/);
     assert.match(promptText, /"runId"/);
     assert.match(promptText, /"taskId"/);
     assert.match(promptText, /"handoffId"/);
+  });
+
+  await runTest("manual planner handoff surfaces include the workspace root in prompts, briefs, and launchers", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "ai-factory-manual-workspace-"));
+    const workspace = path.join(tempRoot, "workspace");
+    const runRoot = path.join(tempRoot, "runs");
+    const specDir = path.join(workspace, "specs");
+    const specPath = path.join(specDir, "project-spec.json");
+
+    await mkdir(specDir, { recursive: true });
+    await writeFile(specPath, await readFile(validSpecPath, "utf8"), "utf8");
+
+    const runResult = await runProject(specPath, runRoot, "manual-workspace-run");
+    const handoffResult = await createRunHandoffs(runResult.statePath);
+    const descriptorPath = path.join(handoffResult.outputDir, "planning-brief.handoff.json");
+    const promptPath = path.join(handoffResult.outputDir, "planning-brief.prompt.md");
+    const briefPath = path.join(runRoot, "manual-workspace-run", "task-briefs", "planning-brief.md");
+    const launcherPath = path.join(handoffResult.outputDir, `planning-brief.launch${getLauncherMetadata().extension}`);
+    const descriptor = JSON.parse(await readFile(descriptorPath, "utf8"));
+    const promptText = await readFile(promptPath, "utf8");
+    const briefText = await readFile(briefPath, "utf8");
+    const launcherText = await readFile(launcherPath, "utf8");
+
+    assert.equal(descriptor.runtime.id, "manual");
+    assert.equal(descriptor.paths.workspacePath, workspace);
+    assert.ok(promptText.includes(`- workspaceRoot: ${workspace}`));
+    assert.ok(briefText.includes(`- Workspace root: ${workspace}`));
+    assert.match(launcherText, /Workspace root:/);
   });
 
   await runTest("delivery handoff uses the orchestrator prompt template", async () => {
