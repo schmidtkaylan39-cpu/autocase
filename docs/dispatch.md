@@ -1,0 +1,140 @@
+# Dispatch
+
+## Purpose
+
+`dispatch` consumes a handoff index and decides whether each ready task should be:
+
+- reported only in `dry-run` mode
+- executed through its generated PowerShell launcher in `execute` mode
+
+The implementation lives in `src/lib/dispatch.mjs`.
+
+## Inputs
+
+`dispatchHandoffs(indexPath, mode)` reads:
+
+- `handoffs/index.json`
+- each descriptor's `launcherPath`
+- each descriptor's optional `resultPath`
+
+## Modes
+
+### `dry-run`
+
+No launcher is executed.
+
+For each descriptor, the result is:
+
+- `would_execute` if the runtime is auto-executable
+- `would_skip` if the runtime is currently treated as manual or hybrid
+
+### `execute`
+
+Each descriptor is processed in order.
+
+- If the runtime is not auto-executable, the task is marked `skipped`.
+- If the runtime is auto-executable, the `.ps1` launcher is run with `powershell.exe -File`.
+
+## Auto-executable runtimes
+
+These runtimes are currently executed automatically:
+
+- `openclaw`
+- `local-ci`
+- `codex`
+
+These runtimes are currently not executed automatically:
+
+- `cursor`
+- `manual`
+
+## Result statuses
+
+In `execute` mode, a task can end up in one of these states:
+
+- `completed`
+  - the launcher exited successfully
+  - and `resultPath` exists after execution
+  - and the result artifact matches the expected schema
+- `incomplete`
+  - the launcher exited successfully
+  - but no result artifact was written
+  - or the result artifact was invalid
+  - or the runtime reported a `blocked` artifact, which is currently surfaced as `incomplete` in dispatch results
+- `failed`
+  - the launcher threw an error or timed out
+- `skipped`
+  - the runtime is not auto-executable
+
+In `dry-run` mode, the statuses are:
+
+- `would_execute`
+- `would_skip`
+
+## Output files
+
+`dispatch` writes two files next to the handoff index:
+
+- `dispatch-results.json`
+- `dispatch-results.md`
+
+The JSON file contains:
+
+- a summary block
+- one result record per task
+- a `runStateSync` block in `execute` mode when a sibling run directory contains `run-state.json`
+
+The Markdown file is a readable report of the same data.
+
+## Result artifact contract
+
+When `resultPath` exists, `dispatch` parses and validates the JSON artifact.
+
+The expected fields are:
+
+- `status`
+  - one of `completed`, `failed`, or `blocked`
+- `summary`
+  - a string
+- `changedFiles`
+  - an array
+- `verification`
+  - an array
+- `notes`
+  - an array
+
+If the artifact shape is invalid, the dispatch result is `incomplete`.
+
+## Run-state sync behavior
+
+In `execute` mode, `dispatch` looks for the parent run directory of the handoff folder.
+
+If `run-state.json` exists there:
+
+- `completed` dispatch results are written back as task status `completed`
+- `failed` dispatch results are written back as task status `failed`
+- `incomplete` dispatch results are written back as task status `blocked`
+
+If `execution-plan.json` also exists, `report.md` is regenerated from the updated run state.
+
+## Important current behavior
+
+`dispatch` still does not:
+
+- inspect git diff, logs, or test quality beyond launcher success
+- infer semantic quality from the changed files or verification notes
+- auto-execute `cursor` or `manual` tasks
+
+Its current job is narrower:
+
+- run launchers when allowed
+- validate result artifacts
+- sync execution outcomes back into run artifacts when the expected run files exist
+- write a dispatch report
+
+## Example
+
+```bash
+node src/index.mjs dispatch runs/example-run/handoffs/index.json dry-run
+node src/index.mjs dispatch runs/example-run/handoffs/index.json execute
+```

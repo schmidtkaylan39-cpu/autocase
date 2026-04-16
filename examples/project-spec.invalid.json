@@ -1,0 +1,13 @@
+{
+  "projectName": "Broken Demo",
+  "summary": "This file intentionally omits required fields.",
+  "targetUsers": [],
+  "coreFeatures": [],
+  "definitionOfDone": [],
+  "acceptanceCriteria": [],
+  "riskStopRules": [],
+  "deliverables": [],
+  "technicalConstraints": {
+    "preferredStack": []
+  }
+}

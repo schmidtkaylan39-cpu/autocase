@@ -1,0 +1,159 @@
+name: Release Readiness
+
+on:
+  workflow_dispatch:
+    inputs:
+      burnin_rounds:
+        description: "How many burn-in rounds to run"
+        required: false
+        default: "3"
+        type: choice
+        options:
+          - "3"
+          - "5"
+      run_doctor:
+        description: "Run npm run doctor as an observability check (non-blocking)"
+        required: false
+        default: false
+        type: boolean
+  schedule:
+    - cron: "15 18 * * *"
+
+concurrency:
+  group: release-readiness-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  quick-readiness:
+    name: Quick Readiness (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test suite
+        run: npm test
+
+      - name: E2E smoke
+        run: npm run test:e2e
+
+      - name: Validate example spec
+        run: npm run validate:example
+
+      - name: Build example plan
+        run: npm run plan:example
+
+      - name: Build example run
+        run: npm run run:example
+
+      - name: Render example report
+        run: npm run report:example
+
+      - name: Example handoff index
+        run: npm run handoff:example
+
+      - name: Example dispatch dry-run
+        run: npm run dispatch:example
+
+  burnin-soak:
+    name: Burn-in Soak (Node 22, Windows)
+    runs-on: windows-latest
+    timeout-minutes: 180
+    needs: quick-readiness
+    env:
+      BURNIN_ROUNDS: ${{ github.event_name == 'workflow_dispatch' && inputs.burnin_rounds || '3' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Quality burn-in soak
+        run: node scripts/release-burnin.mjs --rounds $env:BURNIN_ROUNDS --summary-file reports/release-readiness/quality-burnin-summary.json
+
+      - name: Example smoke burn-in soak
+        run: node scripts/release-burnin.mjs --preset example --rounds $env:BURNIN_ROUNDS --summary-file reports/release-readiness/example-burnin-summary.json
+
+      - name: Upload burn-in logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-readiness-burnin-logs
+          path: reports/release-readiness
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload run artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-readiness-runs
+          path: runs/example-run
+          if-no-files-found: warn
+          retention-days: 7
+
+  doctor-observability:
+    name: Doctor Observability (Non-blocking)
+    runs-on: windows-latest
+    timeout-minutes: 20
+    if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_doctor) }}
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run runtime doctor
+        run: npm run doctor
+
+      - name: Upload doctor reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-readiness-doctor-reports
+          path: reports
+          if-no-files-found: warn
+          retention-days: 7

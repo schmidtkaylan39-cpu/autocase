@@ -1,0 +1,39 @@
+{
+  "name": "ai-factory-starter",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Starter CLI for a multi-agent software factory workflow.",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.mjs",
+    "init": "node src/index.mjs init",
+    "build": "node scripts/build-check.mjs",
+    "validate:workflows": "node scripts/validate-workflows.mjs",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test:integration": "node tests/all-tests.mjs",
+    "test:e2e": "node scripts/e2e-smoke.mjs",
+    "burnin": "node scripts/release-burnin.mjs --rounds 3 --summary-file reports/release-burnin-summary.json",
+    "burnin:example": "node scripts/release-burnin.mjs --preset example --rounds 3 --summary-file reports/example-smoke-burnin-summary.json",
+    "validate:example": "node src/index.mjs validate examples/project-spec.valid.json",
+    "plan:example": "node src/index.mjs plan examples/project-spec.valid.json",
+    "run:example": "node src/index.mjs run examples/project-spec.valid.json runs example-run",
+    "report:example": "node src/index.mjs report runs/example-run/run-state.json",
+    "task:example": "node src/index.mjs task runs/example-run/run-state.json planning-brief completed seed",
+    "doctor": "node src/index.mjs doctor",
+    "handoff:example": "node src/index.mjs handoff runs/example-run/run-state.json",
+    "dispatch:example": "node src/index.mjs dispatch runs/example-run/handoffs/index.json dry-run",
+    "test": "node tests/all-tests.mjs"
+  },
+  "engines": {
+    "node": ">=22.14.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^25.6.0",
+    "eslint": "^10.2.0",
+    "globals": "^17.5.0",
+    "typescript": "^6.0.2",
+    "yaml": "^2.8.3"
+  }
+}
