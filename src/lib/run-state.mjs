@@ -105,7 +105,7 @@ function createDeliveryTask(plan) {
   };
 }
 
-export function createRunState(spec, plan, config, requestedRunId) {
+export function createRunState(spec, plan, config, requestedRunId, workspacePath = process.cwd()) {
   const createdAt = new Date().toISOString();
   const runId = requestedRunId || `${slugify(spec.projectName)}-${compactTimestamp(createdAt)}`;
   const implementationTasks = spec.coreFeatures.map((feature) =>
@@ -134,6 +134,7 @@ export function createRunState(spec, plan, config, requestedRunId) {
     version: 1,
     runId,
     projectName: spec.projectName,
+    workspacePath,
     createdAt,
     updatedAt: createdAt,
     status: "planned",

@@ -33,6 +33,7 @@
     "run:example": "node src/index.mjs run examples/project-spec.valid.json runs example-run",
     "report:example": "node src/index.mjs report runs/example-run/run-state.json",
     "task:example": "node src/index.mjs task runs/example-run/run-state.json planning-brief completed seed",
+    "tick:example": "node src/index.mjs tick runs/example-run/run-state.json",
     "doctor": "node src/index.mjs doctor",
     "handoff:example": "node src/index.mjs handoff runs/example-run/run-state.json",
     "dispatch:example": "node src/index.mjs dispatch runs/example-run/handoffs/index.json dry-run",

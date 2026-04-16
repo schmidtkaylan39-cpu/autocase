@@ -88,7 +88,7 @@ async function main() {
     ),
     "utf8"
   );
-  await runNode(["src/index.mjs", "handoff", runStatePath, "", syntheticDoctorPath]);
+  await runNode(["src/index.mjs", "tick", runStatePath, syntheticDoctorPath]);
   await runNode(["src/index.mjs", "dispatch", handoffIndexPath, "dry-run"]);
 
   const planningDryRunResults = JSON.parse(await readFile(dispatchResultsPath, "utf8"));
@@ -101,7 +101,7 @@ async function main() {
   assert.equal(planningHandoffIndex.descriptors[0]?.runtime.id, "cursor");
 
   await runNode(["src/index.mjs", "task", runStatePath, "planning-brief", "completed", "synthetic planner"]);
-  await runNode(["src/index.mjs", "handoff", runStatePath, "", syntheticDoctorPath]);
+  await runNode(["src/index.mjs", "tick", runStatePath, syntheticDoctorPath]);
   await runNode(["src/index.mjs", "dispatch", handoffIndexPath, "dry-run"]);
 
   const implementationDryRunResults = JSON.parse(await readFile(dispatchResultsPath, "utf8"));

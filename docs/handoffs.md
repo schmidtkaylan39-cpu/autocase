@@ -19,19 +19,20 @@ The implementation lives in:
 - `spec.snapshot.json`
 - `reports/runtime-doctor.json` when it exists
 
+Launcher scripts use `run-state.json.workspacePath`, which is captured when the run is created.
+That keeps the workspace target stable even if later `handoff` or `tick` commands are invoked from a different shell location.
+
 If no doctor report is available, runtime checks fall back to "not installed" for automated tools, except `manual`, which is always considered available.
 
 ## Which tasks get a handoff
 
-Only tasks with status `ready` are included.
+`handoff` refreshes the run state first, rewrites `report.md`, and then includes every task whose effective status is `ready`.
 
-`handoff` does not:
+That means `handoff` can:
 
-- change task status
-- unlock new tasks
-- write back to `run-state.json`
-
-It only creates artifacts for tasks that are already ready.
+- promote expired `waiting_retry` tasks back to `ready`
+- write the refreshed ledger back into `run-state.json`
+- regenerate `report.md` before writing handoff artifacts
 
 ## Runtime selection
 
@@ -112,10 +113,18 @@ If Cursor hits a transient failure such as rate limiting, timeout, or a server-s
 Schedule a timed retry instead:
 
 ```bash
-node src/index.mjs retry runs/example-run/run-state.json <taskId> "请求频率过高，请稍后重试" 3
+node src/index.mjs retry runs/example-run/run-state.json <taskId> "request frequency too high, please retry later" 3
 ```
 
-Timed retries move the task to `waiting_retry`; the next `report` or `handoff` refresh will return it to `ready` once the retry time has elapsed.
+Timed retries move the task to `waiting_retry`; the next `tick`, `report`, or `handoff` refresh will return it to `ready` once the retry time has elapsed.
+
+For orchestrator-style polling, prefer:
+
+```bash
+node src/index.mjs tick runs/example-run/run-state.json
+```
+
+That refreshes retry windows and rebuilds the handoff index in one step.
 
 ### `codex`
 

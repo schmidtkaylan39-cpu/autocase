@@ -12,6 +12,7 @@ import {
   reportProjectRun,
   runProject,
   scheduleTaskRetry,
+  tickProjectRun,
   updateRunTask,
   validateSpec
 } from "../src/lib/commands.mjs";
@@ -167,11 +168,13 @@ async function main() {
   await runTest("run creates a full run directory with state and briefs", async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-run-"));
     const result = await runProject(validSpecPath, tempDir, "test-run");
+    const runState = JSON.parse(await readFile(path.join(tempDir, "test-run", "run-state.json"), "utf8"));
 
     assert.equal(result.ok, true);
     await stat(path.join(tempDir, "test-run", "run-state.json"));
     await stat(path.join(tempDir, "test-run", "roles.json"));
     await stat(path.join(tempDir, "test-run", "task-briefs", "planning-brief.md"));
+    assert.equal(runState.workspacePath, projectRoot);
   });
 
   await runTest("report rewrites report from run state", async () => {
@@ -229,6 +232,33 @@ async function main() {
     await stat(path.join(tempDir, "handoff-run", "handoffs", "implement-spec-intake.handoff.md"));
     await stat(path.join(tempDir, "handoff-run", "handoffs", "implement-spec-intake.launch.ps1"));
     await stat(path.join(tempDir, "handoff-run", "handoffs", "results"));
+  });
+
+  await runTest("handoff generation uses the workspace path persisted in run-state", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-handoff-workspace-"));
+    await runProject(validSpecPath, tempDir, "handoff-workspace-run");
+    const runStatePath = path.join(tempDir, "handoff-workspace-run", "run-state.json");
+    const runState = JSON.parse(await readFile(runStatePath, "utf8"));
+
+    runState.workspacePath = "C:/persisted/workspace";
+    await writeJson(runStatePath, runState);
+    await updateRunTask(runStatePath, "planning-brief", "completed", "planner finished");
+
+    const fakeDoctorPath = path.join(tempDir, "doctor.json");
+    await writeFakeDoctorReport(fakeDoctorPath, {
+      codex: { ok: true }
+    });
+
+    const result = await createRunHandoffs(runStatePath, undefined, fakeDoctorPath);
+    const handoffDescriptor = JSON.parse(
+      await readFile(
+        path.join(tempDir, "handoff-workspace-run", "handoffs", "implement-spec-intake.handoff.json"),
+        "utf8"
+      )
+    );
+
+    assert.equal(result.descriptors[0]?.taskId, "implement-spec-intake");
+    assert.match(handoffDescriptor.launcherScript, /C:\/persisted\/workspace/);
   });
 
   await runTest("manual or hybrid result artifact can be applied back into the run-state", async () => {
@@ -372,6 +402,79 @@ async function main() {
     assert.equal(planningTask?.status, "blocked");
     assert.equal(planningTask?.retryCount, 3);
     assert.equal(planningTask?.nextRetryAt, null);
+  });
+
+  await runTest("tick promotes expired retry tasks and rebuilds handoffs", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-tick-ready-"));
+    const runResult = await runProject(validSpecPath, tempDir, "tick-ready-run");
+    const runState = JSON.parse(await readFile(runResult.statePath, "utf8"));
+    const modifiedRunState = {
+      ...runState,
+      taskLedger: runState.taskLedger.map((task) =>
+        task.id === "planning-brief"
+          ? {
+              ...task,
+              status: "waiting_retry",
+              retryCount: 1,
+              nextRetryAt: new Date(Date.now() - 60_000).toISOString(),
+              lastRetryReason: "retry window elapsed"
+            }
+          : task
+      )
+    };
+
+    await writeJson(runResult.statePath, modifiedRunState);
+    const fakeDoctorPath = path.join(tempDir, "doctor.json");
+    await writeFakeDoctorReport(fakeDoctorPath, {
+      cursor: { ok: true }
+    });
+
+    const result = await tickProjectRun(runResult.statePath, fakeDoctorPath);
+    const refreshedRunState = JSON.parse(await readFile(runResult.statePath, "utf8"));
+    const planningTask = refreshedRunState.taskLedger.find((task) => task.id === "planning-brief");
+
+    assert.deepEqual(result.promotedRetryTasks, ["planning-brief"]);
+    assert.ok(result.newlyReadyTasks.includes("planning-brief"));
+    assert.equal(result.readyTaskCount, 1);
+    assert.equal(result.descriptors[0]?.taskId, "planning-brief");
+    assert.equal(planningTask?.status, "ready");
+    assert.equal(planningTask?.nextRetryAt, null);
+  });
+
+  await runTest("tick preserves future retry windows and emits an empty handoff index", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-tick-wait-"));
+    const runResult = await runProject(validSpecPath, tempDir, "tick-wait-run");
+    const runState = JSON.parse(await readFile(runResult.statePath, "utf8"));
+    const modifiedRunState = {
+      ...runState,
+      taskLedger: runState.taskLedger.map((task) =>
+        task.id === "planning-brief"
+          ? {
+              ...task,
+              status: "waiting_retry",
+              retryCount: 1,
+              nextRetryAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+              lastRetryReason: "server error"
+            }
+          : task
+      )
+    };
+
+    await writeJson(runResult.statePath, modifiedRunState);
+    const fakeDoctorPath = path.join(tempDir, "doctor.json");
+    await writeFakeDoctorReport(fakeDoctorPath, {
+      cursor: { ok: true }
+    });
+
+    const result = await tickProjectRun(runResult.statePath, fakeDoctorPath);
+    const refreshedRunState = JSON.parse(await readFile(runResult.statePath, "utf8"));
+    const planningTask = refreshedRunState.taskLedger.find((task) => task.id === "planning-brief");
+
+    assert.deepEqual(result.promotedRetryTasks, []);
+    assert.deepEqual(result.newlyReadyTasks, []);
+    assert.equal(result.readyTaskCount, 0);
+    assert.equal(result.descriptors.length, 0);
+    assert.equal(planningTask?.status, "waiting_retry");
   });
 
   await runTest("dispatch dry-run produces dispatch results", async () => {

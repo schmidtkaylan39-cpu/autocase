@@ -21,12 +21,14 @@ The CLI currently supports these stages:
    Validates a result artifact for a hybrid or manual task and applies it back into `run-state.json`.
 6. `retry`
    Schedules a timed retry window for transient hybrid-surface failures such as Cursor rate limits or timeouts.
-7. `doctor`
+7. `tick`
+   Refreshes the run state, releases expired retry windows back to `ready`, regenerates `report.md`, and rebuilds the current handoff index.
+8. `doctor`
    Checks runtime readiness for OpenClaw, Cursor, Codex, and local CI.
-8. `handoff`
+9. `handoff`
    Creates prompt files, handoff descriptors, Markdown summaries, launcher scripts,
    and expected result artifact paths for every task that is currently `ready`.
-9. `dispatch`
+10. `dispatch`
    Runs launcher scripts in `dry-run` or `execute` mode, validates result artifacts,
    writes dispatch reports, and syncs supported outcomes into `run-state.json`.
 
@@ -107,6 +109,9 @@ This now aligns the starter with its intended operating model:
 - the execution plan
 - the spec snapshot
 - the runtime doctor report
+
+Before writing handoffs, it refreshes the run state and regenerates `report.md`.
+The run state also persists the original workspace root, and handoff launchers use that stored path instead of the caller's current shell directory.
 
 For each `ready` task it writes:
 
@@ -209,6 +214,8 @@ Hybrid/manual follow-up now has a matching CLI-side retry path:
 
 - `node src/index.mjs retry <runStatePath> <taskId> [reason] [delayMinutes]`
   schedules `waiting_retry` for transient surface failures
+- `node src/index.mjs tick <runStatePath> [doctorReportPath] [outputDir]`
+  re-opens tasks whose retry window has expired and rebuilds current handoffs
 - `node src/index.mjs result <runStatePath> <taskId> <resultPath>`
   validates and applies a finished hybrid/manual artifact
 
@@ -228,7 +235,7 @@ node src/index.mjs result runs/example-run/run-state.json planning-brief runs/ex
 For transient Cursor-side failures such as rate limits, timeout prompts, or server errors, schedule a timed retry with:
 
 ```bash
-node src/index.mjs retry runs/example-run/run-state.json planning-brief "请求频率过高，请稍后重试" 3
+node src/index.mjs retry runs/example-run/run-state.json planning-brief "request frequency too high, please retry later" 3
 ```
 
 `dispatch` still does not:

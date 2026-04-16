@@ -23,6 +23,8 @@ Artifacts written into the run directory include:
 - `report.md`
 - `task-briefs/*.md`
 
+`run-state.json` also stores the workspace root captured at run creation so later launcher generation can keep targeting the same project directory.
+
 ## Run status values
 
 The run can be in one of these states:
@@ -114,7 +116,7 @@ Hybrid/manual retry behavior:
 
 - `retry` moves a task into `waiting_retry`
 - `waiting_retry` records `retryCount`, `nextRetryAt`, and `lastRetryReason`
-- once `nextRetryAt` has passed, the next state refresh promotes the task back to `ready`
+- once `nextRetryAt` has passed, the next `tick`, `report`, or `handoff` refresh promotes the task back to `ready`
 - if the configured retry limit is reached, the task is escalated to `blocked`
 
 ## Reporting
@@ -132,11 +134,13 @@ The report includes:
 
 ## Handoffs and dispatch in the lifecycle
 
-`handoff` creates artifacts only for tasks already marked `ready`.
+`handoff` refreshes the run state first and then creates artifacts for tasks that are `ready` after that refresh.
 
 Current behavior:
 
-- `handoff` creates artifacts only for tasks already marked `ready`
+- `handoff` can promote expired retry windows back to `ready` during its refresh pass
+- `handoff` writes the refreshed ledger back to `run-state.json`
+- `handoff` regenerates `report.md` before writing handoff artifacts
 - `dispatch` runs or skips generated launchers
 - `dispatch` validates any written result artifact against the expected JSON contract
 - `dispatch` writes dispatch result files
@@ -144,6 +148,7 @@ Current behavior:
 - `dispatch execute` regenerates `report.md` when `execution-plan.json` is present
 - `result` lets hybrid or manual tasks use the same artifact contract and state-sync flow
 - `retry` lets transient hybrid-surface failures wait and automatically return to `ready` later
+- `tick` gives the orchestrator a single refresh point to reopen expired retries and regenerate handoffs
 
 The loop is only partially closed automatically.
 
@@ -160,8 +165,8 @@ Today, a normal run looks like this:
 
 1. Create the run.
 2. Complete `planning-brief`.
-3. Refresh or report the run so implementation tasks are visible as ready.
-4. Generate handoffs for ready tasks.
+3. Run `tick`, `report`, or `handoff` so implementation tasks are visible as ready.
+4. Generate or refresh handoffs for ready tasks.
 5. Dispatch those handoffs.
 6. Let `dispatch execute` sync `completed`, `failed`, or `blocked` outcomes when result artifacts are present.
 7. Repeat for review, verification, and delivery.
@@ -171,7 +176,7 @@ Today, a normal run looks like this:
 ```bash
 node src/index.mjs run examples/project-spec.valid.json runs demo-run
 node src/index.mjs task runs/demo-run/run-state.json planning-brief completed
-node src/index.mjs handoff runs/demo-run/run-state.json
+node src/index.mjs tick runs/demo-run/run-state.json
 node src/index.mjs dispatch runs/demo-run/handoffs/index.json dry-run
 node src/index.mjs report runs/demo-run/run-state.json
 ```

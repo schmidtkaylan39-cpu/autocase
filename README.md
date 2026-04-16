@@ -58,6 +58,7 @@ Important behavior:
 - `dispatch dry-run` reports `would_execute` or `would_skip`.
 - `dispatch execute` auto-executes only `openclaw`, `codex`, and `local-ci`.
 - `cursor` remains hybrid by design and is currently not auto-executed by dispatch.
+- `run` persists the workspace root into `run-state.json`, so later `handoff` and `tick` calls keep launcher paths stable even when they are invoked from another directory.
 - Result artifact contract requires:
   `status` (`completed|failed|blocked`), `summary`, `changedFiles[]`, `verification[]`, `notes[]`.
 - In `execute` mode, dispatch maps outcomes back into run ledger:
@@ -156,6 +157,7 @@ node src/index.mjs plan <specPath> [outputDir]
   node src/index.mjs task <runStatePath> <taskId> <status> [note]
   node src/index.mjs result <runStatePath> <taskId> <resultPath>
   node src/index.mjs retry <runStatePath> <taskId> [reason] [delayMinutes]
+  node src/index.mjs tick <runStatePath> [doctorReportPath] [outputDir]
   node src/index.mjs doctor [outputDir]
   node src/index.mjs handoff <runStatePath> [outputDir] [doctorReportPath]
   node src/index.mjs dispatch <handoffIndexPath> [dry-run|execute]

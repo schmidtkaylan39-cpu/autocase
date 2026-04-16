@@ -38,18 +38,18 @@ async function loadFactoryConfig(configPath = "config/factory.config.json") {
 function classifyHybridIssue(reason = "") {
   const normalizedReason = String(reason).trim();
   const retryablePatterns = [
-    /请求频率过高/i,
-    /頻率過高/i,
+    /\u8bf7\u6c42\u9891\u7387\u8fc7\u9ad8/i,
+    /\u983b\u7387\u904e\u9ad8/i,
     /rate limit/i,
     /too many requests/i,
-    /响应超时/i,
-    /回應超時/i,
+    /\u54cd\u5e94\u8d85\u65f6/i,
+    /\u56de\u61c9\u8d85\u6642/i,
     /timed out/i,
     /\btimeout\b/i,
     /unexpected error occurred on our servers/i,
     /please try again/i,
-    /发送.?继续/i,
-    /send .*继续/i
+    /\u53d1\u9001.?\u7ee7\u7eed/i,
+    /send .*\u7ee7\u7eed/i
   ];
 
   return {
@@ -165,7 +165,7 @@ export async function runProject(
 
   const { config, resolvedConfigPath } = await loadFactoryConfig(configPath);
   const plan = buildExecutionPlan(spec);
-  const runState = createRunState(spec, plan, config, requestedRunId);
+  const runState = createRunState(spec, plan, config, requestedRunId, process.cwd());
   const artifactPaths = createArtifactPaths(outputDir, config, runState.runId);
 
   await ensureDirectory(artifactPaths.runDirectory);
@@ -305,6 +305,60 @@ export async function scheduleTaskRetry(
   };
 }
 
+export async function tickProjectRun(
+  runStatePath,
+  doctorReportPath = "reports/runtime-doctor.json",
+  outputDir
+) {
+  const resolvedRunStatePath = path.resolve(runStatePath);
+  const previousRunState = await readJson(resolvedRunStatePath);
+  const refreshedRunState = refreshRunState(previousRunState);
+  const runDirectory = path.dirname(resolvedRunStatePath);
+  const plan = await readJson(path.join(runDirectory, "execution-plan.json"));
+  const reportPath = path.join(runDirectory, "report.md");
+  const promotedRetryTasks = [];
+  const newlyReadyTasks = [];
+
+  for (const refreshedTask of refreshedRunState.taskLedger) {
+    const previousTask = previousRunState.taskLedger.find((task) => task.id === refreshedTask.id);
+
+    if (!previousTask) {
+      continue;
+    }
+
+    if (previousTask.status === "waiting_retry" && refreshedTask.status === "ready") {
+      promotedRetryTasks.push(refreshedTask.id);
+      newlyReadyTasks.push(refreshedTask.id);
+      continue;
+    }
+
+    if (previousTask.status !== "ready" && refreshedTask.status === "ready") {
+      newlyReadyTasks.push(refreshedTask.id);
+    }
+  }
+
+  await writeJson(resolvedRunStatePath, refreshedRunState);
+  await writeFile(reportPath, `${renderRunReport(refreshedRunState, plan)}\n`, "utf8");
+
+  const handoffResult = await createRunHandoffs(
+    resolvedRunStatePath,
+    outputDir,
+    doctorReportPath
+  );
+  const nextRunState = await readJson(resolvedRunStatePath);
+
+  return {
+    runDirectory,
+    reportPath,
+    handoffIndexPath: handoffResult.indexPath,
+    readyTaskCount: handoffResult.readyTaskCount,
+    promotedRetryTasks,
+    newlyReadyTasks,
+    descriptors: handoffResult.descriptors,
+    summary: summarizeRunState(nextRunState)
+  };
+}
+
 function validateResultArtifact(artifact) {
   const validStatuses = new Set(["completed", "failed", "blocked"]);
 
@@ -389,7 +443,7 @@ export async function createRunHandoffs(
     const briefPath = path.join(runDirectory, "task-briefs", `${task.id}.md`);
     const resultPath = path.join(resultsDirectory, `${task.id}.result.json`);
     const descriptor = buildHandoffDescriptor({
-      workspacePath: process.cwd(),
+      workspacePath: runState.workspacePath ?? process.cwd(),
       spec,
       runState,
       plan,

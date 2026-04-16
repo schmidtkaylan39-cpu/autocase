@@ -11,6 +11,7 @@ import {
   reportProjectRun,
   runProject,
   scheduleTaskRetry,
+  tickProjectRun,
   updateRunTask,
   validateSpec
 } from "./lib/commands.mjs";
@@ -32,6 +33,7 @@ Usage:
   ${packageMetadata.name} task <runStatePath> <taskId> <status> [note]
   ${packageMetadata.name} result <runStatePath> <taskId> <resultPath>
   ${packageMetadata.name} retry <runStatePath> <taskId> [reason] [delayMinutes]
+  ${packageMetadata.name} tick <runStatePath> [doctorReportPath] [outputDir]
   ${packageMetadata.name} doctor [outputDir]
   ${packageMetadata.name} handoff <runStatePath> [outputDir] [doctorReportPath]
   ${packageMetadata.name} dispatch <handoffIndexPath> [dry-run|execute]
@@ -138,6 +140,24 @@ async function runTaskRetry(runStatePath, taskId, reason = "", delayMinutes) {
   console.log(JSON.stringify(result.summary, null, 2));
 }
 
+async function runTick(runStatePath, doctorReportPath, outputDir) {
+  const result = await tickProjectRun(runStatePath, doctorReportPath, outputDir);
+  console.log(`Tick report: ${result.reportPath}`);
+  console.log(`Tick handoff index: ${result.handoffIndexPath}`);
+  console.log(
+    JSON.stringify(
+      {
+        promotedRetryTasks: result.promotedRetryTasks,
+        newlyReadyTasks: result.newlyReadyTasks,
+        readyTaskCount: result.readyTaskCount
+      },
+      null,
+      2
+    )
+  );
+  console.log(JSON.stringify(result.summary, null, 2));
+}
+
 async function runDoctor(outputDir = "reports") {
   const result = await runRuntimeDoctor(outputDir);
   console.log(`Doctor JSON: ${result.jsonPath}`);
@@ -227,6 +247,12 @@ async function main() {
         throw new Error("Please provide run-state path and task id.");
       }
       await runTaskRetry(arg1, arg2, arg3 ?? "", arg4);
+      break;
+    case "tick":
+      if (!arg1) {
+        throw new Error("Please provide a run-state path.");
+      }
+      await runTick(arg1, arg2, arg3);
       break;
     case "doctor":
       await runDoctor(arg1);
