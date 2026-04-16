@@ -204,6 +204,30 @@ async function collectEvidenceSummary(sourceDir) {
   };
 }
 
+function shouldExcludeEntry(entryPath, sourceDir, outputRootInSourceTree) {
+  const resolvedPath = path.resolve(entryPath);
+  const relativePath = path.relative(sourceDir, resolvedPath);
+
+  if (relativePath.startsWith("..")) {
+    return true;
+  }
+
+  if (outputRootInSourceTree) {
+    const outputPrefix = `${outputRootInSourceTree}${path.sep}`;
+    if (resolvedPath === outputRootInSourceTree || resolvedPath.startsWith(outputPrefix)) {
+      return true;
+    }
+  }
+
+  if (!relativePath || relativePath === ".") {
+    return false;
+  }
+
+  return relativePath
+    .split(path.sep)
+    .some((segment) => excludedDirectoryNames.has(segment));
+}
+
 function renderReviewBrief(manifest) {
   const git = manifest.git;
   const evidence = manifest.evidence;
@@ -397,33 +421,25 @@ export async function createReviewBundle({
   }
 
   await ensureDirectory(metadataDirectory);
+  await ensureDirectory(bundleSourceDirectory);
 
-  await cp(resolvedSourceDir, bundleSourceDirectory, {
-    recursive: true,
-    filter: (fromPath) => {
-      const resolvedPath = path.resolve(fromPath);
-      const relativePath = path.relative(resolvedSourceDir, resolvedPath);
-
-      if (relativePath.startsWith("..")) {
-        return false;
-      }
-
-      if (outputRootInSourceTree) {
-        const outputPrefix = `${outputRootInSourceTree}${path.sep}`;
-        if (resolvedPath === outputRootInSourceTree || resolvedPath.startsWith(outputPrefix)) {
-          return false;
-        }
-      }
-
-      if (!relativePath || relativePath === ".") {
-        return true;
-      }
-
-      return !relativePath
-        .split(path.sep)
-        .some((segment) => excludedDirectoryNames.has(segment));
-    }
+  const sourceEntries = await readdir(resolvedSourceDir, {
+    withFileTypes: true
   });
+
+  for (const entry of sourceEntries) {
+    const sourceEntryPath = path.join(resolvedSourceDir, entry.name);
+
+    if (shouldExcludeEntry(sourceEntryPath, resolvedSourceDir, outputRootInSourceTree)) {
+      continue;
+    }
+
+    await cp(sourceEntryPath, path.join(bundleSourceDirectory, entry.name), {
+      recursive: true,
+      filter: (fromPath) =>
+        !shouldExcludeEntry(fromPath, resolvedSourceDir, outputRootInSourceTree)
+    });
+  }
 
   const [packageJson, gitMetadata, evidenceSummary] = await Promise.all([
     readOptionalJson(path.join(resolvedSourceDir, "package.json")),
@@ -463,16 +479,11 @@ export async function createReviewBundle({
     }
   };
 
-  const reviewBrief = renderReviewBrief({
-    ...manifest,
-    archivePath: null
-  });
-
   const manifestPath = path.join(metadataDirectory, "bundle-manifest.json");
   const reviewBriefPath = path.join(metadataDirectory, "external-ai-review-brief.md");
 
   await writeJson(manifestPath, manifest);
-  await writeFile(reviewBriefPath, `${reviewBrief}\n`, "utf8");
+  await writeFile(reviewBriefPath, `${renderReviewBrief({ ...manifest, archivePath: null })}\n`, "utf8");
 
   let archiveResult = {
     archivePath: null,
@@ -494,6 +505,14 @@ export async function createReviewBundle({
   };
 
   await writeJson(manifestPath, finalManifest);
+  await writeFile(
+    reviewBriefPath,
+    `${renderReviewBrief({
+      ...finalManifest,
+      archivePath: archiveResult.archivePath
+    })}\n`,
+    "utf8"
+  );
 
   return {
     bundleDirectory,
