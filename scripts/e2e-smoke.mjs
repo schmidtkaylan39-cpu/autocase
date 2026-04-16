@@ -20,6 +20,10 @@ function escapePowerShellSingleQuoted(value) {
   return String(value).replace(/'/g, "''");
 }
 
+function escapeShellSingleQuoted(value) {
+  return String(value).replace(/'/g, `'"'"'`);
+}
+
 function toPowerShellLiteral(value) {
   if (Array.isArray(value)) {
     return `@(${value.map((item) => toPowerShellLiteral(item)).join(", ")})`;
@@ -45,23 +49,31 @@ function toPowerShellLiteral(value) {
 }
 
 function buildResultArtifactScript(resultPath, artifact) {
-  const escapedResultPath = escapePowerShellSingleQuoted(resultPath);
   const completeArtifact = {
     runId: "{{RUN_ID}}",
     taskId: "{{TASK_ID}}",
     handoffId: "{{HANDOFF_ID}}",
     ...artifact
   };
-  const lines = ["$result = @{"];
 
-  for (const [key, value] of Object.entries(completeArtifact)) {
-    lines.push(`  ${key} = ${toPowerShellLiteral(value)}`);
+  if (process.platform === "win32") {
+    const escapedResultPath = escapePowerShellSingleQuoted(resultPath);
+    const lines = ["$result = @{"];
+
+    for (const [key, value] of Object.entries(completeArtifact)) {
+      lines.push(`  ${key} = ${toPowerShellLiteral(value)}`);
+    }
+
+    lines.push("} | ConvertTo-Json -Depth 5");
+    lines.push(`$result | Set-Content -Path '${escapedResultPath}' -Encoding utf8`);
+
+    return `${lines.join("\n")}\n`;
   }
 
-  lines.push("} | ConvertTo-Json -Depth 5");
-  lines.push(`$result | Set-Content -Path '${escapedResultPath}' -Encoding utf8`);
-
-  return `${lines.join("\n")}\n`;
+  return `cat > '${escapeShellSingleQuoted(resultPath)}' <<'JSON'
+${JSON.stringify(completeArtifact, null, 2)}
+JSON
+`;
 }
 
 function bindArtifactScriptIdentity(script, descriptor) {
