@@ -45,18 +45,24 @@ If a team wants Cursor as an emergency planner/reviewer surface, it must be enab
 
 The workflow is intentionally file-first and auditable:
 
-1. `validate`
+1. `intake`
+   Parses a natural-language request into `artifacts/clarification/intake-spec.json` and `artifacts/clarification/intake-summary.md`.
+2. `confirm` / `revise`
+   Confirms the clarified intake or sends it back through clarification before any planning work is allowed.
+3. `validate`
    Validates a project spec against schema and stop rules.
-2. `plan`
+4. `plan`
    Produces `execution-plan.json` and `execution-plan.md`.
-3. `run`
+5. `run`
    Creates a run workspace with:
-   `run-state.json`, `report.md`, `task-briefs/*`, `roles.json`, `spec.snapshot.json`.
-4. `handoff`
+   `run-state.json`, `report.md`, `task-briefs/*`, `roles.json`, `spec.snapshot.json`, plus the confirmed intake snapshot when present.
+6. `handoff`
    Generates runnable handoff packages for `ready` tasks:
    `*.prompt.md`, `*.handoff.json`, `*.handoff.md`, `*.launch.<ps1|sh>`, plus expected `results/<taskId>.<handoffId>.result.json`.
-5. `dispatch` (`dry-run` or `execute`)
+7. `dispatch` (`dry-run` or `execute`)
    Runs auto-executable launchers, validates result artifact contract, writes dispatch reports, and in `execute` mode syncs outcomes back into run artifacts.
+
+Planning, run creation, handoff generation, and dispatch now fail closed whenever a workspace-level clarification artifact exists but is not yet confirmed.
 
 Core run ledger:
 
@@ -281,6 +287,8 @@ Collaboration hygiene:
 ```bash
 mkdir demo-workspace
 npm run init -- demo-workspace
+node src/index.mjs intake "Turn local sales.json into a markdown summary report; do not send email or call external APIs." demo-workspace
+node src/index.mjs confirm demo-workspace
 node src/index.mjs validate demo-workspace/specs/project-spec.json
 node src/index.mjs run demo-workspace/specs/project-spec.json demo-workspace/runs demo-run
 node src/index.mjs report demo-workspace/runs/demo-run/run-state.json
@@ -321,18 +329,21 @@ node src/index.mjs dispatch runs/example-run/handoffs/index.json execute
 
 ```bash
 node src/index.mjs init [targetDir]
+node src/index.mjs intake <request> [workspaceDir]
+node src/index.mjs confirm [workspaceDir]
+node src/index.mjs revise [request] [workspaceDir]
 node src/index.mjs validate <specPath>
 node src/index.mjs plan <specPath> [outputDir]
-  node src/index.mjs run <specPath> [outputDir] [runId]
-  node src/index.mjs report <runStatePath>
-  node src/index.mjs task <runStatePath> <taskId> <status> [note]
-  node src/index.mjs result <runStatePath> <taskId> <resultPath>
-  node src/index.mjs retry <runStatePath> <taskId> [reason] [delayMinutes]
-  node src/index.mjs tick <runStatePath> [doctorReportPath] [outputDir]
-  node src/index.mjs review-bundle [outputDir] [bundleName] [--no-archive]
-  node src/index.mjs doctor [outputDir]
-  node src/index.mjs handoff <runStatePath> [outputDir] [doctorReportPath]
-  node src/index.mjs dispatch <handoffIndexPath> [dry-run|execute]
+node src/index.mjs run <specPath> [outputDir] [runId]
+node src/index.mjs report <runStatePath>
+node src/index.mjs task <runStatePath> <taskId> <status> [note]
+node src/index.mjs result <runStatePath> <taskId> <resultPath>
+node src/index.mjs retry <runStatePath> <taskId> [reason] [delayMinutes]
+node src/index.mjs tick <runStatePath> [doctorReportPath] [outputDir]
+node src/index.mjs review-bundle [outputDir] [bundleName] [--no-archive]
+node src/index.mjs doctor [outputDir]
+node src/index.mjs handoff <runStatePath> [outputDir] [doctorReportPath]
+node src/index.mjs dispatch <handoffIndexPath> [dry-run|execute]
 ```
 
 ## Repository Layout

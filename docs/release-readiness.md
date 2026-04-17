@@ -7,7 +7,11 @@ Snapshot date: 2026-04-16 (Asia/Shanghai).
 ## What Is Already Completed
 
 - CLI command surface is in place and wired end-to-end:
-  - `init`, `validate`, `plan`, `run`, `report`, `task`, `doctor`, `handoff`, `dispatch`
+  - `init`, `intake`, `confirm`, `revise`, `validate`, `plan`, `run`, `report`, `task`, `doctor`, `handoff`, `dispatch`
+- Clarification gate is now enforced ahead of planning and execution:
+  - workspace-level `artifacts/clarification/intake-spec.json`
+  - workspace-level `artifacts/clarification/intake-summary.md`
+  - fail-closed blocking on `plan`, `run`, `handoff`, and `dispatch` until confirmation
 - Run lifecycle artifacts are generated and maintained:
   - `execution-plan.json`, `run-state.json`, `report.md`, task briefs, handoff descriptors, launchers
 - Dispatch execute loopback is implemented:
