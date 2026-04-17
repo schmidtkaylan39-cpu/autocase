@@ -268,8 +268,10 @@ This creates:
 - a `git bundle` backup
 - a tracked-source ZIP snapshot
 - the npm package tarball
-- a Windows release folder containing `ai-factory-starter.exe` plus its packaged `app/` files
+- an architecture-aware Windows release folder such as `ai-factory-starter-win-x64-<commit>` containing `ai-factory-starter.exe` plus its packaged `app/` files
 - a ZIP archive of that Windows release folder
+
+`release-manifest.json` records the resolved Windows target label (`win-x64`, `win-arm64`, or `win-x86`) alongside the release directory and archive names.
 
 If you only want backup artifacts without building the `.exe`, run:
 

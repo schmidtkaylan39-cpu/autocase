@@ -1,8 +1,8 @@
 import { execFile } from "node:child_process";
-import { copyFile, mkdtemp, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { copyFile, mkdtemp, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
@@ -52,6 +52,72 @@ function parseArgs(argv) {
   return options;
 }
 
+function normalizeRelativePath(relativePath) {
+  return String(relativePath).replace(/\\/g, "/").replace(/^\.\/+/, "").replace(/\/+$/, "");
+}
+
+function isNestedProjectPath(relativePath) {
+  if (!relativePath) {
+    return false;
+  }
+
+  return !relativePath.startsWith("..") && !path.isAbsolute(relativePath);
+}
+
+export function getWindowsArchitectureMetadata(arch = process.arch) {
+  switch (arch) {
+    case "x64":
+      return {
+        nodeArchitecture: "x64",
+        windowsTarget: "win-x64"
+      };
+    case "arm64":
+      return {
+        nodeArchitecture: "arm64",
+        windowsTarget: "win-arm64"
+      };
+    case "ia32":
+      return {
+        nodeArchitecture: "ia32",
+        windowsTarget: "win-x86"
+      };
+    default:
+      throw new Error(`Unsupported Windows architecture for release packaging: ${arch}`);
+  }
+}
+
+export function createWindowsReleaseNames(shortHead, arch = process.arch) {
+  const architecture = getWindowsArchitectureMetadata(arch);
+  const releaseDirectoryName = `ai-factory-starter-${architecture.windowsTarget}-${shortHead}`;
+
+  return {
+    ...architecture,
+    releaseDirectoryName,
+    releaseArchiveFileName: `${releaseDirectoryName}.zip`
+  };
+}
+
+export function shouldExcludeFromSourceBackup(relativePath, nestedOutputRelativePath = null) {
+  const normalizedPath = normalizeRelativePath(relativePath);
+
+  if (!normalizedPath || normalizedPath === ".") {
+    return false;
+  }
+
+  const topLevelSegment = normalizedPath.split("/")[0];
+
+  if (topLevelSegment === ".git" || topLevelSegment === "node_modules" || topLevelSegment === "release-artifacts") {
+    return true;
+  }
+
+  if (!nestedOutputRelativePath) {
+    return false;
+  }
+
+  const normalizedOutputPath = normalizeRelativePath(nestedOutputRelativePath);
+  return normalizedPath === normalizedOutputPath || normalizedPath.startsWith(`${normalizedOutputPath}/`);
+}
+
 async function run(command, args, options = {}) {
   return execFileAsync(command, args, {
     cwd: options.cwd ?? projectRoot,
@@ -78,7 +144,127 @@ async function removeIfExists(targetPath) {
   await rm(targetPath, { recursive: true, force: true });
 }
 
-async function createBackups(outputRoot, releaseStamp, shortHead) {
+export async function collectSourceBackupFiles(
+  projectRootPath = projectRoot,
+  outputRootPath = path.join(projectRootPath, "release-artifacts")
+) {
+  const resolvedProjectRoot = path.resolve(projectRootPath);
+  const resolvedOutputRoot = path.resolve(outputRootPath);
+  const relativeOutputPath = path.relative(resolvedProjectRoot, resolvedOutputRoot);
+  const nestedOutputRelativePath = isNestedProjectPath(relativeOutputPath)
+    ? normalizeRelativePath(relativeOutputPath)
+    : null;
+  const files = [];
+
+  async function walkDirectory(directoryPath) {
+    const entries = await readdir(directoryPath, {
+      withFileTypes: true
+    });
+
+    for (const entry of entries) {
+      const absolutePath = path.join(directoryPath, entry.name);
+      const relativePath = path.relative(resolvedProjectRoot, absolutePath);
+
+      if (shouldExcludeFromSourceBackup(relativePath, nestedOutputRelativePath)) {
+        continue;
+      }
+
+      if (entry.isDirectory()) {
+        await walkDirectory(absolutePath);
+        continue;
+      }
+
+      if (entry.isFile()) {
+        files.push({
+          absolutePath,
+          relativePath: normalizeRelativePath(relativePath)
+        });
+      }
+    }
+  }
+
+  await walkDirectory(resolvedProjectRoot);
+  files.sort((left, right) => left.relativePath.localeCompare(right.relativePath));
+  return files;
+}
+
+export async function stageSourceBackupSnapshot(
+  snapshotRoot,
+  projectRootPath = projectRoot,
+  outputRootPath = path.join(projectRootPath, "release-artifacts")
+) {
+  const resolvedSnapshotRoot = path.resolve(snapshotRoot);
+  const files = await collectSourceBackupFiles(projectRootPath, outputRootPath);
+
+  await ensureDirectory(resolvedSnapshotRoot);
+
+  for (const file of files) {
+    const destinationPath = path.join(resolvedSnapshotRoot, file.relativePath);
+    await ensureDirectory(path.dirname(destinationPath));
+    await copyFile(file.absolutePath, destinationPath);
+  }
+
+  return {
+    snapshotRoot: resolvedSnapshotRoot,
+    files
+  };
+}
+
+export async function createZipArchiveFromDirectory(sourceDirectory, archivePath) {
+  await removeIfExists(archivePath);
+
+  try {
+    await run("tar", ["-a", "-cf", archivePath, path.basename(sourceDirectory)], {
+      cwd: path.dirname(sourceDirectory),
+      timeout: 300000
+    });
+  } catch {
+    const command = [
+      `Compress-Archive -LiteralPath '${sourceDirectory.replace(/'/g, "''")}' -DestinationPath '${archivePath.replace(/'/g, "''")}' -Force`
+    ].join("\n");
+    await run("powershell.exe", ["-NoProfile", "-Command", command], {
+      cwd: path.dirname(sourceDirectory),
+      timeout: 300000
+    });
+  }
+
+  return archivePath;
+}
+
+export function createReleaseManifestPayload({
+  generatedAt = new Date().toISOString(),
+  branch,
+  commit,
+  backupOnly = false,
+  backupArtifacts,
+  packageVersion = null,
+  packageArtifacts = null,
+  releaseArtifacts = null
+}) {
+  const payload = {
+    generatedAt,
+    branch,
+    commit,
+    backupOnly,
+    backupArtifacts
+  };
+
+  if (packageVersion) {
+    payload.packageVersion = packageVersion;
+  }
+
+  if (packageArtifacts) {
+    payload.packageArtifacts = packageArtifacts;
+  }
+
+  if (releaseArtifacts) {
+    Object.assign(payload, releaseArtifacts);
+  }
+
+  return payload;
+}
+
+export async function createBackups(outputRoot, releaseStamp, shortHead) {
   const backupsDirectory = path.join(outputRoot, "backups");
   const bundlePath = path.join(backupsDirectory, `ai-factory-starter-${releaseStamp}-${shortHead}.git.bundle`);
   const sourceZipPath = path.join(backupsDirectory, `ai-factory-starter-${releaseStamp}-${shortHead}-source.zip`);
@@ -88,34 +274,13 @@ async function createBackups(outputRoot, releaseStamp, shortHead) {
   await removeIfExists(sourceZipPath);
 
   await run("git", ["bundle", "create", bundlePath, "--all"]);
-
-  const outputRootRelative = path.relative(projectRoot, outputRoot);
-  const excludeArgs = [
-    "--exclude=.git",
-    "--exclude=node_modules",
-    "--exclude=release-artifacts"
-  ];
-
-  if (outputRootRelative && !outputRootRelative.startsWith("..")) {
-    excludeArgs.push(`--exclude=${outputRootRelative.replace(/\\/g, "/")}`);
-  }
-
+  const stagingDirectory = await mkdtemp(path.join(os.tmpdir(), "ai-factory-source-backup-"));
+  const snapshotDirectory = path.join(stagingDirectory, `ai-factory-starter-${releaseStamp}-${shortHead}-source`);
   try {
-    await run("tar", ["-a", "-cf", sourceZipPath, ...excludeArgs, "."], {
-      cwd: projectRoot,
-      timeout: 300000
-    });
-  } catch {
-    const command = [
-      "$ErrorActionPreference = 'Stop'",
-      `$destination = '${sourceZipPath.replace(/'/g, "''")}'`,
-      `if (Test-Path -LiteralPath $destination) { Remove-Item -LiteralPath $destination -Force }`,
-      `Compress-Archive -Path '${projectRoot.replace(/'/g, "''")}\\*' -DestinationPath $destination -Force`
-    ].join("\n");
-    await run("powershell.exe", ["-NoProfile", "-Command", command], {
-      cwd: projectRoot,
-      timeout: 300000
-    });
+    await stageSourceBackupSnapshot(snapshotDirectory, projectRoot, outputRoot);
+    await createZipArchiveFromDirectory(snapshotDirectory, sourceZipPath);
+  } finally {
+    await removeIfExists(stagingDirectory);
   }
 
   return {
@@ -268,26 +433,8 @@ async function buildWindowsExe(releaseDirectory) {
   }
 }
 
-async function createReleaseArchive(outputRoot, releaseDirectory) {
-  const archivePath = `${releaseDirectory}.zip`;
-  await removeIfExists(archivePath);
-
-  try {
-    await run("tar", ["-a", "-cf", path.basename(archivePath), path.basename(releaseDirectory)], {
-      cwd: outputRoot,
-      timeout: 300000
-    });
-  } catch {
-    const command = [
-      `Compress-Archive -LiteralPath '${releaseDirectory.replace(/'/g, "''")}' -DestinationPath '${archivePath.replace(/'/g, "''")}' -Force`
-    ].join("\n");
-    await run("powershell.exe", ["-NoProfile", "-Command", command], {
-      cwd: outputRoot,
-      timeout: 300000
-    });
-  }
-
-  return archivePath;
+async function createReleaseArchive(releaseDirectory, archivePath) {
+  return createZipArchiveFromDirectory(releaseDirectory, archivePath);
 }
 
 async function verifyWindowsExe(executablePath, releaseDirectory) {
@@ -350,6 +497,7 @@ async function main() {
   const { stdout: branchStdout } = await run("git", ["branch", "--show-current"]);
   const head = headStdout.trim();
   const branch = branchStdout.trim() || "detached-head";
+  const windowsReleaseNames = createWindowsReleaseNames(head);
   const packageJson = JSON.parse(await readFile(path.join(projectRoot, "package.json"), "utf8"));
   const outputRoot = path.join(options.outputDir, `${releaseStamp}-${head}`);
 
@@ -358,13 +506,15 @@ async function main() {
   const backupArtifacts = await createBackups(outputRoot, releaseStamp, head);
 
   if (options.backupOnly) {
-    const manifestPath = await writeManifest(outputRoot, {
-      generatedAt: new Date().toISOString(),
-      branch,
-      commit: head,
-      backupOnly: true,
-      backupArtifacts
-    });
+    const manifestPath = await writeManifest(
+      outputRoot,
+      createReleaseManifestPayload({
+        branch,
+        commit: head,
+        backupOnly: true,
+        backupArtifacts
+      })
+    );
 
     console.log(`Backup bundle: ${backupArtifacts.bundlePath}`);
     console.log(`Source ZIP: ${backupArtifacts.sourceZipPath}`);
@@ -373,7 +523,8 @@ async function main() {
   }
 
   const packageArtifacts = await createPackageTarball(outputRoot);
-  const releaseDirectory = path.join(outputRoot, `ai-factory-starter-win-x64-${head}`);
+  const releaseDirectory = path.join(outputRoot, windowsReleaseNames.releaseDirectoryName);
+  const releaseArchivePath = path.join(outputRoot, windowsReleaseNames.releaseArchiveFileName);
 
   await removeIfExists(releaseDirectory);
   await ensureDirectory(releaseDirectory);
@@ -386,19 +537,27 @@ async function main() {
     "utf8"
   );
   await verifyWindowsExe(executablePath, releaseDirectory);
-  const releaseArchivePath = await createReleaseArchive(outputRoot, releaseDirectory);
-  const manifestPath = await writeManifest(outputRoot, {
-    generatedAt: new Date().toISOString(),
-    branch,
-    commit: head,
-    packageVersion: packageJson.version,
-    backupArtifacts,
-    packageArtifacts,
-    releaseDirectory,
-    releaseArchivePath,
-    executablePath,
-    appDirectory
-  });
+  await createReleaseArchive(releaseDirectory, releaseArchivePath);
+  const manifestPath = await writeManifest(
+    outputRoot,
+    createReleaseManifestPayload({
+      branch,
+      commit: head,
+      backupArtifacts,
+      packageVersion: packageJson.version,
+      packageArtifacts,
+      releaseArtifacts: {
+        nodeArchitecture: windowsReleaseNames.nodeArchitecture,
+        windowsTarget: windowsReleaseNames.windowsTarget,
+        releaseDirectoryName: windowsReleaseNames.releaseDirectoryName,
+        releaseArchiveFileName: windowsReleaseNames.releaseArchiveFileName,
+        releaseDirectory,
+        releaseArchivePath,
+        executablePath,
+        appDirectory
+      }
+    })
+  );
 
   console.log(`Backup bundle: ${backupArtifacts.bundlePath}`);
   console.log(`Source ZIP: ${backupArtifacts.sourceZipPath}`);
@@ -409,7 +568,17 @@ async function main() {
   console.log(`Release manifest: ${manifestPath}`);
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.stack : String(error));
-  process.exitCode = 1;
-});
+function isDirectExecution() {
+  if (!process.argv[1]) {
+    return false;
+  }
+
+  return import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
+}
+
+if (isDirectExecution()) {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.stack : String(error));
+    process.exitCode = 1;
+  });
+}
