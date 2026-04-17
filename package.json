@@ -21,6 +21,8 @@
     "start": "node src/index.mjs",
     "init": "node src/index.mjs init",
     "build": "node scripts/build-check.mjs",
+    "backup:project": "node scripts/release-windows-exe.mjs --backup-only",
+    "release:win": "node scripts/release-windows-exe.mjs",
     "selfcheck": "node scripts/self-check.mjs",
     "pack:check": "node scripts/pack-check.mjs",
     "validate:workflows": "node scripts/validate-workflows.mjs",
@@ -50,6 +52,7 @@
     "@types/node": "^25.6.0",
     "eslint": "^10.2.0",
     "globals": "^17.5.0",
+    "postject": "^1.0.0-alpha.6",
     "typescript": "^6.0.2",
     "yaml": "^2.8.3"
   }

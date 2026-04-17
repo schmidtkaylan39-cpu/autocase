@@ -249,6 +249,26 @@ Recommended release evidence to keep with the candidate:
 - `runs/<run-id>/run-state.json`
 - `runs/<run-id>/report.md`
 
+Windows EXE release build:
+
+```bash
+npm run release:win
+```
+
+This creates:
+
+- a `git bundle` backup
+- a tracked-source ZIP snapshot
+- the npm package tarball
+- a Windows release folder containing `ai-factory-starter.exe` plus its packaged `app/` files
+- a ZIP archive of that Windows release folder
+
+If you only want backup artifacts without building the `.exe`, run:
+
+```bash
+npm run backup:project
+```
+
 Collaboration hygiene:
 
 - line endings are normalized via `.gitattributes` / `.editorconfig` for Windows + Linux collaboration

@@ -3,4 +3,5 @@ runs/
 reports/
 workspace/
 review-bundles/
+release-artifacts/
 *.log
