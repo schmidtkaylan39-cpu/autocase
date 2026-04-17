@@ -5,6 +5,8 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
+import { validateZipArchiveEntryNames } from "../src/lib/zip-archive.mjs";
+
 const execFileAsync = promisify(execFile);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, "..");
@@ -224,6 +226,7 @@ export async function createZipArchiveFromDirectory(sourceDirectory, archivePath
       cwd: path.dirname(sourceDirectory),
       timeout: 300000
     });
+    await validateZipArchiveEntryNames(archivePath);
   } catch {
     const command = [
       `Compress-Archive -LiteralPath '${sourceDirectory.replace(/'/g, "''")}' -DestinationPath '${archivePath.replace(/'/g, "''")}' -Force`
@@ -232,6 +235,7 @@ export async function createZipArchiveFromDirectory(sourceDirectory, archivePath
       cwd: path.dirname(sourceDirectory),
       timeout: 300000
     });
+    await validateZipArchiveEntryNames(archivePath);
   }
 
   return archivePath;

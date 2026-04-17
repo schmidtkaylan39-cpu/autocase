@@ -48,6 +48,13 @@ npm run test:e2e
 npm run doctor
 ```
 
+On a Windows release host, also run packaging smoke:
+
+```bash
+npm run backup:project -- --output-dir reports/release-readiness/backup-smoke
+npm run release:win -- --output-dir reports/release-readiness/windows-release-smoke
+```
+
 Run example pipeline smoke:
 
 ```bash
@@ -67,7 +74,7 @@ Recommended release burn-in:
 Recommended lane interpretation:
 
 - Linux readiness: rely on CI matrix (`ubuntu-latest`) quality + example smoke jobs.
-- Windows readiness: rely on CI matrix (`windows-latest`) quality + example smoke jobs, plus the release-readiness backup smoke path.
+- Windows readiness: rely on CI matrix (`windows-latest`) quality + example smoke jobs, plus the release-readiness backup smoke path and full `release:win` smoke path.
 - Windows soak confidence: rely on release-readiness `burnin-soak` for repeated long-run stability.
 
 Review bundle note:

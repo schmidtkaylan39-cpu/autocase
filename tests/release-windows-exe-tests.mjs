@@ -12,6 +12,7 @@ import {
   getWindowsArchitectureMetadata,
   stageSourceBackupSnapshot
 } from "../scripts/release-windows-exe.mjs";
+import { readZipEntriesFromFile } from "../src/lib/zip-archive.mjs";
 
 const execFileAsync = promisify(execFile);
 
@@ -164,6 +165,10 @@ async function main() {
     await stat(backupArtifacts.sourceZipPath);
     assert.equal(path.dirname(backupArtifacts.sourceZipPath), backupArtifacts.backupsDirectory);
     assert.match(path.basename(backupArtifacts.sourceZipPath), /-source\.zip$/i);
+    const zipEntries = await readZipEntriesFromFile(backupArtifacts.sourceZipPath);
+    assert.ok(zipEntries.length > 0);
+    assert.ok(zipEntries.every((entry) => !entry.name.includes("\\")));
+    assert.ok(zipEntries.some((entry) => entry.name.endsWith("/README.md")));
   });
 
   console.log("Windows release packaging tests passed.");

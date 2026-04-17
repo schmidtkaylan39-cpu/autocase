@@ -260,6 +260,13 @@ Recommended release evidence to keep with the candidate:
 - `runs/<run-id>/run-state.json`
 - `runs/<run-id>/report.md`
 
+On a Windows release host, also run real packaging smoke before promotion:
+
+```bash
+npm run backup:project -- --output-dir reports/release-readiness/backup-smoke
+npm run release:win -- --output-dir reports/release-readiness/windows-release-smoke
+```
+
 Windows EXE release build:
 
 ```bash
@@ -275,6 +282,7 @@ This creates:
 - a ZIP archive of that Windows release folder
 
 `release-manifest.json` records the resolved Windows target label (`win-x64`, `win-arm64`, or `win-x86`) alongside the release directory and archive names.
+The generated source ZIP and release ZIP are also validated so their archived entry paths stay portable (`/` separators, not `\`).
 
 If you only want backup artifacts without building the `.exe`, run:
 
