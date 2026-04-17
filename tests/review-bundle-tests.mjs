@@ -151,6 +151,14 @@ function assertExternalReviewerMetadataText(reviewBrief, reviewPrompt) {
     reviewPrompt,
     /Canonical self-check bundles now retain a per-command log under `repo\/reports\/validation-evidence\/`/i
   );
+  assert.match(
+    reviewBrief,
+    /if you want to rerun commands such as `npm test` or `npm run validate:workflows`, install devDependencies first with `npm ci` from `repo\/`/i
+  );
+  assert.match(
+    reviewPrompt,
+    /if you want to rerun repo-level validations from `repo\/`, run `npm ci` first so devDependencies are available/i
+  );
 }
 
 async function assertBundleEvidencePathsExist(bundleDirectory, validationResults) {

@@ -427,6 +427,7 @@ function renderReviewBrief(manifest) {
     "- `metadata/validation-results.json` now carries `evidenceStrength` and `evidenceSummary` for each result so reviewers can see whether they are looking at retained command logs, additional artifacts, or record-only fallback metadata.",
     "- When a canonical `reports/validation-results.json` is available, self-check results retain per-command logs under `repo/reports/validation-evidence/`, and some commands also include extra command-specific artifacts.",
     "- If a bundle is built without canonical self-check evidence, fallback metadata can still contain `record-only` entries; check `evidenceStrength` before assuming every result is directly inspectable.",
+    "- The bundle is a source snapshot plus retained evidence; if you want to rerun commands such as `npm test` or `npm run validate:workflows`, install devDependencies first with `npm ci` from `repo/`.",
     ...doctorLines,
     ...(evidence.qualityBurnin
       ? [
@@ -553,6 +554,7 @@ function renderReviewPrompt() {
     "- Treat `metadata/validation-results.json` as self-describing validation metadata: use each result's `evidenceStrength` and `evidenceSummary` fields before judging how directly inspectable the retained evidence is.",
     "- Canonical self-check bundles now retain a per-command log under `repo/reports/validation-evidence/`, and some commands also carry extra command-specific artifacts in `evidence`.",
     "- Fallback bundles built without canonical self-check metadata can still contain `record-only` entries.",
+    "- The bundle is not a preinstalled runtime image; if you want to rerun repo-level validations from `repo/`, run `npm ci` first so devDependencies are available.",
     "",
     "Then review the codebase under `repo/`.",
     "",

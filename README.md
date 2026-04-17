@@ -200,6 +200,8 @@ npm run selfcheck
 
 before generating the review bundle. This writes `reports/validation-results.json` and retained command logs under `reports/validation-evidence/`; the bundle retains the canonical file under `repo/reports/validation-results.json` and also emits a bundle-safe export at `metadata/validation-results.json`.
 
+The review bundle is a source snapshot plus retained evidence, not a preinstalled runtime image. If an external reviewer wants to rerun validations from `repo/`, they should run `npm ci` first so devDependencies are available.
+
 ## Release Verification (Delivery Baseline)
 
 Use this as the minimum release gate before promoting changes.
@@ -248,6 +250,7 @@ CI matrix and soak role split:
 - `CI / example-smoke-matrix (ubuntu-latest, windows-latest)`: validate/plan/run/report/handoff/dispatch example flow.
 - `Release Readiness / burnin-soak (windows-latest)`: repeated full burn-in + example pipeline soak for release confidence.
 - `Release Readiness / doctor-observability (windows-latest, non-blocking)`: runtime telemetry and external dependency visibility.
+- `Release Readiness / quick-readiness (windows-latest)`: includes a Windows backup smoke path via `npm run backup:project`.
 
 Recommended release evidence to keep with the candidate:
 

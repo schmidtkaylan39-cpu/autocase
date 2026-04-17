@@ -67,8 +67,13 @@ Recommended release burn-in:
 Recommended lane interpretation:
 
 - Linux readiness: rely on CI matrix (`ubuntu-latest`) quality + example smoke jobs.
-- Windows readiness: rely on CI matrix (`windows-latest`) quality + example smoke jobs.
+- Windows readiness: rely on CI matrix (`windows-latest`) quality + example smoke jobs, plus the release-readiness backup smoke path.
 - Windows soak confidence: rely on release-readiness `burnin-soak` for repeated long-run stability.
+
+Review bundle note:
+
+- the exported review bundle carries source plus validation evidence, not an already installed `node_modules` tree
+- external reviewers who want to rerun repo-level checks from `repo/` should run `npm ci` first
 
 ## External Non-Blocking Warnings
 
