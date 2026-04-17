@@ -22,7 +22,7 @@ function compactTimestamp(timestamp = new Date().toISOString()) {
 }
 
 function safePathLabel(filePath) {
-  return filePath.split(path.sep).join("/");
+  return filePath.replace(/\\/g, "/").split(path.sep).join("/");
 }
 
 async function fileExists(targetPath) {
@@ -144,22 +144,27 @@ function buildValidationResultsArtifact(bundleName, evidenceSummary, generatedAt
   const reportFiles = Array.isArray(evidenceSummary?.reportFiles) ? evidenceSummary.reportFiles : [];
   const includeEvidence = (...suffixes) =>
     reportFiles.filter((reportPath) => suffixes.some((suffix) => reportPath.endsWith(suffix)));
+  const buildResultRecord = (result) => ({
+    ...result,
+    evidenceStrength:
+      Array.isArray(result.evidence) && result.evidence.length > 0 ? "artifact" : "record-only"
+  });
 
   const results = [];
 
   if (Array.isArray(evidenceSummary?.runtimeDoctor) && evidenceSummary.runtimeDoctor.length > 0) {
-    results.push({
+    results.push(buildResultRecord({
       command: "npm run doctor",
       status: evidenceSummary.runtimeDoctor.every((check) => check.ok) ? "passed" : "failed",
       startedAt: null,
       finishedAt: null,
       durationMs: null,
       evidence: includeEvidence("/runtime-doctor.json", "/runtime-doctor.md")
-    });
+    }));
   }
 
   if (evidenceSummary?.qualityBurnin) {
-    results.push({
+    results.push(buildResultRecord({
       command: "npm run burnin",
       status:
         evidenceSummary.qualityBurnin.roundsFailed === 0 && evidenceSummary.qualityBurnin.stepsFailed === 0
@@ -174,11 +179,11 @@ function buildValidationResultsArtifact(bundleName, evidenceSummary, generatedAt
         "/release-burnin-matrix-ready.json",
         "/release-burnin-crossplatform-check.json"
       )
-    });
+    }));
   }
 
   if (evidenceSummary?.exampleBurnin) {
-    results.push({
+    results.push(buildResultRecord({
       command: "npm run burnin:example",
       status:
         evidenceSummary.exampleBurnin.roundsFailed === 0 && evidenceSummary.exampleBurnin.stepsFailed === 0
@@ -192,12 +197,13 @@ function buildValidationResultsArtifact(bundleName, evidenceSummary, generatedAt
         "/example-smoke-burnin-matrix-ready.log",
         "/example-smoke-burnin.log"
       )
-    });
+    }));
   }
 
   return {
     round: bundleName,
     generatedAt,
+    cwd: "repo",
     results,
     notes: [
       "This bundle includes machine-readable validation evidence only for checks with captured artifacts.",
@@ -208,6 +214,65 @@ function buildValidationResultsArtifact(bundleName, evidenceSummary, generatedAt
 
 function isCanonicalValidationResultsArtifact(candidate) {
   return Boolean(candidate) && Array.isArray(candidate.results);
+}
+
+function isAbsoluteFilePath(filePath) {
+  return path.isAbsolute(filePath) || path.win32.isAbsolute(filePath);
+}
+
+function rewriteEvidencePathForBundle(evidencePath, sourceDir) {
+  if (typeof evidencePath !== "string") {
+    return evidencePath;
+  }
+
+  const trimmedPath = evidencePath.trim();
+  if (!trimmedPath) {
+    return trimmedPath;
+  }
+
+  if (isAbsoluteFilePath(trimmedPath)) {
+    const relativePath = path.relative(sourceDir, trimmedPath);
+
+    if (relativePath && !relativePath.startsWith("..") && !path.isAbsolute(relativePath)) {
+      return safePathLabel(path.join("repo", relativePath));
+    }
+
+    return safePathLabel(trimmedPath);
+  }
+
+  const normalizedPath = safePathLabel(trimmedPath).replace(/^\.\//, "");
+  if (
+    normalizedPath.startsWith("repo/") ||
+    normalizedPath.startsWith("metadata/") ||
+    normalizedPath.startsWith("../")
+  ) {
+    return normalizedPath;
+  }
+
+  return safePathLabel(path.join("repo", normalizedPath));
+}
+
+function rewriteValidationResultsForBundle(validationResults, sourceDir) {
+  return {
+    ...validationResults,
+    cwd: "repo",
+    results: validationResults.results.map((result) => {
+      const evidence = Array.isArray(result?.evidence)
+        ? result.evidence.map((evidencePath) => rewriteEvidencePathForBundle(evidencePath, sourceDir))
+        : [];
+
+      return {
+        ...result,
+        evidence,
+        evidenceStrength:
+          result?.evidenceStrength === "artifact" || result?.evidenceStrength === "record-only"
+            ? result.evidenceStrength
+            : evidence.length > 0
+              ? "artifact"
+              : "record-only"
+      };
+    })
+  };
 }
 
 async function collectRunsMetadata(sourceDir) {
@@ -347,6 +412,8 @@ function renderReviewBrief(manifest) {
     "- Are retry-window and hybrid-runtime flows robust under repeated failures or partially written artifacts?",
     "",
     "## Included Evidence",
+    "- `metadata/validation-results.json` mixes retained artifact pointers with structured rerun records; check each result's `evidenceStrength` field before treating it as directly inspectable evidence.",
+    "- In the current starter, only some commands include standalone evidence files in the bundle; the remaining commands are status-and-timing records unless a round captured extra artifacts.",
     ...doctorLines,
     ...(evidence.qualityBurnin
       ? [
@@ -467,6 +534,11 @@ function renderReviewPrompt() {
     "- `repo/templates/proposal-artifact.template.json`",
     "- `repo/templates/failure-feedback.template.json`",
     "- `repo/templates/validation-results.template.json`",
+    "",
+    "Validation evidence note:",
+    "",
+    "- Treat `metadata/validation-results.json` as mixed-strength evidence; use each result's `evidenceStrength` field to distinguish `artifact` from `record-only` entries.",
+    "- Some commands include retained bundle artifacts via `evidence`; others are structured rerun records with status and timing only.",
     "",
     "Then review the codebase under `repo/`.",
     "",
@@ -827,7 +899,7 @@ export async function createReviewBundle({
     path.join(resolvedSourceDir, "reports", "validation-results.json")
   );
   const validationResults = isCanonicalValidationResultsArtifact(canonicalValidationResults)
-    ? canonicalValidationResults
+    ? rewriteValidationResultsForBundle(canonicalValidationResults, resolvedSourceDir)
     : buildValidationResultsArtifact(effectiveBundleName, evidenceSummary);
   await writeJson(validationResultsPath, validationResults);
 

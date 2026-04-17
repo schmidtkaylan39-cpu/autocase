@@ -35,6 +35,10 @@ const commandSpecs = [
   }
 ];
 
+function deriveEvidenceStrength(evidence) {
+  return Array.isArray(evidence) && evidence.length > 0 ? "artifact" : "record-only";
+}
+
 function createInitialArtifact() {
   return {
     generatedAt: new Date().toISOString(),
@@ -67,6 +71,7 @@ async function runCommand(spec) {
         finishedAt: finishedAt.toISOString(),
         durationMs: finishedAt.getTime() - startedAt.getTime(),
         evidence: spec.evidence,
+        evidenceStrength: deriveEvidenceStrength(spec.evidence),
         error: error instanceof Error ? error.message : String(error)
       });
     });
@@ -80,6 +85,7 @@ async function runCommand(spec) {
         finishedAt: finishedAt.toISOString(),
         durationMs: finishedAt.getTime() - startedAt.getTime(),
         evidence: spec.evidence,
+        evidenceStrength: deriveEvidenceStrength(spec.evidence),
         exitCode: code,
         signal: signal ?? null
       });
@@ -101,7 +107,8 @@ async function main() {
         startedAt: null,
         finishedAt: null,
         durationMs: null,
-        evidence: spec.evidence
+        evidence: spec.evidence,
+        evidenceStrength: deriveEvidenceStrength(spec.evidence)
       });
       continue;
     }

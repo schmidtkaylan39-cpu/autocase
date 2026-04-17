@@ -39,6 +39,45 @@ const rolePreferences = {
   verifier: ["local-ci", "manual"]
 };
 
+function getAllowedRoleRuntimeIds(role) {
+  return Object.entries(runtimeDefinitions)
+    .filter(([, runtime]) => runtime.roles.includes(role))
+    .map(([runtimeId]) => runtimeId);
+}
+
+export function resolveRuntimePreferences(role, runtimeRouting = null) {
+  const defaultPreferences = rolePreferences[role] ?? ["manual"];
+  const configuredPreferences = runtimeRouting?.roleOverrides?.[role];
+
+  if (!Array.isArray(configuredPreferences) || configuredPreferences.length === 0) {
+    return {
+      preferences: [...defaultPreferences],
+      source: "default"
+    };
+  }
+
+  const allowedRuntimeIds = new Set(getAllowedRoleRuntimeIds(role));
+  const sanitizedPreferences = configuredPreferences.filter(
+    (runtimeId) => typeof runtimeId === "string" && allowedRuntimeIds.has(runtimeId)
+  );
+
+  if (sanitizedPreferences.length === 0) {
+    return {
+      preferences: [...defaultPreferences],
+      source: "default"
+    };
+  }
+
+  if (!sanitizedPreferences.includes("manual")) {
+    sanitizedPreferences.push("manual");
+  }
+
+  return {
+    preferences: sanitizedPreferences,
+    source: "override"
+  };
+}
+
 export function normalizeRuntimeChecks(report) {
   const checks = report?.checks ?? [];
   const normalized = {};
@@ -71,8 +110,8 @@ export function normalizeRuntimeChecks(report) {
   return normalized;
 }
 
-export function pickRuntimeForRole(role, runtimeChecks) {
-  const preferences = rolePreferences[role] ?? ["manual"];
+export function pickRuntimeForRole(role, runtimeChecks, runtimeRouting = null) {
+  const { preferences, source } = resolveRuntimePreferences(role, runtimeRouting);
 
   for (const [index, runtimeId] of preferences.entries()) {
     const status = runtimeChecks[runtimeId];
@@ -83,8 +122,12 @@ export function pickRuntimeForRole(role, runtimeChecks) {
         status: index === 0 ? "ready" : "fallback",
         reason:
           index === 0
-            ? "This role is intentionally handled through a manual surface by default."
-            : "No ready automated runtime was available, so this task falls back to manual handling."
+            ? source === "override"
+              ? "This role is explicitly routed to a manual surface by runtimeRouting.roleOverrides."
+              : "This role is intentionally handled through a manual surface by default."
+            : source === "override"
+              ? "No override-selected runtime was ready, so this task falls back to manual handling."
+              : "No ready automated runtime was available, so this task falls back to manual handling."
       };
     }
 
@@ -92,7 +135,10 @@ export function pickRuntimeForRole(role, runtimeChecks) {
       return {
         runtimeId,
         status: "ready",
-        reason: `${runtimeDefinitions[runtimeId].label} is ready for this role.`
+        reason:
+          source === "override"
+            ? `${runtimeDefinitions[runtimeId].label} was explicitly enabled for this role via runtimeRouting.roleOverrides.`
+            : `${runtimeDefinitions[runtimeId].label} is ready for this role.`
       };
     }
   }

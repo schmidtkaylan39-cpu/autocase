@@ -45,13 +45,26 @@ Runtime selection is based on:
 Current preference order:
 
 - `orchestrator`: `openclaw`, then `manual`
-- `planner`: `manual`, then `cursor`
-- `reviewer`: `manual`, then `cursor`
+- `planner`: `manual`
+- `reviewer`: `manual`
 - `executor`: `codex`, then `manual`
 - `verifier`: `local-ci`, then `manual`
 
-The first runtime with `ok: true` is selected, except that planner/reviewer work is
-intentional manual-first routing in the current starter.
+Automated roles select the first non-manual runtime with `ok: true`.
+Planner/reviewer work is intentionally manual-only in the default routing table, so Cursor is not auto-selected even when it is available.
+
+If you need an emergency human-side Cursor route, set `runtimeRouting.roleOverrides` in `config/factory.config.json`, for example:
+
+```json
+{
+  "runtimeRouting": {
+    "roleOverrides": {
+      "planner": ["cursor", "manual"],
+      "reviewer": ["cursor", "manual"]
+    }
+  }
+}
+```
 
 If no automated runtime is ready, the task falls back to `manual`.
 
@@ -107,8 +120,9 @@ openclaw agent --local --json --thinking medium --message $message
 
 ### `cursor`
 
-Cursor remains available as an auxiliary human IDE or spot-check surface, but it is not the
-default planner/reviewer route in this starter.
+Cursor remains available as an auxiliary human IDE or spot-check surface, but it is not auto-selected by the default planner/reviewer routing in this starter.
+
+The remaining Cursor launcher path is intentionally live only through an explicit `runtimeRouting.roleOverrides` opt-in.
 
 After an auxiliary surface finishes and writes the required `result.json`, apply it back into the run with:
 

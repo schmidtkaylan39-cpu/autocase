@@ -147,6 +147,7 @@ export function createRunState(spec, plan, config, requestedRunId, workspacePath
     },
     roles: config.roles,
     retryPolicy: config.retryPolicy,
+    runtimeRouting: config.runtimeRouting,
     modelPolicy: config.modelPolicy,
     mandatoryGates: config.mandatoryGates,
     stopConditions: spec.riskStopRules,

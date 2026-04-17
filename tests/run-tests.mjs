@@ -201,6 +201,7 @@ async function main() {
   await runTest("init creates starter folders and spec", async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-init-"));
     const result = await initProject(tempDir);
+    const createdConfig = JSON.parse(await readFile(path.join(tempDir, "config", "factory.config.json"), "utf8"));
 
     assert.match(result.sampleSpecPath, /project-spec\.json$/);
     assert.match(result.configPath, /factory\.config\.json$/);
@@ -208,6 +209,9 @@ async function main() {
     await stat(path.join(tempDir, "specs", "project-spec.json"));
     await stat(path.join(tempDir, "config", "factory.config.json"));
     await stat(path.join(tempDir, "AGENTS.md"));
+    assert.deepEqual(createdConfig.runtimeRouting, {
+      roleOverrides: {}
+    });
   });
 
   await runTest("init preserves an existing workspace harness and config files", async () => {
@@ -256,6 +260,7 @@ async function main() {
     assert.equal(runState.workspacePath, projectRoot);
     assert.equal(runState.modelPolicy.planner.defaultModel, "gpt-5.4");
     assert.equal(runState.modelPolicy.executor.defaultModel, "codex");
+    assert.deepEqual(runState.runtimeRouting.roleOverrides, {});
   });
 
   await runTest("run resolves workspace config and launcher roots from the spec workspace", async () => {
@@ -482,6 +487,44 @@ async function main() {
     assert.equal(handoffDescriptor.model.preferredModel, "gpt-5.4-pro");
     assert.equal(handoffDescriptor.model.selectionMode, "escalated");
     assert.match(handoffDescriptor.promptText, /preferredModel: gpt-5\.4-pro/);
+  });
+
+  await runTest("handoff runtime routing can explicitly opt planner tasks into cursor", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "ai-factory-runtime-override-"));
+    const workspace = path.join(tempRoot, "workspace");
+    const specPath = path.join(workspace, "specs", "project-spec.json");
+    const configPath = path.join(workspace, "config", "factory.config.json");
+    const doctorReportPath = path.join(workspace, "reports", "runtime-doctor.json");
+
+    await mkdir(path.join(workspace, "specs"), { recursive: true });
+    await mkdir(path.join(workspace, "config"), { recursive: true });
+    await mkdir(path.join(workspace, "reports"), { recursive: true });
+    await writeFile(specPath, await readFile(validSpecPath, "utf8"), "utf8");
+    await writeJson(configPath, {
+      runtimeRouting: {
+        roleOverrides: {
+          planner: ["cursor", "manual"]
+        }
+      }
+    });
+    await writeFakeDoctorReport(doctorReportPath, {
+      cursor: { ok: true }
+    });
+
+    const runResult = await runProject(specPath, path.join(workspace, "runs"), "runtime-override-run");
+    const runState = JSON.parse(await readFile(runResult.statePath, "utf8"));
+    const handoffResult = await createRunHandoffs(runResult.statePath, undefined, doctorReportPath);
+    const handoffDescriptor = JSON.parse(
+      await readFile(path.join(handoffResult.outputDir, "planning-brief.handoff.json"), "utf8")
+    );
+
+    assert.deepEqual(runState.runtimeRouting.roleOverrides, {
+      planner: ["cursor", "manual"]
+    });
+    assert.equal(handoffDescriptor.runtime.id, "cursor");
+    assert.equal(handoffDescriptor.runtime.mode, "hybrid");
+    assert.match(handoffDescriptor.runtime.selectionReason, /explicitly enabled/i);
+    assert.match(handoffDescriptor.launcherScript, /\bcursor -n\b/i);
   });
 
   await runTest("handoff generation uses the workspace path persisted in run-state", async () => {

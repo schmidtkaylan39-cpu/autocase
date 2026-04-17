@@ -55,6 +55,9 @@
     "stopOnRiskRules": true,
     "maxConsecutiveFailures": 3
   },
+  "runtimeRouting": {
+    "roleOverrides": {}
+  },
   "modelPolicy": {
     "orchestrator": {
       "defaultModel": "openclaw",

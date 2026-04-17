@@ -57,6 +57,9 @@ export const defaultFactoryConfig = {
     stopOnRiskRules: true,
     maxConsecutiveFailures: 3
   },
+  runtimeRouting: {
+    roleOverrides: {}
+  },
   modelPolicy: defaultModelPolicy,
   artifacts: {
     runDirectory: "runs",
