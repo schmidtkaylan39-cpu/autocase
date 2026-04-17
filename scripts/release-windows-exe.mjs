@@ -221,6 +221,15 @@ export async function stageSourceBackupSnapshot(
 export async function createZipArchiveFromDirectory(sourceDirectory, archivePath) {
   await removeIfExists(archivePath);
 
+  if (process.platform !== "win32") {
+    await run("zip", ["-qr", archivePath, path.basename(sourceDirectory)], {
+      cwd: path.dirname(sourceDirectory),
+      timeout: 300000
+    });
+    await validateZipArchiveEntryNames(archivePath);
+    return archivePath;
+  }
+
   try {
     await run("tar", ["-a", "-cf", archivePath, path.basename(sourceDirectory)], {
       cwd: path.dirname(sourceDirectory),
