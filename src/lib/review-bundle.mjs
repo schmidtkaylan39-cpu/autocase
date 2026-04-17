@@ -144,22 +144,27 @@ function buildValidationResultsArtifact(bundleName, evidenceSummary, generatedAt
   const reportFiles = Array.isArray(evidenceSummary?.reportFiles) ? evidenceSummary.reportFiles : [];
   const includeEvidence = (...suffixes) =>
     reportFiles.filter((reportPath) => suffixes.some((suffix) => reportPath.endsWith(suffix)));
+  const buildResultRecord = (result) => ({
+    ...result,
+    evidenceStrength:
+      Array.isArray(result.evidence) && result.evidence.length > 0 ? "artifact" : "record-only"
+  });
 
   const results = [];
 
   if (Array.isArray(evidenceSummary?.runtimeDoctor) && evidenceSummary.runtimeDoctor.length > 0) {
-    results.push({
+    results.push(buildResultRecord({
       command: "npm run doctor",
       status: evidenceSummary.runtimeDoctor.every((check) => check.ok) ? "passed" : "failed",
       startedAt: null,
       finishedAt: null,
       durationMs: null,
       evidence: includeEvidence("/runtime-doctor.json", "/runtime-doctor.md")
-    });
+    }));
   }
 
   if (evidenceSummary?.qualityBurnin) {
-    results.push({
+    results.push(buildResultRecord({
       command: "npm run burnin",
       status:
         evidenceSummary.qualityBurnin.roundsFailed === 0 && evidenceSummary.qualityBurnin.stepsFailed === 0
@@ -174,11 +179,11 @@ function buildValidationResultsArtifact(bundleName, evidenceSummary, generatedAt
         "/release-burnin-matrix-ready.json",
         "/release-burnin-crossplatform-check.json"
       )
-    });
+    }));
   }
 
   if (evidenceSummary?.exampleBurnin) {
-    results.push({
+    results.push(buildResultRecord({
       command: "npm run burnin:example",
       status:
         evidenceSummary.exampleBurnin.roundsFailed === 0 && evidenceSummary.exampleBurnin.stepsFailed === 0
@@ -192,7 +197,7 @@ function buildValidationResultsArtifact(bundleName, evidenceSummary, generatedAt
         "/example-smoke-burnin-matrix-ready.log",
         "/example-smoke-burnin.log"
       )
-    });
+    }));
   }
 
   return {
@@ -251,12 +256,22 @@ function rewriteValidationResultsForBundle(validationResults, sourceDir) {
   return {
     ...validationResults,
     cwd: "repo",
-    results: validationResults.results.map((result) => ({
-      ...result,
-      evidence: Array.isArray(result?.evidence)
+    results: validationResults.results.map((result) => {
+      const evidence = Array.isArray(result?.evidence)
         ? result.evidence.map((evidencePath) => rewriteEvidencePathForBundle(evidencePath, sourceDir))
-        : []
-    }))
+        : [];
+
+      return {
+        ...result,
+        evidence,
+        evidenceStrength:
+          result?.evidenceStrength === "artifact" || result?.evidenceStrength === "record-only"
+            ? result.evidenceStrength
+            : evidence.length > 0
+              ? "artifact"
+              : "record-only"
+      };
+    })
   };
 }
 
@@ -397,7 +412,7 @@ function renderReviewBrief(manifest) {
     "- Are retry-window and hybrid-runtime flows robust under repeated failures or partially written artifacts?",
     "",
     "## Included Evidence",
-    "- `metadata/validation-results.json` mixes retained artifact pointers with structured rerun records.",
+    "- `metadata/validation-results.json` mixes retained artifact pointers with structured rerun records; check each result's `evidenceStrength` field before treating it as directly inspectable evidence.",
     "- In the current starter, only some commands include standalone evidence files in the bundle; the remaining commands are status-and-timing records unless a round captured extra artifacts.",
     ...doctorLines,
     ...(evidence.qualityBurnin
@@ -522,7 +537,7 @@ function renderReviewPrompt() {
     "",
     "Validation evidence note:",
     "",
-    "- Treat `metadata/validation-results.json` as mixed-strength evidence.",
+    "- Treat `metadata/validation-results.json` as mixed-strength evidence; use each result's `evidenceStrength` field to distinguish `artifact` from `record-only` entries.",
     "- Some commands include retained bundle artifacts via `evidence`; others are structured rerun records with status and timing only.",
     "",
     "Then review the codebase under `repo/`.",

@@ -84,6 +84,7 @@ Recommended fields:
 - startedAt
 - finishedAt
 - durationMs
+- evidenceStrength
 - evidence
 
 Starter template:
@@ -98,6 +99,7 @@ The exported metadata variant should stay bundle-safe:
 
 - use bundle-relative evidence paths such as `repo/reports/runtime-doctor.json`
 - avoid leaking host-specific working directories; use a bundle-local value such as `repo` instead
+- describe whether each result is backed by retained bundle artifacts (`artifact`) or only by structured execution metadata (`record-only`)
 - expect some commands to remain status-and-timing-only when they do not retain standalone artifacts
 
 ## Recommended Phase Mapping

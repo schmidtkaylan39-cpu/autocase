@@ -117,6 +117,14 @@ function assertValidationResultsUseBundleSafePaths(validationResults) {
   assert.equal(validationResults.cwd, "repo");
 
   for (const result of validationResults.results) {
+    const expectedEvidenceStrength =
+      Array.isArray(result.evidence) && result.evidence.length > 0 ? "artifact" : "record-only";
+    assert.equal(
+      result.evidenceStrength,
+      expectedEvidenceStrength,
+      `Unexpected evidenceStrength for ${result.command}`
+    );
+
     for (const evidencePath of Array.isArray(result.evidence) ? result.evidence : []) {
       assert.equal(isAbsoluteBundlePath(evidencePath), false, `Evidence path must be bundle-relative: ${evidencePath}`);
       assert.doesNotMatch(evidencePath, /^\.\.(?:\/|\\)/, `Evidence path must stay inside the bundle: ${evidencePath}`);
@@ -127,13 +135,16 @@ function assertValidationResultsUseBundleSafePaths(validationResults) {
 function assertExternalReviewerMetadataText(reviewBrief, reviewPrompt) {
   assert.match(
     reviewBrief,
-    /metadata\/validation-results\.json.*mixes retained artifact pointers with structured rerun records/i
+    /metadata\/validation-results\.json.*mixes retained artifact pointers with structured rerun records; check each result's `evidenceStrength` field/i
   );
   assert.match(
     reviewBrief,
     /only some commands include standalone evidence files in the bundle; the remaining commands are status-and-timing records/i
   );
-  assert.match(reviewPrompt, /Treat `metadata\/validation-results\.json` as mixed-strength evidence\./);
+  assert.match(
+    reviewPrompt,
+    /Treat `metadata\/validation-results\.json` as mixed-strength evidence; use each result's `evidenceStrength` field to distinguish `artifact` from `record-only` entries\./
+  );
   assert.match(
     reviewPrompt,
     /Some commands include retained bundle artifacts via `evidence`; others are structured rerun records with status and timing only\./
@@ -239,6 +250,7 @@ async function main() {
           startedAt: "2026-04-16T01:00:00.000Z",
           finishedAt: "2026-04-16T01:00:02.000Z",
           durationMs: 2000,
+          evidenceStrength: "record-only",
           evidence: []
         },
         {
@@ -247,6 +259,7 @@ async function main() {
           startedAt: "2026-04-16T01:00:03.000Z",
           finishedAt: "2026-04-16T01:00:13.000Z",
           durationMs: 10000,
+          evidenceStrength: "artifact",
           evidence: ["reports/test-output.log"]
         }
       ]
@@ -419,6 +432,7 @@ async function main() {
           startedAt: "2026-04-16T02:00:00.000Z",
           finishedAt: "2026-04-16T02:00:01.000Z",
           durationMs: 1000,
+          evidenceStrength: "artifact",
           evidence: ["reports/archive-proof.log"]
         }
       ]
@@ -493,6 +507,7 @@ async function main() {
           startedAt: "2026-04-16T03:00:00.000Z",
           finishedAt: "2026-04-16T03:00:01.000Z",
           durationMs: 1000,
+          evidenceStrength: "record-only",
           evidence: []
         }
       ]
