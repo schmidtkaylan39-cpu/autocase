@@ -124,6 +124,22 @@ function assertValidationResultsUseBundleSafePaths(validationResults) {
   }
 }
 
+function assertExternalReviewerMetadataText(reviewBrief, reviewPrompt) {
+  assert.match(
+    reviewBrief,
+    /metadata\/validation-results\.json.*mixes retained artifact pointers with structured rerun records/i
+  );
+  assert.match(
+    reviewBrief,
+    /only some commands include standalone evidence files in the bundle; the remaining commands are status-and-timing records/i
+  );
+  assert.match(reviewPrompt, /Treat `metadata\/validation-results\.json` as mixed-strength evidence\./);
+  assert.match(
+    reviewPrompt,
+    /Some commands include retained bundle artifacts via `evidence`; others are structured rerun records with status and timing only\./
+  );
+}
+
 async function assertBundleEvidencePathsExist(bundleDirectory, validationResults) {
   for (const result of validationResults.results) {
     for (const evidencePath of Array.isArray(result.evidence) ? result.evidence : []) {
@@ -360,6 +376,7 @@ async function main() {
     assert.match(reviewBrief, /repo\/templates\/proposal-artifact\.template\.json/);
     assert.match(reviewBrief, /repo\/templates\/failure-feedback\.template\.json/);
     assert.match(reviewBrief, /repo\/templates\/validation-results\.template\.json/);
+    assertExternalReviewerMetadataText(reviewBrief, reviewPrompt);
     assert.match(patchNotes, /# Patch Notes/);
     assert.match(patchNotes, /Included Review Context/);
     assert.deepEqual(validationResults, bundledValidationResults);
@@ -441,6 +458,9 @@ async function main() {
       assert.equal(archivedManifest.paths.patchNotesPath, "metadata/patch-notes.md");
       assert.ok(typeof archivedManifest.archive.path === "string" && archivedManifest.archive.path.length > 0);
       assert.match(briefEntry.text, /Archive:\s+(?!directory only).+/i);
+      assertExternalReviewerMetadataText(briefEntry.text, zipEntries.find((entry) =>
+        entry.name.endsWith("/metadata/external-ai-review-prompt.md")
+      )?.text ?? "");
       assert.match(patchNotesEntry.text, /# Patch Notes/);
       const archivedValidationResults = JSON.parse(validationResultsEntry.text);
       assert.ok(Array.isArray(archivedValidationResults.results));
@@ -448,6 +468,51 @@ async function main() {
       assert.deepEqual(archivedValidationResults.results[0]?.evidence, ["repo/reports/archive-proof.log"]);
       assertArchiveEvidencePathsExist(zipEntries, bundleRootName, archivedValidationResults);
     }
+  });
+
+  await runTest("review bundle metadata stays reviewer-readable from the bundle root", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "ai-factory-review-bundle-metadata-"));
+    const sourceDir = path.join(tempRoot, "source");
+    const outputDir = path.join(tempRoot, "output");
+
+    await mkdir(path.join(sourceDir, "src"), { recursive: true });
+    await mkdir(path.join(sourceDir, "reports"), { recursive: true });
+    await writeJson(path.join(sourceDir, "package.json"), {
+      name: "bundle-metadata-fixture",
+      version: "0.2.0"
+    });
+    await writeFile(path.join(sourceDir, "README.md"), "# Metadata Fixture\n", "utf8");
+    await writeFile(path.join(sourceDir, "src", "index.mjs"), "export const metadata = true;\n", "utf8");
+    await writeJson(path.join(sourceDir, "reports", "validation-results.json"), {
+      generatedAt: "2026-04-16T03:00:00.000Z",
+      cwd: sourceDir,
+      results: [
+        {
+          command: "npm run doctor",
+          status: "passed",
+          startedAt: "2026-04-16T03:00:00.000Z",
+          finishedAt: "2026-04-16T03:00:01.000Z",
+          durationMs: 1000,
+          evidence: []
+        }
+      ]
+    });
+
+    const result = await createReviewBundle({
+      sourceDir,
+      outputDir,
+      bundleName: "fixture-metadata-view",
+      archive: false
+    });
+    const bundleRoot = result.bundleDirectory;
+    const reviewBrief = await readFile(path.join(bundleRoot, "metadata", "external-ai-review-brief.md"), "utf8");
+    const reviewPrompt = await readFile(path.join(bundleRoot, "metadata", "external-ai-review-prompt.md"), "utf8");
+    const validationResults = JSON.parse(
+      await readFile(path.join(bundleRoot, "metadata", "validation-results.json"), "utf8")
+    );
+
+    assertExternalReviewerMetadataText(reviewBrief, reviewPrompt);
+    assertValidationResultsUseBundleSafePaths(validationResults);
   });
 
   await runTest("review bundle falls back to directory metadata when archive creation fails", async () => {

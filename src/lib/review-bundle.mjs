@@ -397,6 +397,8 @@ function renderReviewBrief(manifest) {
     "- Are retry-window and hybrid-runtime flows robust under repeated failures or partially written artifacts?",
     "",
     "## Included Evidence",
+    "- `metadata/validation-results.json` mixes retained artifact pointers with structured rerun records.",
+    "- In the current starter, only some commands include standalone evidence files in the bundle; the remaining commands are status-and-timing records unless a round captured extra artifacts.",
     ...doctorLines,
     ...(evidence.qualityBurnin
       ? [
@@ -517,6 +519,11 @@ function renderReviewPrompt() {
     "- `repo/templates/proposal-artifact.template.json`",
     "- `repo/templates/failure-feedback.template.json`",
     "- `repo/templates/validation-results.template.json`",
+    "",
+    "Validation evidence note:",
+    "",
+    "- Treat `metadata/validation-results.json` as mixed-strength evidence.",
+    "- Some commands include retained bundle artifacts via `evidence`; others are structured rerun records with status and timing only.",
     "",
     "Then review the codebase under `repo/`.",
     "",
