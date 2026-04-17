@@ -58,6 +58,45 @@ function normalizeRelativePath(relativePath) {
   return String(relativePath).replace(/\\/g, "/").replace(/^\.\/+/, "").replace(/\/+$/, "");
 }
 
+function isGeneratedReleaseRunSegment(segment) {
+  return /^\d{8}-\d{6}-[0-9a-f]{7,40}$/i.test(segment);
+}
+
+function isGeneratedReleaseArtifactName(segment) {
+  return (
+    /^ai-factory-starter-win-(x64|arm64|x86)-[0-9a-f]{7,40}$/i.test(segment) ||
+    /^ai-factory-starter-win-(x64|arm64|x86)-[0-9a-f]{7,40}\.zip$/i.test(segment)
+  );
+}
+
+function isGeneratedReleaseOutputPath(normalizedPath) {
+  const segments = normalizeRelativePath(normalizedPath).split("/").filter(Boolean);
+  const releaseRunIndex = segments.findIndex(isGeneratedReleaseRunSegment);
+
+  if (releaseRunIndex < 0 || releaseRunIndex === segments.length - 1) {
+    return false;
+  }
+
+  const firstChildSegment = segments[releaseRunIndex + 1];
+  return (
+    firstChildSegment === "backups" ||
+    firstChildSegment === "packages" ||
+    firstChildSegment === "release-manifest.json" ||
+    isGeneratedReleaseArtifactName(firstChildSegment)
+  );
+}
+
+function isSiblingGeneratedReleaseOutputPath(normalizedPath, normalizedOutputPath) {
+  const outputTopLevelSegment = normalizeRelativePath(normalizedOutputPath).split("/").filter(Boolean)[0];
+  const pathTopLevelSegment = normalizeRelativePath(normalizedPath).split("/").filter(Boolean)[0];
+
+  if (!outputTopLevelSegment || pathTopLevelSegment !== outputTopLevelSegment) {
+    return false;
+  }
+
+  return isGeneratedReleaseOutputPath(normalizedPath);
+}
+
 function isNestedProjectPath(relativePath) {
   if (!relativePath) {
     return false;
@@ -117,7 +156,36 @@ export function shouldExcludeFromSourceBackup(relativePath, nestedOutputRelative
   }
 
   const normalizedOutputPath = normalizeRelativePath(nestedOutputRelativePath);
-  return normalizedPath === normalizedOutputPath || normalizedPath.startsWith(`${normalizedOutputPath}/`);
+  return (
+    normalizedPath === normalizedOutputPath ||
+    normalizedPath.startsWith(`${normalizedOutputPath}/`) ||
+    isSiblingGeneratedReleaseOutputPath(normalizedPath, normalizedOutputPath)
+  );
+}
+
+export async function reserveReleaseOutputRoot(baseOutputDir, releaseStamp, shortHead) {
+  const resolvedBaseOutputDir = path.resolve(baseOutputDir);
+  const outputRootBaseName = `${releaseStamp}-${shortHead}`;
+
+  await ensureDirectory(resolvedBaseOutputDir);
+
+  for (let attempt = 0; attempt < 1000; attempt += 1) {
+    const suffix = attempt === 0 ? "" : `-${attempt + 1}`;
+    const candidatePath = path.join(resolvedBaseOutputDir, `${outputRootBaseName}${suffix}`);
+
+    try {
+      await mkdir(candidatePath, { recursive: false });
+      return candidatePath;
+    } catch (error) {
+      if (error?.code === "EEXIST") {
+        continue;
+      }
+
+      throw error;
+    }
+  }
+
+  throw new Error(`Could not reserve a unique release output directory under ${resolvedBaseOutputDir}.`);
 }
 
 async function run(command, args, options = {}) {
@@ -527,9 +595,7 @@ async function main() {
   const branch = branchStdout.trim() || "detached-head";
   const windowsReleaseNames = createWindowsReleaseNames(head);
   const packageJson = JSON.parse(await readFile(path.join(projectRoot, "package.json"), "utf8"));
-  const outputRoot = path.join(options.outputDir, `${releaseStamp}-${head}`);
-
-  await ensureDirectory(outputRoot);
+  const outputRoot = await reserveReleaseOutputRoot(options.outputDir, releaseStamp, head);
 
   const backupArtifacts = await createBackups(outputRoot, releaseStamp, head);
 

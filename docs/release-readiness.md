@@ -11,7 +11,7 @@ Snapshot date: 2026-04-16 (Asia/Shanghai).
 - Clarification gate is now enforced ahead of planning and execution:
   - workspace-level `artifacts/clarification/intake-spec.json`
   - workspace-level `artifacts/clarification/intake-summary.md`
-  - fail-closed blocking on `plan`, `run`, `handoff`, and `dispatch` until confirmation
+  - fail-closed blocking on `plan`, `run`, `handoff`, `dispatch`, `task update`, `retry`, `tick`, and result application until confirmation
 - Run lifecycle artifacts are generated and maintained:
   - `execution-plan.json`, `run-state.json`, `report.md`, task briefs, handoff descriptors, launchers
 - Dispatch execute loopback is implemented:
@@ -28,7 +28,8 @@ Snapshot date: 2026-04-16 (Asia/Shanghai).
 - GitHub Actions CI uses Windows+Linux matrix in `.github/workflows/ci.yml`:
   - `quality-matrix`: `ubuntu-latest` and `windows-latest`
   - `example-smoke-matrix`: `ubuntu-latest` and `windows-latest`
-- Release soak is split into `.github/workflows/release-readiness.yml` on `windows-latest`:
+- Release readiness is split across `.github/workflows/release-readiness.yml`:
+  - `quick-readiness`: `ubuntu-latest` + `windows-latest` release gate with Windows packaging smoke
   - `burnin-soak`: high-duration repeated burn-in lane
   - `doctor-observability`: non-blocking runtime observability lane
 

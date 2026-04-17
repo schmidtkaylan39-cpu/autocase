@@ -10,6 +10,7 @@ import {
   createReleaseManifestPayload,
   createWindowsReleaseNames,
   getWindowsArchitectureMetadata,
+  reserveReleaseOutputRoot,
   stageSourceBackupSnapshot
 } from "../scripts/release-windows-exe.mjs";
 import { readZipEntriesFromFile } from "../src/lib/zip-archive.mjs";
@@ -84,6 +85,24 @@ async function main() {
     await mkdir(path.join(projectRoot, "release-artifacts", "older-run"), { recursive: true });
     await mkdir(path.join(projectRoot, "custom-output", "nested-release", "generated"), { recursive: true });
     await mkdir(path.join(projectRoot, "custom-output"), { recursive: true });
+    await mkdir(
+      path.join(projectRoot, "custom-output", "windows-release-smoke", "20260417-000000-abc1234", "backups"),
+      { recursive: true }
+    );
+    await mkdir(
+      path.join(projectRoot, "custom-output", "windows-release-smoke", "20260417-000000-abc1234", "packages"),
+      { recursive: true }
+    );
+    await mkdir(
+      path.join(
+        projectRoot,
+        "custom-output",
+        "windows-release-smoke",
+        "20260417-000000-abc1234",
+        "ai-factory-starter-win-x64-abc1234"
+      ),
+      { recursive: true }
+    );
 
     await writeFile(path.join(projectRoot, "README.md"), "release test\n", "utf8");
     await writeFile(path.join(projectRoot, "src", "index.mjs"), "export {};\n", "utf8");
@@ -96,6 +115,70 @@ async function main() {
       "generated\n",
       "utf8"
     );
+    await writeFile(
+      path.join(
+        projectRoot,
+        "custom-output",
+        "windows-release-smoke",
+        "20260417-000000-abc1234",
+        "release-manifest.json"
+      ),
+      "{}\n",
+      "utf8"
+    );
+    await writeFile(
+      path.join(
+        projectRoot,
+        "custom-output",
+        "windows-release-smoke",
+        "20260417-000000-abc1234",
+        "backups",
+        "ai-factory-starter-20260417-000000-abc1234.git.bundle.lock"
+      ),
+      "lock\n",
+      "utf8"
+    );
+    await writeFile(
+      path.join(
+        projectRoot,
+        "custom-output",
+        "windows-release-smoke",
+        "20260417-000000-abc1234",
+        "packages",
+        "ai-factory-starter-0.1.0.tgz"
+      ),
+      "package\n",
+      "utf8"
+    );
+    await writeFile(
+      path.join(
+        projectRoot,
+        "custom-output",
+        "windows-release-smoke",
+        "20260417-000000-abc1234",
+        "ai-factory-starter-win-x64-abc1234",
+        "ai-factory-starter.exe"
+      ),
+      "exe\n",
+      "utf8"
+    );
+    await writeFile(
+      path.join(
+        projectRoot,
+        "custom-output",
+        "windows-release-smoke",
+        "20260417-000000-abc1234",
+        "ai-factory-starter-win-x64-abc1234.zip"
+      ),
+      "zip\n",
+      "utf8"
+    );
+    await mkdir(path.join(projectRoot, "notes", "20260417-000000-abc1234", "backups"), { recursive: true });
+    await writeFile(
+      path.join(projectRoot, "notes", "20260417-000000-abc1234", "backups", "release-notes.md"),
+      "keep me\n",
+      "utf8"
+    );
 
     const result = await stageSourceBackupSnapshot(snapshotRoot, projectRoot, outputRoot);
     const stagedRelativePaths = result.files.map((file) => file.relativePath);
@@ -103,10 +186,16 @@ async function main() {
     assert.ok(stagedRelativePaths.includes("README.md"));
     assert.ok(stagedRelativePaths.includes("src/index.mjs"));
     assert.ok(stagedRelativePaths.includes("custom-output/keep.txt"));
+    assert.ok(stagedRelativePaths.includes("notes/20260417-000000-abc1234/backups/release-notes.md"));
     assert.ok(!stagedRelativePaths.some((file) => file.startsWith(".git/")));
     assert.ok(!stagedRelativePaths.some((file) => file.startsWith("node_modules/")));
     assert.ok(!stagedRelativePaths.some((file) => file.startsWith("release-artifacts/")));
     assert.ok(!stagedRelativePaths.some((file) => file.startsWith("custom-output/nested-release/")));
+    assert.ok(
+      !stagedRelativePaths.some((file) =>
+        file.startsWith("custom-output/windows-release-smoke/20260417-000000-abc1234/")
+      )
+    );
 
     await stat(path.join(snapshotRoot, "README.md"));
     await stat(path.join(snapshotRoot, "src", "index.mjs"));
@@ -115,6 +204,33 @@ async function main() {
     await assert.rejects(
       () => stat(path.join(snapshotRoot, "custom-output", "nested-release", "generated", "artifact.txt"))
     );
+    await assert.rejects(
+      () =>
+        stat(
+          path.join(
+            snapshotRoot,
+            "custom-output",
+            "windows-release-smoke",
+            "20260417-000000-abc1234",
+            "backups",
+            "ai-factory-starter-20260417-000000-abc1234.git.bundle.lock"
+          )
+        )
+    );
+  });
+
+  await runTest("release output root reservation avoids same-second collisions", async () => {
+    const outputRoot = await mkdtemp(path.join(os.tmpdir(), "ai-factory-release-output-root-"));
+    const [firstPath, secondPath] = await Promise.all([
+      reserveReleaseOutputRoot(outputRoot, "20260417-000000", "abc1234"),
+      reserveReleaseOutputRoot(outputRoot, "20260417-000000", "abc1234")
+    ]);
+
+    assert.notEqual(firstPath, secondPath);
+    assert.equal(path.basename(firstPath), "20260417-000000-abc1234");
+    assert.equal(path.basename(secondPath), "20260417-000000-abc1234-2");
+    await stat(firstPath);
+    await stat(secondPath);
   });
 
   await runTest("release manifest payload records architecture-aware Windows artifact names", async () => {

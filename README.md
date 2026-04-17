@@ -245,12 +245,11 @@ npm run burnin
 
 CI matrix and soak role split:
 
-- `CI / quality-matrix (ubuntu-latest, windows-latest)`: build, lint, typecheck, test, e2e.
-- `CI / quality-matrix (ubuntu-latest, windows-latest)`: workflow validation, build, lint, typecheck, test, e2e.
+- `CI / quality-matrix (ubuntu-latest, windows-latest)`: workflow validation, build, package smoke, lint, typecheck, test, e2e.
 - `CI / example-smoke-matrix (ubuntu-latest, windows-latest)`: validate/plan/run/report/handoff/dispatch example flow.
+- `Release Readiness / quick-readiness (ubuntu-latest, windows-latest)`: cross-platform release gate, with Windows-only `backup:project` and `release:win` smoke.
 - `Release Readiness / burnin-soak (windows-latest)`: repeated full burn-in + example pipeline soak for release confidence.
 - `Release Readiness / doctor-observability (windows-latest, non-blocking)`: runtime telemetry and external dependency visibility.
-- `Release Readiness / quick-readiness (windows-latest)`: includes a Windows backup smoke path via `npm run backup:project`.
 
 Recommended release evidence to keep with the candidate:
 
