@@ -115,8 +115,8 @@ The runtime registry currently defines:
 Runtime preference order is currently:
 
 - orchestrator: `openclaw`, then `manual`
-- planner: `manual`, then `cursor`
-- reviewer: `manual`, then `cursor`
+- planner: `manual`
+- reviewer: `manual`
 - executor: `codex`, then `manual`
 - verifier: `local-ci`, then `manual`
 
@@ -126,7 +126,7 @@ This now aligns the starter with its intended operating model:
 - GPT-5.4 / GPT-5.4 Pro drive planning and review work through manual-first handoffs
 - Codex executes implementation work
 - local CI verifies
-- Cursor remains an auxiliary human IDE / spot-check surface instead of the default workflow owner
+- Cursor remains an auxiliary human IDE / spot-check surface and is not auto-selected by the default planner/reviewer route
 
 ## Model Policy
 
@@ -209,7 +209,7 @@ The launcher:
 ### Cursor
 
 Cursor remains available as an auxiliary human IDE or spot-check surface.
-It is not the default planner/reviewer runtime route in this starter.
+It is not auto-selected by the default planner/reviewer runtime route in this starter.
 
 ### Codex
 

@@ -22,7 +22,7 @@ function compactTimestamp(timestamp = new Date().toISOString()) {
 }
 
 function safePathLabel(filePath) {
-  return filePath.split(path.sep).join("/");
+  return filePath.replace(/\\/g, "/").split(path.sep).join("/");
 }
 
 async function fileExists(targetPath) {
@@ -208,6 +208,54 @@ function buildValidationResultsArtifact(bundleName, evidenceSummary, generatedAt
 
 function isCanonicalValidationResultsArtifact(candidate) {
   return Boolean(candidate) && Array.isArray(candidate.results);
+}
+
+function isAbsoluteFilePath(filePath) {
+  return path.isAbsolute(filePath) || path.win32.isAbsolute(filePath);
+}
+
+function rewriteEvidencePathForBundle(evidencePath, sourceDir) {
+  if (typeof evidencePath !== "string") {
+    return evidencePath;
+  }
+
+  const trimmedPath = evidencePath.trim();
+  if (!trimmedPath) {
+    return trimmedPath;
+  }
+
+  if (isAbsoluteFilePath(trimmedPath)) {
+    const relativePath = path.relative(sourceDir, trimmedPath);
+
+    if (relativePath && !relativePath.startsWith("..") && !path.isAbsolute(relativePath)) {
+      return safePathLabel(path.join("repo", relativePath));
+    }
+
+    return safePathLabel(trimmedPath);
+  }
+
+  const normalizedPath = safePathLabel(trimmedPath).replace(/^\.\//, "");
+  if (
+    normalizedPath.startsWith("repo/") ||
+    normalizedPath.startsWith("metadata/") ||
+    normalizedPath.startsWith("../")
+  ) {
+    return normalizedPath;
+  }
+
+  return safePathLabel(path.join("repo", normalizedPath));
+}
+
+function rewriteValidationResultsForBundle(validationResults, sourceDir) {
+  return {
+    ...validationResults,
+    results: validationResults.results.map((result) => ({
+      ...result,
+      evidence: Array.isArray(result?.evidence)
+        ? result.evidence.map((evidencePath) => rewriteEvidencePathForBundle(evidencePath, sourceDir))
+        : []
+    }))
+  };
 }
 
 async function collectRunsMetadata(sourceDir) {
@@ -827,7 +875,7 @@ export async function createReviewBundle({
     path.join(resolvedSourceDir, "reports", "validation-results.json")
   );
   const validationResults = isCanonicalValidationResultsArtifact(canonicalValidationResults)
-    ? canonicalValidationResults
+    ? rewriteValidationResultsForBundle(canonicalValidationResults, resolvedSourceDir)
     : buildValidationResultsArtifact(effectiveBundleName, evidenceSummary);
   await writeJson(validationResultsPath, validationResults);
 

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -322,6 +322,22 @@ async function main() {
       extension: ".sh",
       language: "bash"
     });
+  });
+
+  await runTest("routing docs stay aligned with manual-only planner and reviewer selection", async () => {
+    const handoffsDoc = await readFile(new URL("../docs/handoffs.md", import.meta.url), "utf8");
+    const architectureDoc = await readFile(new URL("../docs/architecture.md", import.meta.url), "utf8");
+
+    assert.match(handoffsDoc, /- `planner`: `manual`/);
+    assert.match(handoffsDoc, /- `reviewer`: `manual`/);
+    assert.doesNotMatch(handoffsDoc, /`manual`, then `cursor`/);
+    assert.doesNotMatch(handoffsDoc, /The first runtime with `ok: true` is selected/i);
+    assert.match(handoffsDoc, /Cursor remains available as an auxiliary human IDE or spot-check surface, but it is not auto-selected/i);
+
+    assert.match(architectureDoc, /- planner: `manual`/);
+    assert.match(architectureDoc, /- reviewer: `manual`/);
+    assert.doesNotMatch(architectureDoc, /`manual`, then `cursor`/);
+    assert.match(architectureDoc, /Cursor remains an auxiliary human IDE \/ spot-check surface and is not auto-selected/i);
   });
 
   console.log("All runtime-registry tests passed.");
