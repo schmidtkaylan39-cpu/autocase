@@ -53,6 +53,19 @@ Current preference order:
 Automated roles select the first non-manual runtime with `ok: true`.
 Planner/reviewer work is intentionally manual-only in the default routing table, so Cursor is not auto-selected even when it is available.
 
+If you need an emergency human-side Cursor route, set `runtimeRouting.roleOverrides` in `config/factory.config.json`, for example:
+
+```json
+{
+  "runtimeRouting": {
+    "roleOverrides": {
+      "planner": ["cursor", "manual"],
+      "reviewer": ["cursor", "manual"]
+    }
+  }
+}
+```
+
 If no automated runtime is ready, the task falls back to `manual`.
 
 ## Files generated per ready task
@@ -108,6 +121,8 @@ openclaw agent --local --json --thinking medium --message $message
 ### `cursor`
 
 Cursor remains available as an auxiliary human IDE or spot-check surface, but it is not auto-selected by the default planner/reviewer routing in this starter.
+
+The remaining Cursor launcher path is intentionally live only through an explicit `runtimeRouting.roleOverrides` opt-in.
 
 After an auxiliary surface finishes and writes the required `result.json`, apply it back into the run with:
 

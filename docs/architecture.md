@@ -128,6 +128,19 @@ This now aligns the starter with its intended operating model:
 - local CI verifies
 - Cursor remains an auxiliary human IDE / spot-check surface and is not auto-selected by the default planner/reviewer route
 
+If a team wants Cursor as an explicit planner/reviewer fallback, it must opt in through `runtimeRouting.roleOverrides`, for example:
+
+```json
+{
+  "runtimeRouting": {
+    "roleOverrides": {
+      "planner": ["cursor", "manual"],
+      "reviewer": ["cursor", "manual"]
+    }
+  }
+}
+```
+
 ## Model Policy
 
 `src/lib/model-policy.mjs` selects a preferred model per task.
@@ -210,6 +223,7 @@ The launcher:
 
 Cursor remains available as an auxiliary human IDE or spot-check surface.
 It is not auto-selected by the default planner/reviewer runtime route in this starter.
+The launcher path remains intentionally live only when `runtimeRouting.roleOverrides` opts it in.
 
 ### Codex
 

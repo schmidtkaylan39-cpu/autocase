@@ -67,6 +67,10 @@ Not automatic today:
 `cursor` remains available as an auxiliary human IDE or spot-check surface, but it is no longer
 part of automatic planner/reviewer runtime routing in this starter.
 
+If you need Cursor as an explicit fallback surface for planning or review, enable it through
+`runtimeRouting.roleOverrides` in `config/factory.config.json`. That keeps the default route
+manual-first while making any Cursor usage intentional and testable.
+
 ## Configuration
 
 The policy lives in `config/factory.config.json` under `modelPolicy`.

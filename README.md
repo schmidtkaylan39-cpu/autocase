@@ -36,9 +36,10 @@ This is the current intended role model and routing baseline:
 - `Codex`: executor (`automated`)
 - `local-ci`: verifier (`automated`)
 - `manual`: explicit fallback for every role
-- `Cursor`: optional human IDE / spot-check surface, outside the automatic runtime route
+- `Cursor`: optional human IDE / spot-check surface, outside the automatic runtime route by default
 
 The defaults above are reflected in `src/lib/roles.mjs` and runtime routing is resolved by `src/lib/runtime-registry.mjs`.
+If a team wants Cursor as an emergency planner/reviewer surface, it must be enabled explicitly through `runtimeRouting.roleOverrides` in `config/factory.config.json`.
 
 ## Architecture At A Glance
 
@@ -82,7 +83,7 @@ Important behavior:
 - `dispatch dry-run` reports `would_execute` or `would_skip`.
 - `dispatch execute` auto-executes only `openclaw`, `codex`, and `local-ci`.
 - planning and review work is manual-first by design, with GPT-5.4 / GPT-5.4 Pro carried in the handoff metadata.
-- `cursor` is retained as an optional human-side IDE surface and is not part of automatic runtime routing.
+- `cursor` is retained as an optional human-side IDE surface and is not part of automatic runtime routing unless `runtimeRouting.roleOverrides` opts it in.
 - runtime routing and model routing are separate:
   - runtime routing chooses `openclaw` / `manual` / `codex` / `local-ci`
   - model routing chooses `codex`, `gpt-5.4`, or `gpt-5.4-pro` inside the selected surface
@@ -117,6 +118,19 @@ Auto-escalation to `gpt-5.4-pro` currently applies to planner/reviewer tasks whe
 The selected model is written into each handoff descriptor and prompt so the surface can follow it consistently.
 
 Detailed policy reference: `docs/model-routing.md`.
+
+Example explicit runtime override:
+
+```json
+{
+  "runtimeRouting": {
+    "roleOverrides": {
+      "planner": ["cursor", "manual"],
+      "reviewer": ["cursor", "manual"]
+    }
+  }
+}
+```
 
 ## Artifact Contract
 

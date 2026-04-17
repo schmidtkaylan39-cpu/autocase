@@ -6,7 +6,7 @@ import path from "node:path";
 import { dispatchHandoffs } from "../src/lib/dispatch.mjs";
 import { ensureDirectory, writeJson } from "../src/lib/fs-utils.mjs";
 import { buildHandoffDescriptor, getLauncherMetadata } from "../src/lib/handoffs.mjs";
-import { normalizeRuntimeChecks, pickRuntimeForRole } from "../src/lib/runtime-registry.mjs";
+import { normalizeRuntimeChecks, pickRuntimeForRole, resolveRuntimePreferences } from "../src/lib/runtime-registry.mjs";
 
 async function runTest(name, fn) {
   try {
@@ -21,7 +21,8 @@ async function runTest(name, fn) {
 function createDescriptorFixture({
   role,
   taskId,
-  doctorReport
+  doctorReport,
+  runState = {}
 }) {
   const workspacePath = "C:/workspace/demo";
   const outputDir = "C:/workspace/demo/runs/example/handoffs";
@@ -37,7 +38,8 @@ function createDescriptorFixture({
     },
     runState: {
       runId: "routing-run",
-      mandatoryGates: ["build", "lint", "typecheck", "unit test", "integration test", "e2e test"]
+      mandatoryGates: ["build", "lint", "typecheck", "unit test", "integration test", "e2e test"],
+      ...runState
     },
     plan: {
       phases: [{ id: "implementation" }]
@@ -131,6 +133,34 @@ async function main() {
     assert.match(plannerSelection.reason, /intentionally handled through a manual surface/i);
   });
 
+  await runTest("runtime routing can explicitly opt planner and reviewer roles into cursor", async () => {
+    const runtimeRouting = {
+      roleOverrides: {
+        planner: ["cursor", "manual"],
+        reviewer: ["cursor", "manual", "codex"]
+      }
+    };
+
+    assert.deepEqual(resolveRuntimePreferences("planner", runtimeRouting), {
+      preferences: ["cursor", "manual"],
+      source: "override"
+    });
+    assert.deepEqual(resolveRuntimePreferences("reviewer", runtimeRouting), {
+      preferences: ["cursor", "manual"],
+      source: "override"
+    });
+
+    const allReady = {
+      cursor: { ok: true },
+      manual: { ok: true }
+    };
+    const plannerSelection = pickRuntimeForRole("planner", allReady, runtimeRouting);
+
+    assert.equal(plannerSelection.runtimeId, "cursor");
+    assert.equal(plannerSelection.status, "ready");
+    assert.match(plannerSelection.reason, /explicitly enabled/i);
+  });
+
   await runTest("buildHandoffDescriptor uses manual runtime as the default planner surface", async () => {
     const descriptor = createDescriptorFixture({
       role: "planner",
@@ -205,6 +235,63 @@ async function main() {
     assert.equal(dryRunResult.results[0].status, "would_skip");
 
     const executeResult = await dispatchHandoffs(indexPath, "execute");
+    assert.equal(executeResult.results[0].status, "skipped");
+    assert.match(executeResult.results[0].note ?? "", /manual or hybrid/i);
+  });
+
+  await runTest("cursor runtime becomes intentionally reachable through runtimeRouting overrides", async () => {
+    const descriptor = createDescriptorFixture({
+      role: "planner",
+      taskId: "planning-brief",
+      runState: {
+        runtimeRouting: {
+          roleOverrides: {
+            planner: ["cursor", "manual"]
+          }
+        }
+      },
+      doctorReport: {
+        checks: [
+          {
+            id: "cursor",
+            installed: true,
+            ok: true,
+            source: "C:/tools/cursor.exe"
+          }
+        ]
+      }
+    });
+
+    assert.equal(descriptor.runtime.id, "cursor");
+    assert.equal(descriptor.runtime.mode, "hybrid");
+    assert.equal(descriptor.runtime.selectionStatus, "ready");
+    assert.match(descriptor.runtime.selectionReason, /explicitly enabled/i);
+    assert.match(descriptor.launcherScript, /\bcursor -n\b/i);
+
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-runtime-cursor-override-"));
+    const handoffDir = path.join(tempDir, "handoffs");
+    const indexPath = path.join(handoffDir, "index.json");
+
+    await ensureDirectory(handoffDir);
+    await writeJson(indexPath, {
+      generatedAt: new Date().toISOString(),
+      runId: "runtime-cursor-override-run",
+      readyTaskCount: 1,
+      descriptors: [
+        {
+          taskId: descriptor.taskId,
+          runtime: descriptor.runtime,
+          handoffId: descriptor.handoffId,
+          launcherPath: path.join(handoffDir, `${descriptor.taskId}.launch${getLauncherMetadata().extension}`),
+          resultPath: path.join(handoffDir, "results", `${descriptor.taskId}.result.json`)
+        }
+      ]
+    });
+
+    const dryRunResult = await dispatchHandoffs(indexPath, "dry-run");
+    const executeResult = await dispatchHandoffs(indexPath, "execute");
+
+    assert.equal(dryRunResult.results[0].status, "would_skip");
     assert.equal(executeResult.results[0].status, "skipped");
     assert.match(executeResult.results[0].note ?? "", /manual or hybrid/i);
   });
@@ -333,11 +420,13 @@ async function main() {
     assert.doesNotMatch(handoffsDoc, /`manual`, then `cursor`/);
     assert.doesNotMatch(handoffsDoc, /The first runtime with `ok: true` is selected/i);
     assert.match(handoffsDoc, /Cursor remains available as an auxiliary human IDE or spot-check surface, but it is not auto-selected/i);
+    assert.match(handoffsDoc, /runtimeRouting\.roleOverrides/);
 
     assert.match(architectureDoc, /- planner: `manual`/);
     assert.match(architectureDoc, /- reviewer: `manual`/);
     assert.doesNotMatch(architectureDoc, /`manual`, then `cursor`/);
     assert.match(architectureDoc, /Cursor remains an auxiliary human IDE \/ spot-check surface and is not auto-selected/i);
+    assert.match(architectureDoc, /runtimeRouting\.roleOverrides/);
   });
 
   console.log("All runtime-registry tests passed.");

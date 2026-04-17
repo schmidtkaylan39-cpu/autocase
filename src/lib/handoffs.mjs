@@ -258,7 +258,7 @@ export function buildHandoffDescriptor({
   platform = process.platform
 }) {
   const runtimeChecks = normalizeRuntimeChecks(doctorReport);
-  const selected = pickRuntimeForRole(task.role, runtimeChecks);
+  const selected = pickRuntimeForRole(task.role, runtimeChecks, runState.runtimeRouting);
   const runtime = describeRuntime(selected.runtimeId);
   const modelSelection = selectModelForTask(task, runState);
   const alternatives = Object.entries(runtimeChecks)
