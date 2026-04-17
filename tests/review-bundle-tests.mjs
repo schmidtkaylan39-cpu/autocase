@@ -115,6 +115,12 @@ function isAbsoluteBundlePath(candidatePath) {
 
 function assertValidationResultsUseBundleSafePaths(validationResults) {
   assert.equal(validationResults.cwd, "repo");
+  assert.deepEqual(validationResults.rerunGuidance, {
+    requiresDependencyInstall: true,
+    installCommand: "npm ci",
+    workingDirectory: "repo",
+    note: "Install devDependencies before rerunning repo-level validation commands."
+  });
 
   for (const result of validationResults.results) {
     const expectedEvidenceStrength =
@@ -137,7 +143,7 @@ function assertValidationResultsUseBundleSafePaths(validationResults) {
 function assertExternalReviewerMetadataText(reviewBrief, reviewPrompt) {
   assert.match(
     reviewBrief,
-    /metadata\/validation-results\.json.*carries `evidenceStrength` and `evidenceSummary` for each result/i
+    /metadata\/validation-results\.json.*carries `rerunGuidance`, `evidenceStrength`, and `evidenceSummary`/i
   );
   assert.match(
     reviewBrief,
@@ -145,7 +151,7 @@ function assertExternalReviewerMetadataText(reviewBrief, reviewPrompt) {
   );
   assert.match(
     reviewPrompt,
-    /Treat `metadata\/validation-results\.json` as self-describing validation metadata: use each result's `evidenceStrength` and `evidenceSummary` fields/i
+    /Treat `metadata\/validation-results\.json` as self-describing validation metadata: use `rerunGuidance`, `evidenceStrength`, and `evidenceSummary`/i
   );
   assert.match(
     reviewPrompt,
@@ -296,6 +302,12 @@ async function main() {
     const canonicalValidationResults = {
       generatedAt: "2026-04-16T01:23:45.000Z",
       cwd: sourceDir,
+      rerunGuidance: {
+        requiresDependencyInstall: true,
+        installCommand: "npm ci",
+        workingDirectory: sourceDir,
+        note: "Install devDependencies before rerunning repo-level validation commands."
+      },
       results: [
         {
           command: "npm run build",
@@ -322,6 +334,12 @@ async function main() {
     const bundledValidationResults = {
       ...canonicalValidationResults,
       cwd: "repo",
+      rerunGuidance: {
+        requiresDependencyInstall: true,
+        installCommand: "npm ci",
+        workingDirectory: "repo",
+        note: "Install devDependencies before rerunning repo-level validation commands."
+      },
       results: [
         {
           ...canonicalValidationResults.results[0],
@@ -489,6 +507,12 @@ async function main() {
     await writeJson(path.join(sourceDir, "reports", "validation-results.json"), {
       generatedAt: "2026-04-16T02:00:00.000Z",
       cwd: sourceDir,
+      rerunGuidance: {
+        requiresDependencyInstall: true,
+        installCommand: "npm ci",
+        workingDirectory: sourceDir,
+        note: "Install devDependencies before rerunning repo-level validation commands."
+      },
       results: [
         {
           command: "npm test",
@@ -570,6 +594,12 @@ async function main() {
     await writeJson(path.join(sourceDir, "reports", "validation-results.json"), {
       generatedAt: "2026-04-16T03:00:00.000Z",
       cwd: sourceDir,
+      rerunGuidance: {
+        requiresDependencyInstall: true,
+        installCommand: "npm ci",
+        workingDirectory: sourceDir,
+        note: "Install devDependencies before rerunning repo-level validation commands."
+      },
       results: [
         {
           command: "npm run doctor",

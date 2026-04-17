@@ -6,6 +6,7 @@ import path from "node:path";
 
 import {
   createInitialValidationArtifact,
+  createValidationRerunGuidance,
   deriveEvidenceStrength,
   deriveEvidenceSummary,
   runSelfCheckSuite
@@ -121,6 +122,7 @@ async function main() {
     });
 
     assert.equal(artifact.results.length, 3);
+    assert.deepEqual(artifact.rerunGuidance, createValidationRerunGuidance(repoRoot));
     assert.equal(artifact.results[0].evidenceStrength, "artifact");
     assert.equal(artifact.results[0].evidenceSummary, "Includes a retained self-check command log.");
     assert.deepEqual(artifact.results[0].evidence, ["reports/validation-evidence/build.log"]);
@@ -158,6 +160,7 @@ async function main() {
     assert.match(doctorLog, /doctor failed/);
     assert.match(skippedLog, /Skipped by self-check/);
     assert.equal(writtenArtifact.results[2].status, "skipped");
+    assert.deepEqual(writtenArtifact.rerunGuidance, createValidationRerunGuidance(repoRoot));
     await assert.rejects(() => stat(path.join(reportsDirectory, "validation-evidence", "stale.log")));
   });
 
@@ -165,6 +168,7 @@ async function main() {
     const artifact = createInitialValidationArtifact("C:/workspace/demo");
 
     assert.equal(artifact.cwd, "C:/workspace/demo");
+    assert.deepEqual(artifact.rerunGuidance, createValidationRerunGuidance("C:/workspace/demo"));
     assert.deepEqual(artifact.results, []);
     assert.equal(deriveEvidenceStrength([]), "record-only");
     assert.equal(deriveEvidenceStrength(["reports/validation-evidence/test.log"]), "artifact");

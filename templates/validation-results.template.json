@@ -1,5 +1,11 @@
 {
   "round": "round-001",
+  "rerunGuidance": {
+    "requiresDependencyInstall": true,
+    "installCommand": "npm ci",
+    "workingDirectory": "repo",
+    "note": "Install devDependencies before rerunning repo-level validation commands."
+  },
   "results": [
     {
       "command": "npm test",

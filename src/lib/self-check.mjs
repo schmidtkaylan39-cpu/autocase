@@ -93,10 +93,20 @@ export function deriveEvidenceSummary(evidence, options = {}) {
   return "Includes a retained self-check command log.";
 }
 
+export function createValidationRerunGuidance(workingDirectory) {
+  return {
+    requiresDependencyInstall: true,
+    installCommand: "npm ci",
+    workingDirectory,
+    note: "Install devDependencies before rerunning repo-level validation commands."
+  };
+}
+
 export function createInitialValidationArtifact(repoRoot) {
   return {
     generatedAt: new Date().toISOString(),
     cwd: repoRoot,
+    rerunGuidance: createValidationRerunGuidance(repoRoot),
     results: []
   };
 }
