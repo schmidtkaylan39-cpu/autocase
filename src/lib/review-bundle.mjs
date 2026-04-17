@@ -198,6 +198,7 @@ function buildValidationResultsArtifact(bundleName, evidenceSummary, generatedAt
   return {
     round: bundleName,
     generatedAt,
+    cwd: "repo",
     results,
     notes: [
       "This bundle includes machine-readable validation evidence only for checks with captured artifacts.",
@@ -249,6 +250,7 @@ function rewriteEvidencePathForBundle(evidencePath, sourceDir) {
 function rewriteValidationResultsForBundle(validationResults, sourceDir) {
   return {
     ...validationResults,
+    cwd: "repo",
     results: validationResults.results.map((result) => ({
       ...result,
       evidence: Array.isArray(result?.evidence)

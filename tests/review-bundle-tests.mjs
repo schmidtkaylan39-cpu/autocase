@@ -109,6 +109,21 @@ function parseZipEntries(zipBuffer) {
   });
 }
 
+function isAbsoluteBundlePath(candidatePath) {
+  return typeof candidatePath === "string" && (path.isAbsolute(candidatePath) || path.win32.isAbsolute(candidatePath));
+}
+
+function assertValidationResultsUseBundleSafePaths(validationResults) {
+  assert.equal(validationResults.cwd, "repo");
+
+  for (const result of validationResults.results) {
+    for (const evidencePath of Array.isArray(result.evidence) ? result.evidence : []) {
+      assert.equal(isAbsoluteBundlePath(evidencePath), false, `Evidence path must be bundle-relative: ${evidencePath}`);
+      assert.doesNotMatch(evidencePath, /^\.\.(?:\/|\\)/, `Evidence path must stay inside the bundle: ${evidencePath}`);
+    }
+  }
+}
+
 async function assertBundleEvidencePathsExist(bundleDirectory, validationResults) {
   for (const result of validationResults.results) {
     for (const evidencePath of Array.isArray(result.evidence) ? result.evidence : []) {
@@ -200,6 +215,7 @@ async function main() {
     await writeFile(path.join(sourceDir, "reports", "test-output.log"), "tests passed\n", "utf8");
     const canonicalValidationResults = {
       generatedAt: "2026-04-16T01:23:45.000Z",
+      cwd: sourceDir,
       results: [
         {
           command: "npm run build",
@@ -221,6 +237,7 @@ async function main() {
     };
     const bundledValidationResults = {
       ...canonicalValidationResults,
+      cwd: "repo",
       results: [
         canonicalValidationResults.results[0],
         {
@@ -346,6 +363,7 @@ async function main() {
     assert.match(patchNotes, /# Patch Notes/);
     assert.match(patchNotes, /Included Review Context/);
     assert.deepEqual(validationResults, bundledValidationResults);
+    assertValidationResultsUseBundleSafePaths(validationResults);
     assert.deepEqual(canonicalValidationResultsInBundle, canonicalValidationResults);
     await assertBundleEvidencePathsExist(result.bundleDirectory, validationResults);
     assert.match(sourceFileList, /metadata\/validation-results\.json/);
@@ -376,6 +394,7 @@ async function main() {
     await writeFile(path.join(sourceDir, "reports", "archive-proof.log"), "archive ok\n", "utf8");
     await writeJson(path.join(sourceDir, "reports", "validation-results.json"), {
       generatedAt: "2026-04-16T02:00:00.000Z",
+      cwd: sourceDir,
       results: [
         {
           command: "npm test",
@@ -425,6 +444,7 @@ async function main() {
       assert.match(patchNotesEntry.text, /# Patch Notes/);
       const archivedValidationResults = JSON.parse(validationResultsEntry.text);
       assert.ok(Array.isArray(archivedValidationResults.results));
+      assertValidationResultsUseBundleSafePaths(archivedValidationResults);
       assert.deepEqual(archivedValidationResults.results[0]?.evidence, ["repo/reports/archive-proof.log"]);
       assertArchiveEvidencePathsExist(zipEntries, bundleRootName, archivedValidationResults);
     }

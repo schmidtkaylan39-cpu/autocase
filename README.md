@@ -178,7 +178,7 @@ If you want the bundle to include a canonical machine-readable validation record
 npm run selfcheck
 ```
 
-before generating the review bundle. This writes `reports/validation-results.json`, which the bundle will copy into `metadata/validation-results.json`.
+before generating the review bundle. This writes `reports/validation-results.json`; the bundle retains that canonical file under `repo/reports/validation-results.json` and also emits a bundle-safe export at `metadata/validation-results.json`.
 
 ## Release Verification (Delivery Baseline)
 
