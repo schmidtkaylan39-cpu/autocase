@@ -225,10 +225,10 @@ async function main() {
       reserveReleaseOutputRoot(outputRoot, "20260417-000000", "abc1234"),
       reserveReleaseOutputRoot(outputRoot, "20260417-000000", "abc1234")
     ]);
+    const reservedNames = [path.basename(firstPath), path.basename(secondPath)].sort();
 
     assert.notEqual(firstPath, secondPath);
-    assert.equal(path.basename(firstPath), "20260417-000000-abc1234");
-    assert.equal(path.basename(secondPath), "20260417-000000-abc1234-2");
+    assert.deepEqual(reservedNames, ["20260417-000000-abc1234", "20260417-000000-abc1234-2"]);
     await stat(firstPath);
     await stat(secondPath);
   });
