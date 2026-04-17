@@ -103,7 +103,7 @@ function detectNamedSystems(normalizedRequest) {
       accessLevel: "internal account or role-based permission",
       reason: "The request references an internal tool or admin surface.",
       type: "internal_system",
-      pattern: /\binternal tool|internal system|admin portal|backoffice|後台|內部工具|內部系統\b/i,
+      pattern: /\b(internal tool|internal system|internal crm|internal app|internal portal|admin portal|backoffice)\b|後台|內部工具|內部系統/i,
       needsClarification: true
     }
   ];

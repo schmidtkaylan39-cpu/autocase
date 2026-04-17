@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  applyTaskResult,
   confirmIntake,
   createRunHandoffs,
   intakeRequest,
@@ -14,6 +15,7 @@ import {
   updateRunTask
 } from "../src/lib/commands.mjs";
 import { dispatchHandoffs } from "../src/lib/dispatch.mjs";
+import { writeJson } from "../src/lib/fs-utils.mjs";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const validSpecPath = path.join(projectRoot, "examples", "project-spec.valid.json");
@@ -42,7 +44,7 @@ async function readJson(filePath) {
 async function main() {
   await runTest("intake writes clarification artifacts for a vague request", async () => {
     const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "ai-factory-intake-vague-"));
-    const result = await intakeRequest("幫我把報表自動化", workspaceRoot);
+    const result = await intakeRequest("Help me automate the reporting workflow", workspaceRoot);
     const spec = await readJson(result.artifactPaths.intakeSpecPath);
     const summary = await readFile(result.artifactPaths.intakeSummaryPath, "utf8");
 
@@ -58,7 +60,7 @@ async function main() {
     const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "ai-factory-intake-plan-gate-"));
     const specPath = await createWorkspaceSpec(workspaceRoot);
 
-    await intakeRequest("幫我把報表自動化", workspaceRoot);
+    await intakeRequest("Help me automate the reporting workflow", workspaceRoot);
 
     await assert.rejects(
       () => planProject(specPath, path.join(workspaceRoot, "runs")),
@@ -78,7 +80,7 @@ async function main() {
     await updateRunTask(runResult.statePath, "planning-brief", "completed", "planner finished");
     const handoffResult = await createRunHandoffs(runResult.statePath);
 
-    await intakeRequest("幫我把報表自動化", workspaceRoot);
+    await intakeRequest("Help me automate the reporting workflow", workspaceRoot);
 
     await assert.rejects(
       () => createRunHandoffs(runResult.statePath),
@@ -93,7 +95,7 @@ async function main() {
   await runTest("requests involving email CRM and internal tools capture access needs and human steps", async () => {
     const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "ai-factory-intake-access-"));
     const result = await intakeRequest(
-      "幫我從 internal CRM 自動寄 email 給客戶，並同步回 Salesforce 後台",
+      "Use the internal CRM to send email to customers and sync the result back into Salesforce",
       workspaceRoot
     );
 
@@ -113,7 +115,7 @@ async function main() {
     const specPath = await createWorkspaceSpec(workspaceRoot);
 
     const intakeResult = await intakeRequest(
-      "從本地 sales.json 讀取資料，產出 summary.md 到 artifacts/reports；不要寄信、不要外部 API。",
+      "Read local sales.json and write summary.md to artifacts/reports; do not send email and do not call external APIs.",
       workspaceRoot
     );
 
@@ -137,7 +139,7 @@ async function main() {
   await runTest("blocked confirmation can be revised back into an active clarification state", async () => {
     const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "ai-factory-intake-revise-"));
 
-    await intakeRequest("幫我把報表自動化", workspaceRoot);
+    await intakeRequest("Help me automate the reporting workflow", workspaceRoot);
     await assert.rejects(() => confirmIntake(workspaceRoot), /Cannot confirm intake yet/i);
 
     const blockedSpecPath = path.join(workspaceRoot, "artifacts", "clarification", "intake-spec.json");
@@ -145,13 +147,47 @@ async function main() {
     assert.equal(blockedSpec.clarificationStatus, "clarification_blocked");
 
     const revisedResult = await reviseIntake(
-      "從本地 sales.json 讀取資料，產出 summary.md 到 artifacts/reports；不要寄信、不要外部 API。",
+      "Read local sales.json and write summary.md to artifacts/reports; do not send email and do not call external APIs.",
       workspaceRoot
     );
 
     assert.ok(["clarifying", "awaiting_confirmation"].includes(revisedResult.spec.clarificationStatus));
     assert.equal(revisedResult.spec.confirmedByUser, false);
     assert.notEqual(revisedResult.spec.clarificationStatus, "clarification_blocked");
+  });
+
+  await runTest("legacy run mutation surfaces are blocked once an unconfirmed intake exists", async () => {
+    const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "ai-factory-intake-legacy-gate-"));
+    const specPath = await createWorkspaceSpec(workspaceRoot);
+    const runResult = await runProject(specPath, path.join(workspaceRoot, "runs"), "legacy-run-before-intake");
+    const handoffResult = await createRunHandoffs(runResult.statePath);
+    const planningDescriptor = handoffResult.descriptors.find((item) => item.taskId === "planning-brief");
+
+    if (!planningDescriptor) {
+      throw new Error("Expected a planning descriptor before adding the intake gate.");
+    }
+
+    await intakeRequest("Help me automate the reporting workflow", workspaceRoot);
+    await assert.rejects(
+      () => updateRunTask(runResult.statePath, "planning-brief", "completed", "legacy planner update"),
+      /clarification gate is not satisfied/i
+    );
+
+    await writeJson(planningDescriptor.resultPath, {
+      runId: runResult.runId,
+      taskId: "planning-brief",
+      handoffId: planningDescriptor.handoffId,
+      status: "completed",
+      summary: "legacy completion",
+      changedFiles: [],
+      verification: ["manual"],
+      notes: ["legacy"]
+    });
+
+    await assert.rejects(
+      () => applyTaskResult(runResult.statePath, "planning-brief", planningDescriptor.resultPath),
+      /clarification gate is not satisfied/i
+    );
   });
 
   console.log("Intake tests passed.");

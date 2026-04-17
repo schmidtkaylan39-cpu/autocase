@@ -440,6 +440,8 @@ export async function reportProjectRun(runStatePath) {
 export async function updateRunTask(runStatePath, taskId, nextStatus, note = "") {
   const resolvedRunStatePath = path.resolve(runStatePath);
   const existingRunState = await readJson(resolvedRunStatePath);
+  const workspaceRoot = inferWorkspaceRootFromRunState(existingRunState, resolvedRunStatePath);
+  await ensureRunStateIntakePlanningReady(existingRunState, workspaceRoot, null, "task update");
   const nextRunState = updateTaskInRunState(existingRunState, taskId, nextStatus, note);
   const runDirectory = path.dirname(resolvedRunStatePath);
   const plan = await readJson(path.join(runDirectory, "execution-plan.json"));
@@ -467,6 +469,7 @@ export async function scheduleTaskRetry(
   const runDirectory = path.dirname(resolvedRunStatePath);
   const existingRunState = await readJson(resolvedRunStatePath);
   const workspaceRoot = inferWorkspaceRootFromRunState(existingRunState, resolvedRunStatePath);
+  await ensureRunStateIntakePlanningReady(existingRunState, workspaceRoot, null, "retry scheduling");
   const { config } = await loadFactoryConfig(configPath, workspaceRoot);
   const retryConfig = config.retryPolicy.hybridSurface ?? {
     maxAttempts: 3,
@@ -554,6 +557,7 @@ export async function tickProjectRun(
   const resolvedRunStatePath = path.resolve(runStatePath);
   const previousRunState = await readJson(resolvedRunStatePath);
   const workspaceRoot = inferWorkspaceRootFromRunState(previousRunState, resolvedRunStatePath);
+  await ensureRunStateIntakePlanningReady(previousRunState, workspaceRoot, null, "tick");
   const refreshedRunState = refreshRunState(previousRunState);
   const runDirectory = path.dirname(resolvedRunStatePath);
   const plan = await readJson(path.join(runDirectory, "execution-plan.json"));
@@ -618,6 +622,8 @@ export async function applyTaskResult(runStatePath, taskId, resultPath) {
   const resolvedResultPath = path.resolve(resultPath);
   const runDirectory = path.dirname(resolvedRunStatePath);
   const existingRunState = await readJson(resolvedRunStatePath);
+  const workspaceRoot = inferWorkspaceRootFromRunState(existingRunState, resolvedRunStatePath);
+  await ensureRunStateIntakePlanningReady(existingRunState, workspaceRoot, null, "result application");
   const targetTask = existingRunState.taskLedger.find((task) => task.id === taskId);
 
   if (!targetTask) {
