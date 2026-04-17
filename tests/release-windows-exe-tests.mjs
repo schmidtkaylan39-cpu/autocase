@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
 
 import {
   createBackups,
@@ -11,6 +13,8 @@ import {
   stageSourceBackupSnapshot
 } from "../scripts/release-windows-exe.mjs";
 
+const execFileAsync = promisify(execFile);
+
 async function runTest(name, fn) {
   try {
     await fn();
@@ -19,6 +23,27 @@ async function runTest(name, fn) {
     console.error(`FAIL ${name}`);
     throw error;
   }
+}
+
+async function run(command, args, cwd) {
+  return execFileAsync(command, args, {
+    cwd,
+    encoding: "utf8",
+    windowsHide: true
+  });
+}
+
+async function createFixtureGitRepository() {
+  const repositoryRoot = await mkdtemp(path.join(os.tmpdir(), "ai-factory-release-git-fixture-"));
+
+  await writeFile(path.join(repositoryRoot, "README.md"), "fixture repo\n", "utf8");
+  await run("git", ["init"], repositoryRoot);
+  await run("git", ["config", "user.email", "fixture@example.com"], repositoryRoot);
+  await run("git", ["config", "user.name", "Fixture Runner"], repositoryRoot);
+  await run("git", ["add", "README.md"], repositoryRoot);
+  await run("git", ["commit", "-m", "fixture"], repositoryRoot);
+
+  return repositoryRoot;
 }
 
 async function main() {
@@ -129,8 +154,11 @@ async function main() {
   });
 
   await runTest("backup artifacts include a real source zip in the requested output directory", async () => {
+    const projectRoot = await createFixtureGitRepository();
     const outputRoot = await mkdtemp(path.join(os.tmpdir(), "ai-factory-release-backup-output-"));
-    const backupArtifacts = await createBackups(outputRoot, "20260417-000000", "abc1234");
+    const backupArtifacts = await createBackups(outputRoot, "20260417-000000", "abc1234", {
+      projectRootPath: projectRoot
+    });
 
     await stat(backupArtifacts.bundlePath);
     await stat(backupArtifacts.sourceZipPath);

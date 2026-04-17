@@ -144,6 +144,12 @@ async function removeIfExists(targetPath) {
   await rm(targetPath, { recursive: true, force: true });
 }
 
+async function createGitBundle(bundlePath, repoRootPath = projectRoot) {
+  await run("git", ["bundle", "create", bundlePath, "--all"], {
+    cwd: repoRootPath
+  });
+}
+
 export async function collectSourceBackupFiles(
   projectRootPath = projectRoot,
   outputRootPath = path.join(projectRootPath, "release-artifacts")
@@ -264,7 +270,16 @@ export function createReleaseManifestPayload({
   return payload;
 }
 
-export async function createBackups(outputRoot, releaseStamp, shortHead) {
+export async function createBackups(
+  outputRoot,
+  releaseStamp,
+  shortHead,
+  {
+    projectRootPath = projectRoot,
+    gitBundleCreator = createGitBundle
+  } = {}
+) {
+  const resolvedProjectRoot = path.resolve(projectRootPath);
   const backupsDirectory = path.join(outputRoot, "backups");
   const bundlePath = path.join(backupsDirectory, `ai-factory-starter-${releaseStamp}-${shortHead}.git.bundle`);
   const sourceZipPath = path.join(backupsDirectory, `ai-factory-starter-${releaseStamp}-${shortHead}-source.zip`);
@@ -273,11 +288,11 @@ export async function createBackups(outputRoot, releaseStamp, shortHead) {
   await removeIfExists(bundlePath);
   await removeIfExists(sourceZipPath);
 
-  await run("git", ["bundle", "create", bundlePath, "--all"]);
+  await gitBundleCreator(bundlePath, resolvedProjectRoot);
   const stagingDirectory = await mkdtemp(path.join(os.tmpdir(), "ai-factory-source-backup-"));
   const snapshotDirectory = path.join(stagingDirectory, `ai-factory-starter-${releaseStamp}-${shortHead}-source`);
   try {
-    await stageSourceBackupSnapshot(snapshotDirectory, projectRoot, outputRoot);
+    await stageSourceBackupSnapshot(snapshotDirectory, resolvedProjectRoot, outputRoot);
     await createZipArchiveFromDirectory(snapshotDirectory, sourceZipPath);
   } finally {
     await removeIfExists(stagingDirectory);
