@@ -4,6 +4,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 
 import { ensureDirectory, readJson, writeJson } from "./fs-utils.mjs";
+import { ensureRunStateIntakePlanningReady } from "./intake-state.mjs";
 import {
   buildPowerShellFileArgs,
   getNonWindowsLauncherShellCommand,
@@ -593,6 +594,21 @@ export async function dispatchHandoffs(indexPath, mode = "dry-run") {
   const resolvedIndexPath = path.resolve(indexPath);
   const handoffIndex = await readJson(resolvedIndexPath);
   const outputDir = path.dirname(resolvedIndexPath);
+  const runDirectory = handoffIndex.runDirectory
+    ? path.resolve(handoffIndex.runDirectory)
+    : path.resolve(outputDir, "..");
+  const runStatePath = handoffIndex.runStatePath
+    ? path.resolve(handoffIndex.runStatePath)
+    : path.join(runDirectory, "run-state.json");
+
+  if (await fileExists(runStatePath)) {
+    const runState = await readJson(runStatePath);
+    const workspaceRoot =
+      typeof runState?.workspacePath === "string" && runState.workspacePath.trim().length > 0
+        ? path.resolve(runState.workspacePath)
+        : path.resolve(path.dirname(runDirectory));
+    await ensureRunStateIntakePlanningReady(runState, workspaceRoot, null, `dispatch ${mode}`);
+  }
   /** @type {Array<{
    *   taskId: string,
    *   handoffId?: string | null,
@@ -637,12 +653,6 @@ export async function dispatchHandoffs(indexPath, mode = "dry-run") {
     }
 
     try {
-      const runDirectory = handoffIndex.runDirectory
-        ? path.resolve(handoffIndex.runDirectory)
-        : path.resolve(outputDir, "..");
-      const runStatePath = handoffIndex.runStatePath
-        ? path.resolve(handoffIndex.runStatePath)
-        : path.join(runDirectory, "run-state.json");
       const planPath = path.join(runDirectory, "execution-plan.json");
       const reportPath = path.join(runDirectory, "report.md");
       const runId = descriptor.runId ?? handoffIndex.runId ?? null;
@@ -761,12 +771,6 @@ export async function dispatchHandoffs(indexPath, mode = "dry-run") {
     failed: results.filter((item) => item.status === "failed").length
   };
 
-  const runDirectory = handoffIndex.runDirectory
-    ? path.resolve(handoffIndex.runDirectory)
-    : path.resolve(outputDir, "..");
-  const runStatePath = handoffIndex.runStatePath
-    ? path.resolve(handoffIndex.runStatePath)
-    : path.join(runDirectory, "run-state.json");
   const planPath = path.join(runDirectory, "execution-plan.json");
   const reportPath = path.join(runDirectory, "report.md");
   const runStateSync =

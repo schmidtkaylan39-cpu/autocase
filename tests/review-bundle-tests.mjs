@@ -182,6 +182,7 @@ async function main() {
     await mkdir(path.join(sourceDir, "docs"), { recursive: true });
     await mkdir(path.join(sourceDir, "prompts"), { recursive: true });
     await mkdir(path.join(sourceDir, "reports"), { recursive: true });
+    await mkdir(path.join(sourceDir, "artifacts", "clarification"), { recursive: true });
     await mkdir(path.join(sourceDir, "runs", "demo-run"), { recursive: true });
     await mkdir(path.join(sourceDir, "templates"), { recursive: true });
     await mkdir(path.join(sourceDir, ".git"), { recursive: true });
@@ -195,6 +196,45 @@ async function main() {
     await writeFile(path.join(sourceDir, "AGENTS.md"), "# Fixture Agents\n", "utf8");
     await writeFile(path.join(sourceDir, "README.md"), "# Fixture\n", "utf8");
     await writeFile(path.join(sourceDir, "src", "index.mjs"), "export const demo = true;\n", "utf8");
+    await writeJson(path.join(sourceDir, "artifacts", "clarification", "intake-spec.json"), {
+      requestId: "fixture-request",
+      title: "Fixture clarification",
+      originalRequest: "Help me automate this report",
+      clarifiedGoal: "Clarify the report automation scope before planning.",
+      successCriteria: [
+        {
+          text: "A clear success definition is recorded before planning starts.",
+          status: "defined"
+        }
+      ],
+      nonGoals: ["Do not execute changes before confirmation."],
+      inScope: ["Clarification artifacts"],
+      outOfScope: ["Execution work"],
+      requiredInputs: [],
+      requiredAccountsAndPermissions: [],
+      externalDependencies: [],
+      constraints: [],
+      risks: [],
+      automationAssessment: {
+        canFullyAutomate: false,
+        automationLevel: "partial",
+        estimatedAutomatablePercent: 25,
+        humanStepsRequired: ["Confirm the clarified goal."],
+        blockers: [],
+        rationale: ["Human confirmation is required before planning."]
+      },
+      openQuestions: [],
+      clarificationStatus: "confirmed",
+      recommendedNextStep: "planning-ready",
+      approvalRequired: false,
+      confirmedByUser: true,
+      lastUpdatedAt: "2026-04-16T00:00:00.000Z"
+    });
+    await writeFile(
+      path.join(sourceDir, "artifacts", "clarification", "intake-summary.md"),
+      "# Intake Summary\n",
+      "utf8"
+    );
     await writeFile(path.join(sourceDir, "docs", "notes.md"), "notes\n", "utf8");
     await writeFile(path.join(sourceDir, "docs", "artifact-contract.md"), "# Artifact Contract\n", "utf8");
     await writeFile(path.join(sourceDir, "docs", "handoffs.md"), "# Handoffs\n", "utf8");
@@ -318,6 +358,8 @@ async function main() {
     await stat(path.join(result.bundleSourceDirectory, "AGENTS.md"));
     await stat(path.join(result.bundleSourceDirectory, "README.md"));
     await stat(path.join(result.bundleSourceDirectory, "src", "index.mjs"));
+    await stat(path.join(result.bundleSourceDirectory, "artifacts", "clarification", "intake-spec.json"));
+    await stat(path.join(result.bundleSourceDirectory, "artifacts", "clarification", "intake-summary.md"));
     await stat(path.join(result.bundleSourceDirectory, "reports", "runtime-doctor.json"));
     await stat(path.join(result.bundleSourceDirectory, "runs", "demo-run", "run-state.json"));
     await stat(path.join(result.bundleSourceDirectory, "docs", "artifact-contract.md"));
@@ -407,6 +449,8 @@ async function main() {
     assert.deepEqual(canonicalValidationResultsInBundle, canonicalValidationResults);
     await assertBundleEvidencePathsExist(result.bundleDirectory, validationResults);
     assert.match(sourceFileList, /metadata\/validation-results\.json/);
+    assert.match(sourceFileList, /repo\/artifacts\/clarification\/intake-spec\.json/);
+    assert.match(sourceFileList, /repo\/artifacts\/clarification\/intake-summary\.md/);
     assert.match(sourceFileList, /repo\/reports\/validation-results\.json/);
     assert.match(sourceFileList, /repo\/reports\/validation-evidence\/build\.log/);
     assert.match(sourceFileList, /repo\/reports\/validation-evidence\/test\.log/);

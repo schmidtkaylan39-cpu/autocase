@@ -69,7 +69,10 @@ export const defaultFactoryConfig = {
     planMarkdownFile: "execution-plan.md",
     stateFile: "run-state.json",
     rolesFile: "roles.json",
-    specSnapshotFile: "spec.snapshot.json"
+    specSnapshotFile: "spec.snapshot.json",
+    clarificationDirectory: "artifacts/clarification",
+    intakeSpecFile: "intake-spec.json",
+    intakeSummaryFile: "intake-summary.md"
   }
 };
 
