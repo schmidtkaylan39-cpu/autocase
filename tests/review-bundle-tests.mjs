@@ -124,6 +124,8 @@ function assertValidationResultsUseBundleSafePaths(validationResults) {
       expectedEvidenceStrength,
       `Unexpected evidenceStrength for ${result.command}`
     );
+    assert.equal(typeof result.evidenceSummary, "string");
+    assert.ok(result.evidenceSummary.trim().length > 0);
 
     for (const evidencePath of Array.isArray(result.evidence) ? result.evidence : []) {
       assert.equal(isAbsoluteBundlePath(evidencePath), false, `Evidence path must be bundle-relative: ${evidencePath}`);
@@ -135,19 +137,19 @@ function assertValidationResultsUseBundleSafePaths(validationResults) {
 function assertExternalReviewerMetadataText(reviewBrief, reviewPrompt) {
   assert.match(
     reviewBrief,
-    /metadata\/validation-results\.json.*mixes retained artifact pointers with structured rerun records; check each result's `evidenceStrength` field/i
+    /metadata\/validation-results\.json.*carries `evidenceStrength` and `evidenceSummary` for each result/i
   );
   assert.match(
     reviewBrief,
-    /only some commands include standalone evidence files in the bundle; the remaining commands are status-and-timing records/i
+    /self-check results retain per-command logs under `repo\/reports\/validation-evidence\/`/i
   );
   assert.match(
     reviewPrompt,
-    /Treat `metadata\/validation-results\.json` as mixed-strength evidence; use each result's `evidenceStrength` field to distinguish `artifact` from `record-only` entries\./
+    /Treat `metadata\/validation-results\.json` as self-describing validation metadata: use each result's `evidenceStrength` and `evidenceSummary` fields/i
   );
   assert.match(
     reviewPrompt,
-    /Some commands include retained bundle artifacts via `evidence`; others are structured rerun records with status and timing only\./
+    /Canonical self-check bundles now retain a per-command log under `repo\/reports\/validation-evidence\/`/i
   );
 }
 
@@ -240,6 +242,9 @@ async function main() {
       }
     });
     await writeFile(path.join(sourceDir, "reports", "test-output.log"), "tests passed\n", "utf8");
+    await mkdir(path.join(sourceDir, "reports", "validation-evidence"), { recursive: true });
+    await writeFile(path.join(sourceDir, "reports", "validation-evidence", "build.log"), "build ok\n", "utf8");
+    await writeFile(path.join(sourceDir, "reports", "validation-evidence", "test.log"), "test ok\n", "utf8");
     const canonicalValidationResults = {
       generatedAt: "2026-04-16T01:23:45.000Z",
       cwd: sourceDir,
@@ -250,8 +255,9 @@ async function main() {
           startedAt: "2026-04-16T01:00:00.000Z",
           finishedAt: "2026-04-16T01:00:02.000Z",
           durationMs: 2000,
-          evidenceStrength: "record-only",
-          evidence: []
+          evidenceStrength: "artifact",
+          evidenceSummary: "Includes a retained self-check command log.",
+          evidence: ["reports/validation-evidence/build.log"]
         },
         {
           command: "npm test",
@@ -260,7 +266,8 @@ async function main() {
           finishedAt: "2026-04-16T01:00:13.000Z",
           durationMs: 10000,
           evidenceStrength: "artifact",
-          evidence: ["reports/test-output.log"]
+          evidenceSummary: "Includes a retained self-check command log plus command-specific artifacts.",
+          evidence: ["reports/validation-evidence/test.log", "reports/test-output.log"]
         }
       ]
     };
@@ -268,10 +275,13 @@ async function main() {
       ...canonicalValidationResults,
       cwd: "repo",
       results: [
-        canonicalValidationResults.results[0],
+        {
+          ...canonicalValidationResults.results[0],
+          evidence: ["repo/reports/validation-evidence/build.log"]
+        },
         {
           ...canonicalValidationResults.results[1],
-          evidence: ["repo/reports/test-output.log"]
+          evidence: ["repo/reports/validation-evidence/test.log", "repo/reports/test-output.log"]
         }
       ]
     };
@@ -398,6 +408,8 @@ async function main() {
     await assertBundleEvidencePathsExist(result.bundleDirectory, validationResults);
     assert.match(sourceFileList, /metadata\/validation-results\.json/);
     assert.match(sourceFileList, /repo\/reports\/validation-results\.json/);
+    assert.match(sourceFileList, /repo\/reports\/validation-evidence\/build\.log/);
+    assert.match(sourceFileList, /repo\/reports\/validation-evidence\/test\.log/);
     assert.match(sourceFileList, /repo\/reports\/test-output\.log/);
     assert.match(sourceFileList, /repo\/README\.md/);
     assert.match(sourceFileList, /repo\/src\/index\.mjs/);
@@ -433,10 +445,13 @@ async function main() {
           finishedAt: "2026-04-16T02:00:01.000Z",
           durationMs: 1000,
           evidenceStrength: "artifact",
-          evidence: ["reports/archive-proof.log"]
+          evidenceSummary: "Includes a retained self-check command log plus command-specific artifacts.",
+          evidence: ["reports/validation-evidence/test.log", "reports/archive-proof.log"]
         }
       ]
     });
+    await mkdir(path.join(sourceDir, "reports", "validation-evidence"), { recursive: true });
+    await writeFile(path.join(sourceDir, "reports", "validation-evidence", "test.log"), "archive test ok\n", "utf8");
 
     const result = await createReviewBundle({
       sourceDir,
@@ -479,7 +494,10 @@ async function main() {
       const archivedValidationResults = JSON.parse(validationResultsEntry.text);
       assert.ok(Array.isArray(archivedValidationResults.results));
       assertValidationResultsUseBundleSafePaths(archivedValidationResults);
-      assert.deepEqual(archivedValidationResults.results[0]?.evidence, ["repo/reports/archive-proof.log"]);
+      assert.deepEqual(archivedValidationResults.results[0]?.evidence, [
+        "repo/reports/validation-evidence/test.log",
+        "repo/reports/archive-proof.log"
+      ]);
       assertArchiveEvidencePathsExist(zipEntries, bundleRootName, archivedValidationResults);
     }
   });
@@ -508,6 +526,7 @@ async function main() {
           finishedAt: "2026-04-16T03:00:01.000Z",
           durationMs: 1000,
           evidenceStrength: "record-only",
+          evidenceSummary: "No retained artifacts were captured; use status and timing metadata only.",
           evidence: []
         }
       ]

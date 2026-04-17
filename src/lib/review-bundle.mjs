@@ -10,6 +10,7 @@ import {
   getPowerShellInvocation,
   toPowerShellSingleQuotedLiteral
 } from "./powershell.mjs";
+import { deriveEvidenceStrength, deriveEvidenceSummary } from "./self-check.mjs";
 
 const execFileAsync = promisify(execFile);
 const excludedDirectoryNames = new Set([".git", "node_modules", "review-bundles"]);
@@ -146,8 +147,14 @@ function buildValidationResultsArtifact(bundleName, evidenceSummary, generatedAt
     reportFiles.filter((reportPath) => suffixes.some((suffix) => reportPath.endsWith(suffix)));
   const buildResultRecord = (result) => ({
     ...result,
-    evidenceStrength:
-      Array.isArray(result.evidence) && result.evidence.length > 0 ? "artifact" : "record-only"
+    evidenceStrength: deriveEvidenceStrength(result.evidence),
+    evidenceSummary:
+      typeof result.evidenceSummary === "string" && result.evidenceSummary.trim().length > 0
+        ? result.evidenceSummary
+        : deriveEvidenceSummary(result.evidence, {
+            commandSpecificArtifactCount: Math.max(0, (result.evidence?.length ?? 0) - 1),
+            includesCommandLog: false
+          })
   });
 
   const results = [];
@@ -267,9 +274,14 @@ function rewriteValidationResultsForBundle(validationResults, sourceDir) {
         evidenceStrength:
           result?.evidenceStrength === "artifact" || result?.evidenceStrength === "record-only"
             ? result.evidenceStrength
-            : evidence.length > 0
-              ? "artifact"
-              : "record-only"
+            : deriveEvidenceStrength(evidence),
+        evidenceSummary:
+          typeof result?.evidenceSummary === "string" && result.evidenceSummary.trim().length > 0
+            ? result.evidenceSummary
+            : deriveEvidenceSummary(evidence, {
+                commandSpecificArtifactCount: Math.max(0, evidence.length - 1),
+                includesCommandLog: false
+              })
       };
     })
   };
@@ -412,8 +424,9 @@ function renderReviewBrief(manifest) {
     "- Are retry-window and hybrid-runtime flows robust under repeated failures or partially written artifacts?",
     "",
     "## Included Evidence",
-    "- `metadata/validation-results.json` mixes retained artifact pointers with structured rerun records; check each result's `evidenceStrength` field before treating it as directly inspectable evidence.",
-    "- In the current starter, only some commands include standalone evidence files in the bundle; the remaining commands are status-and-timing records unless a round captured extra artifacts.",
+    "- `metadata/validation-results.json` now carries `evidenceStrength` and `evidenceSummary` for each result so reviewers can see whether they are looking at retained command logs, additional artifacts, or record-only fallback metadata.",
+    "- When a canonical `reports/validation-results.json` is available, self-check results retain per-command logs under `repo/reports/validation-evidence/`, and some commands also include extra command-specific artifacts.",
+    "- If a bundle is built without canonical self-check evidence, fallback metadata can still contain `record-only` entries; check `evidenceStrength` before assuming every result is directly inspectable.",
     ...doctorLines,
     ...(evidence.qualityBurnin
       ? [
@@ -537,8 +550,9 @@ function renderReviewPrompt() {
     "",
     "Validation evidence note:",
     "",
-    "- Treat `metadata/validation-results.json` as mixed-strength evidence; use each result's `evidenceStrength` field to distinguish `artifact` from `record-only` entries.",
-    "- Some commands include retained bundle artifacts via `evidence`; others are structured rerun records with status and timing only.",
+    "- Treat `metadata/validation-results.json` as self-describing validation metadata: use each result's `evidenceStrength` and `evidenceSummary` fields before judging how directly inspectable the retained evidence is.",
+    "- Canonical self-check bundles now retain a per-command log under `repo/reports/validation-evidence/`, and some commands also carry extra command-specific artifacts in `evidence`.",
+    "- Fallback bundles built without canonical self-check metadata can still contain `record-only` entries.",
     "",
     "Then review the codebase under `repo/`.",
     "",

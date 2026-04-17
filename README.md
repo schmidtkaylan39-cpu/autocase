@@ -192,7 +192,7 @@ If you want the bundle to include a canonical machine-readable validation record
 npm run selfcheck
 ```
 
-before generating the review bundle. This writes `reports/validation-results.json`; the bundle retains that canonical file under `repo/reports/validation-results.json` and also emits a bundle-safe export at `metadata/validation-results.json`.
+before generating the review bundle. This writes `reports/validation-results.json` and retained command logs under `reports/validation-evidence/`; the bundle retains the canonical file under `repo/reports/validation-results.json` and also emits a bundle-safe export at `metadata/validation-results.json`.
 
 ## Release Verification (Delivery Baseline)
 
@@ -222,6 +222,8 @@ Or capture the same release-gate run in one machine-readable pass:
 ```bash
 npm run selfcheck
 ```
+
+`npm run selfcheck` now also keeps per-command logs in `reports/validation-evidence/` so the validation artifact is not limited to pass/fail metadata alone.
 
 For release-candidate burn-in (3 consecutive rounds):
 
