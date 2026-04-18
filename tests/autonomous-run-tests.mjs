@@ -54,6 +54,96 @@ async function main() {
     assert.equal(runState.taskLedger.find((task) => task.id === "verify-spec-intake")?.status, "pending");
   });
 
+  await runTest("autonomous loop escalates repeated reviewer and verifier failures from rework to replan", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-autonomous-replan-"));
+    const runResult = await runProject(validSpecPath, tempDir, "autonomous-replan-run");
+    const doctorReportPath = path.join(tempDir, "doctor.json");
+    const handoffIndexPath = path.join(tempDir, "handoffs", "index.json");
+    let tickCalls = 0;
+    let dispatchCalls = 0;
+    const forcedFailureTaskIds = [];
+
+    await writeJson(doctorReportPath, { checks: [] });
+    await mkdir(path.dirname(handoffIndexPath), { recursive: true });
+    await writeJson(handoffIndexPath, {
+      generatedAt: new Date().toISOString(),
+      runId: "autonomous-replan-run",
+      readyTaskCount: 1,
+      descriptors: []
+    });
+
+    await updateRunTask(runResult.statePath, "planning-brief", "completed", "planning completed");
+    await updateRunTask(runResult.statePath, "implement-spec-intake", "completed", "implementation completed");
+
+    const result = await runAutonomousLoop(runResult.statePath, {
+      maxRounds: 4,
+      operations: {
+        runRuntimeDoctor: async () => ({ jsonPath: doctorReportPath }),
+        tickProjectRun: async () => {
+          tickCalls += 1;
+          return {
+            handoffIndexPath,
+            readyTaskCount: 1
+          };
+        },
+        dispatchHandoffs: async () => {
+          dispatchCalls += 1;
+          const currentRunState = await readJson(runResult.statePath);
+          const failureTaskId = dispatchCalls % 2 === 1 ? "review-spec-intake" : "verify-spec-intake";
+          const failureStatus = failureTaskId === "review-spec-intake" ? "blocked" : "failed";
+          const nextRunState = refreshRunState({
+            ...currentRunState,
+            taskLedger: currentRunState.taskLedger.map((task) =>
+              task.id === failureTaskId ? { ...task, status: failureStatus } : task
+            )
+          });
+
+          forcedFailureTaskIds.push(failureTaskId);
+          await writeJson(runResult.statePath, nextRunState);
+
+          return {
+            summary: {
+              executed: 1,
+              completed: 0,
+              continued: 1,
+              incomplete: 1,
+              failed: 0,
+              skipped: 0
+            }
+          };
+        }
+      }
+    });
+
+    const runState = await readJson(runResult.statePath);
+    const implementationTask = runState.taskLedger.find((task) => task.id === "implement-spec-intake");
+    const recoveryTypes = result.summary.rounds.map((round) => round.recovery?.type).filter(Boolean);
+
+    assert.equal(tickCalls, 4);
+    assert.equal(dispatchCalls, 4);
+    assert.deepEqual(forcedFailureTaskIds, [
+      "review-spec-intake",
+      "verify-spec-intake",
+      "review-spec-intake",
+      "verify-spec-intake"
+    ]);
+    assert.deepEqual(recoveryTypes, [
+      "feature_rework",
+      "feature_rework",
+      "feature_rework",
+      "feature_replan"
+    ]);
+    assert.equal(result.summary.stopReason, "maximum rounds reached");
+    assert.equal(
+      (implementationTask?.notes ?? []).filter((note) => /autonomous-requeue:/i.test(note)).length,
+      3
+    );
+    assert.equal(runState.taskLedger.find((task) => task.id === "planning-brief")?.status, "ready");
+    assert.equal(runState.taskLedger.find((task) => task.id === "implement-spec-intake")?.status, "pending");
+    assert.equal(runState.taskLedger.find((task) => task.id === "review-spec-intake")?.status, "pending");
+    assert.equal(runState.taskLedger.find((task) => task.id === "verify-spec-intake")?.status, "pending");
+  });
+
   await runTest("autonomous loop records dispatch progress and reaches completion", async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-autonomous-complete-"));
     const runResult = await runProject(validSpecPath, tempDir, "autonomous-complete-run");
