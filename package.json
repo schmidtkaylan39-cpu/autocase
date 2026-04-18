@@ -23,6 +23,7 @@
     "build": "node scripts/build-check.mjs",
     "backup:project": "node scripts/release-windows-exe.mjs --backup-only",
     "release:win": "node scripts/release-windows-exe.mjs",
+    "release:evidence": "node scripts/release-publish-evidence.mjs",
     "selfcheck": "node scripts/self-check.mjs",
     "pack:check": "node scripts/pack-check.mjs",
     "validate:workflows": "node scripts/validate-workflows.mjs",

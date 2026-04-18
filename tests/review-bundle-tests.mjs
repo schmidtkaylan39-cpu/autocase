@@ -172,20 +172,223 @@ function assertExternalReviewerMetadataText(reviewBrief, reviewPrompt) {
   );
 }
 
-async function assertBundleEvidencePathsExist(bundleDirectory, validationResults) {
+function toSourceFileSet(sourceFileListText) {
+  return new Set(
+    sourceFileListText
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+  );
+}
+
+function assertBundleRelativePath(referencePath, label) {
+  assert.equal(
+    isAbsoluteBundlePath(referencePath),
+    false,
+    `${label} must be bundle-relative: ${referencePath}`
+  );
+  assert.doesNotMatch(
+    referencePath,
+    /^\.\.(?:\/|\\)/,
+    `${label} must stay inside the bundle: ${referencePath}`
+  );
+}
+
+function collectValidationEvidencePaths(validationResults) {
+  const evidencePaths = [];
+
   for (const result of validationResults.results) {
     for (const evidencePath of Array.isArray(result.evidence) ? result.evidence : []) {
-      await stat(path.join(bundleDirectory, evidencePath));
+      evidencePaths.push(evidencePath);
+    }
+  }
+
+  return evidencePaths;
+}
+
+async function assertBundleReferentialIntegrity({
+  bundleDirectory,
+  manifest,
+  validationResults,
+  sourceFileListText
+}) {
+  const sourceFileSet = toSourceFileSet(sourceFileListText);
+  const reportFiles = Array.isArray(manifest.evidence?.reportFiles) ? manifest.evidence.reportFiles : [];
+  const reportFileSet = new Set(reportFiles);
+  const runs = Array.isArray(manifest.evidence?.runs) ? manifest.evidence.runs : [];
+
+  for (const [key, value] of Object.entries(manifest.paths ?? {})) {
+    if (typeof value !== "string") {
+      continue;
+    }
+
+    assertBundleRelativePath(value, `manifest.paths.${key}`);
+    const valueStats = await stat(path.join(bundleDirectory, value));
+
+    if (key === "repoRoot") {
+      assert.equal(valueStats.isDirectory(), true, "manifest.paths.repoRoot must reference a directory");
+      continue;
+    }
+
+    assert.equal(
+      sourceFileSet.has(value),
+      true,
+      `manifest.paths.${key} must be listed in metadata/source-file-list.txt`
+    );
+  }
+
+  for (const reportPath of reportFiles) {
+    assertBundleRelativePath(reportPath, "manifest.evidence.reportFiles[]");
+    await stat(path.join(bundleDirectory, reportPath));
+    assert.equal(
+      sourceFileSet.has(reportPath),
+      true,
+      `manifest.evidence.reportFiles entry must be listed in metadata/source-file-list.txt: ${reportPath}`
+    );
+    assert.equal(
+      reportPath.startsWith("repo/reports/release-readiness/"),
+      false,
+      `manifest.evidence.reportFiles must not reference filtered release-readiness artifacts: ${reportPath}`
+    );
+  }
+
+  for (const run of runs) {
+    const reportPath = run?.reportPath;
+    const runStatePath = run?.runStatePath;
+
+    assert.equal(typeof reportPath, "string", "manifest.evidence.runs[].reportPath must be a string");
+    assert.equal(typeof runStatePath, "string", "manifest.evidence.runs[].runStatePath must be a string");
+    assertBundleRelativePath(reportPath, "manifest.evidence.runs[].reportPath");
+    await stat(path.join(bundleDirectory, reportPath));
+    assert.equal(
+      sourceFileSet.has(reportPath),
+      true,
+      `run reportPath must be listed in metadata/source-file-list.txt: ${reportPath}`
+    );
+    assert.match(reportPath, /^repo\/runs\/[^/]+\/report\.md$/);
+    assertBundleRelativePath(runStatePath, "manifest.evidence.runs[].runStatePath");
+    await stat(path.join(bundleDirectory, runStatePath));
+    assert.equal(
+      sourceFileSet.has(runStatePath),
+      true,
+      `run runStatePath must be listed in metadata/source-file-list.txt: ${runStatePath}`
+    );
+    assert.match(runStatePath, /^repo\/runs\/[^/]+\/run-state\.json$/);
+  }
+
+  for (const evidencePath of collectValidationEvidencePaths(validationResults)) {
+    assertBundleRelativePath(evidencePath, "validation-results evidence");
+    await stat(path.join(bundleDirectory, evidencePath));
+    assert.equal(
+      sourceFileSet.has(evidencePath),
+      true,
+      `validation-results evidence must be listed in metadata/source-file-list.txt: ${evidencePath}`
+    );
+
+    if (evidencePath.startsWith("repo/reports/")) {
+      assert.equal(
+        reportFileSet.has(evidencePath),
+        true,
+        `validation-results evidence under repo/reports must appear in manifest.evidence.reportFiles: ${evidencePath}`
+      );
     }
   }
 }
 
-function assertArchiveEvidencePathsExist(zipEntries, bundleRootName, validationResults) {
-  for (const result of validationResults.results) {
-    for (const evidencePath of Array.isArray(result.evidence) ? result.evidence : []) {
-      assert.ok(
-        zipEntries.some((entry) => entry.name === `${bundleRootName}/${evidencePath}`),
-        `Missing archived evidence entry for ${evidencePath}`
+function assertArchivedBundleReferentialIntegrity({
+  zipEntries,
+  bundleRootName,
+  manifest,
+  validationResults,
+  sourceFileListText
+}) {
+  const sourceFileSet = toSourceFileSet(sourceFileListText);
+  const zipEntryNames = new Set(zipEntries.map((entry) => entry.name));
+  const reportFiles = Array.isArray(manifest.evidence?.reportFiles) ? manifest.evidence.reportFiles : [];
+  const reportFileSet = new Set(reportFiles);
+  const runs = Array.isArray(manifest.evidence?.runs) ? manifest.evidence.runs : [];
+
+  const assertArchivedEntry = (relativePath, label) => {
+    assertBundleRelativePath(relativePath, label);
+    assert.equal(
+      zipEntryNames.has(`${bundleRootName}/${relativePath}`),
+      true,
+      `${label} must exist in archived bundle: ${relativePath}`
+    );
+  };
+
+  for (const [key, value] of Object.entries(manifest.paths ?? {})) {
+    if (typeof value !== "string") {
+      continue;
+    }
+
+    if (key === "repoRoot") {
+      assertBundleRelativePath(value, "manifest.paths.repoRoot");
+      assert.equal(
+        zipEntries.some((entry) => entry.name.startsWith(`${bundleRootName}/${value}/`)),
+        true,
+        "manifest.paths.repoRoot must point to a directory included in the archive"
+      );
+      continue;
+    }
+
+    assertArchivedEntry(value, `manifest.paths.${key}`);
+    assert.equal(
+      sourceFileSet.has(value),
+      true,
+      `manifest.paths.${key} must be listed in metadata/source-file-list.txt`
+    );
+  }
+
+  for (const reportPath of reportFiles) {
+    assertArchivedEntry(reportPath, "manifest.evidence.reportFiles[]");
+    assert.equal(
+      sourceFileSet.has(reportPath),
+      true,
+      `manifest.evidence.reportFiles entry must be listed in metadata/source-file-list.txt: ${reportPath}`
+    );
+    assert.equal(
+      reportPath.startsWith("repo/reports/release-readiness/"),
+      false,
+      `manifest.evidence.reportFiles must not reference filtered release-readiness artifacts: ${reportPath}`
+    );
+  }
+
+  for (const run of runs) {
+    const reportPath = run?.reportPath;
+    const runStatePath = run?.runStatePath;
+
+    assert.equal(typeof reportPath, "string", "manifest.evidence.runs[].reportPath must be a string");
+    assert.equal(typeof runStatePath, "string", "manifest.evidence.runs[].runStatePath must be a string");
+    assertArchivedEntry(reportPath, "manifest.evidence.runs[].reportPath");
+    assert.equal(
+      sourceFileSet.has(reportPath),
+      true,
+      `run reportPath must be listed in metadata/source-file-list.txt: ${reportPath}`
+    );
+    assert.match(reportPath, /^repo\/runs\/[^/]+\/report\.md$/);
+    assertArchivedEntry(runStatePath, "manifest.evidence.runs[].runStatePath");
+    assert.equal(
+      sourceFileSet.has(runStatePath),
+      true,
+      `run runStatePath must be listed in metadata/source-file-list.txt: ${runStatePath}`
+    );
+    assert.match(runStatePath, /^repo\/runs\/[^/]+\/run-state\.json$/);
+  }
+
+  for (const evidencePath of collectValidationEvidencePaths(validationResults)) {
+    assertArchivedEntry(evidencePath, "validation-results evidence");
+    assert.equal(
+      sourceFileSet.has(evidencePath),
+      true,
+      `validation-results evidence must be listed in metadata/source-file-list.txt: ${evidencePath}`
+    );
+
+    if (evidencePath.startsWith("repo/reports/")) {
+      assert.equal(
+        reportFileSet.has(evidencePath),
+        true,
+        `validation-results evidence under repo/reports must appear in manifest.evidence.reportFiles: ${evidencePath}`
       );
     }
   }
@@ -505,7 +708,12 @@ async function main() {
     assert.deepEqual(validationResults, bundledValidationResults);
     assertValidationResultsUseBundleSafePaths(validationResults);
     assert.deepEqual(canonicalValidationResultsInBundle, canonicalValidationResults);
-    await assertBundleEvidencePathsExist(result.bundleDirectory, validationResults);
+    await assertBundleReferentialIntegrity({
+      bundleDirectory: result.bundleDirectory,
+      manifest,
+      validationResults,
+      sourceFileListText: sourceFileList
+    });
     assert.match(sourceFileList, /metadata\/validation-results\.json/);
     assert.match(sourceFileList, /repo\/artifacts\/clarification\/intake-spec\.json/);
     assert.match(sourceFileList, /repo\/artifacts\/clarification\/intake-summary\.md/);
@@ -592,6 +800,8 @@ async function main() {
       assert.ok(zipEntries.every((entry) => !entry.name.includes("\\")));
 
       const archivedManifest = JSON.parse(manifestEntry.text);
+      const sourceFileListText =
+        zipEntries.find((entry) => entry.name.endsWith("/metadata/source-file-list.txt"))?.text ?? "";
       assert.equal(archivedManifest.archive.format, "zip");
       assert.equal(archivedManifest.paths.patchNotesPath, "metadata/patch-notes.md");
       assert.ok(typeof archivedManifest.archive.path === "string" && archivedManifest.archive.path.length > 0);
@@ -607,7 +817,13 @@ async function main() {
         "repo/reports/validation-evidence/test.log",
         "repo/reports/archive-proof.log"
       ]);
-      assertArchiveEvidencePathsExist(zipEntries, bundleRootName, archivedValidationResults);
+      assertArchivedBundleReferentialIntegrity({
+        zipEntries,
+        bundleRootName,
+        manifest: archivedManifest,
+        validationResults: archivedValidationResults,
+        sourceFileListText
+      });
     }
   });
 

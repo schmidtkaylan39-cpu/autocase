@@ -84,6 +84,12 @@ Review bundle note:
 
 - the exported review bundle carries source plus validation evidence, not an already installed `node_modules` tree
 - external reviewers who want to rerun repo-level checks from `repo/` should run `npm ci` first
+- publish rounds should retain a lightweight in-repo release evidence artifact at `docs/releases/vX.Y.Z.evidence.json`
+
+Published release note:
+
+- after a release is published, keep a lightweight in-repo evidence artifact under `docs/releases/<tag>.evidence.json`
+- that artifact should record the published release URL, asset download URLs, asset hashes, and the validation summary captured at promotion time
 
 ## External Non-Blocking Warnings
 
