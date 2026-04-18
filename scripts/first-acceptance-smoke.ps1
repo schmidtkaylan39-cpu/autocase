@@ -50,6 +50,115 @@ function Format-CommandArgument {
   return '"' + ($Value -replace '"', '\"') + '"'
 }
 
+function Write-Utf8File {
+  param(
+    [string]$Path,
+    [string]$Content
+  )
+
+  $directory = Split-Path -Parent $Path
+  if ($directory) {
+    New-Item -ItemType Directory -Force -Path $directory | Out-Null
+  }
+
+  $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+  [System.IO.File]::WriteAllText($Path, $Content, $utf8NoBom)
+}
+
+function New-FakeCodexFixture {
+  param([string]$BinRoot)
+
+  $resolvedBinRoot = Resolve-DirectoryPath -RequestedPath $BinRoot -DefaultPath $BinRoot
+  $nodeScriptPath = Join-Path $resolvedBinRoot "fake-codex.mjs"
+  $commandPath = Join-Path $resolvedBinRoot "codex.cmd"
+
+  $nodeScript = @'
+import { mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
+
+const args = process.argv.slice(2);
+
+if (args.includes("--help")) {
+  console.log("fake codex help");
+  process.exit(0);
+}
+
+if (args[0] === "login" && args[1] === "status") {
+  console.log("Authenticated as fake-codex");
+  process.exit(0);
+}
+
+let promptText = "";
+for await (const chunk of process.stdin) {
+  promptText += chunk;
+}
+
+const resultPath = promptText.match(/Write a JSON file to this exact path when you finish: (.+)$/m)?.[1]?.trim();
+const runId = promptText.match(/^- runId: (.+)$/m)?.[1]?.trim();
+const taskId = promptText.match(/^- taskId: (.+)$/m)?.[1]?.trim();
+const handoffId = promptText.match(/^- handoffId: (.+)$/m)?.[1]?.trim();
+
+if (!resultPath || !runId || !taskId || !handoffId) {
+  console.error("fake codex could not parse the prompt contract");
+  process.exit(1);
+}
+
+await mkdir(path.dirname(resultPath), { recursive: true });
+await writeFile(
+  resultPath,
+  JSON.stringify(
+    {
+      runId,
+      taskId,
+      handoffId,
+      status: "completed",
+      summary: `fake codex completed ${taskId}`,
+      changedFiles: [],
+      verification: ["fake acceptance codex"],
+      notes: ["simulated packaged autonomous acceptance execution"]
+    },
+    null,
+    2
+  ),
+  "utf8"
+);
+'@
+
+  $command = @'
+@echo off
+node "%~dp0fake-codex.mjs" %*
+'@
+
+  Write-Utf8File -Path $nodeScriptPath -Content $nodeScript
+  Write-Utf8File -Path $commandPath -Content $command
+
+  return $resolvedBinRoot
+}
+
+function Write-FixturePackageJson {
+  param([string]$WorkspacePath)
+
+  $packageJsonPath = Join-Path $WorkspacePath "package.json"
+  $packageJson = @'
+{
+  "name": "ai-factory-acceptance-fixture",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "build": "node -e \"console.log('build ok')\"",
+    "lint": "node -e \"console.log('lint ok')\"",
+    "typecheck": "node -e \"console.log('typecheck ok')\"",
+    "test": "node -e \"console.log('test ok')\"",
+    "test:integration": "node -e \"console.log('integration ok')\"",
+    "test:e2e": "node -e \"console.log('fixture e2e ok')\""
+  }
+}
+'@
+
+  Write-Utf8File -Path $packageJsonPath -Content $packageJson
+  return $packageJsonPath
+}
+
 $resolvedReleaseZip = (Resolve-Path -LiteralPath $ReleaseZip).Path
 $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $defaultOutputRoot = Join-Path ([System.IO.Path]::GetTempPath()) "ai-factory-acceptance-$timestamp"
@@ -58,6 +167,7 @@ $resolvedWorkspaceRoot = Resolve-DirectoryPath -RequestedPath $WorkspaceRoot -De
 $extractRoot = Resolve-DirectoryPath -RequestedPath (Join-Path $resolvedOutputRoot "release") -DefaultPath (Join-Path $resolvedOutputRoot "release")
 $logsRoot = Resolve-DirectoryPath -RequestedPath (Join-Path $resolvedOutputRoot "logs") -DefaultPath (Join-Path $resolvedOutputRoot "logs")
 $reportsRoot = Resolve-DirectoryPath -RequestedPath (Join-Path $resolvedOutputRoot "reports") -DefaultPath (Join-Path $resolvedOutputRoot "reports")
+$fixtureBinRoot = Resolve-DirectoryPath -RequestedPath (Join-Path $resolvedOutputRoot "fake-bin") -DefaultPath (Join-Path $resolvedOutputRoot "fake-bin")
 
 Remove-Item -LiteralPath (Join-Path $extractRoot "*") -Recurse -Force -ErrorAction SilentlyContinue
 Expand-Archive -LiteralPath $resolvedReleaseZip -DestinationPath $extractRoot -Force
@@ -71,6 +181,7 @@ if ([string]::IsNullOrWhiteSpace($exePath)) {
 
 $results = New-Object System.Collections.Generic.List[object]
 $stepNumber = 0
+$originalPath = $env:PATH
 
 function Invoke-AcceptanceStep {
   param(
@@ -120,148 +231,125 @@ function Invoke-AcceptanceStep {
   }
 }
 
-$specPath = Join-Path $resolvedWorkspaceRoot "specs\project-spec.json"
-$runsRoot = Join-Path $resolvedWorkspaceRoot "runs"
-$runRoot = Join-Path $runsRoot $RunId
-$runStatePath = Join-Path $runRoot "run-state.json"
-$handoffIndexPath = Join-Path $runRoot "handoffs\index.json"
-$dispatchResultsPath = Join-Path $runRoot "handoffs\dispatch-results.json"
+try {
+  $env:PATH = "$(New-FakeCodexFixture -BinRoot $fixtureBinRoot);$originalPath"
+  $packageJsonPath = $null
+  $specPath = Join-Path $resolvedWorkspaceRoot "specs\project-spec.json"
+  $runsRoot = Join-Path $resolvedWorkspaceRoot "runs"
+  $runRoot = Join-Path $runsRoot $RunId
+  $runStatePath = Join-Path $runRoot "run-state.json"
+  $autonomousSummaryPath = Join-Path $runRoot "autonomous-summary.json"
+  $handoffIndexPath = Join-Path $runRoot "handoffs-autonomous\index.json"
+  $dispatchResultsPath = Join-Path $runRoot "handoffs-autonomous\dispatch-results.json"
 
-Invoke-AcceptanceStep -Step "version" -Arguments @("--version") -WorkingDirectory $resolvedWorkspaceRoot
-Invoke-AcceptanceStep -Step "init" -Arguments @("init", $resolvedWorkspaceRoot) -WorkingDirectory $resolvedWorkspaceRoot
-Invoke-AcceptanceStep -Step "intake" -Arguments @("intake", "Read local sales.json and write summary.md to artifacts/reports; do not send email and do not call external APIs.", $resolvedWorkspaceRoot) -WorkingDirectory $resolvedWorkspaceRoot
-Invoke-AcceptanceStep -Step "confirm" -Arguments @("confirm", $resolvedWorkspaceRoot) -WorkingDirectory $resolvedWorkspaceRoot
-Invoke-AcceptanceStep -Step "doctor" -Arguments @("doctor", $reportsRoot) -WorkingDirectory $resolvedWorkspaceRoot
-Invoke-AcceptanceStep -Step "validate" -Arguments @("validate", $specPath) -WorkingDirectory $resolvedWorkspaceRoot
-Invoke-AcceptanceStep -Step "plan" -Arguments @("plan", $specPath, $runsRoot) -WorkingDirectory $resolvedWorkspaceRoot
-Invoke-AcceptanceStep -Step "run" -Arguments @("run", $specPath, $runsRoot, $RunId) -WorkingDirectory $resolvedWorkspaceRoot
-Invoke-AcceptanceStep -Step "handoff-planning" -Arguments @("handoff", $runStatePath) -WorkingDirectory $resolvedWorkspaceRoot
-Invoke-AcceptanceStep -Step "dispatch-planning-dry-run" -Arguments @("dispatch", $handoffIndexPath, "dry-run") -WorkingDirectory $resolvedWorkspaceRoot
+  Invoke-AcceptanceStep -Step "version" -Arguments @("--version") -WorkingDirectory $resolvedWorkspaceRoot
+  Invoke-AcceptanceStep -Step "init" -Arguments @("init", $resolvedWorkspaceRoot) -WorkingDirectory $resolvedWorkspaceRoot
+  $packageJsonPath = Write-FixturePackageJson -WorkspacePath $resolvedWorkspaceRoot
+  Invoke-AcceptanceStep -Step "intake" -Arguments @("intake", "Read local sales.json and write summary.md to artifacts/reports; do not send email and do not call external APIs.", $resolvedWorkspaceRoot) -WorkingDirectory $resolvedWorkspaceRoot
+  Invoke-AcceptanceStep -Step "confirm" -Arguments @("confirm", $resolvedWorkspaceRoot) -WorkingDirectory $resolvedWorkspaceRoot
+  Invoke-AcceptanceStep -Step "doctor" -Arguments @("doctor", $reportsRoot) -WorkingDirectory $resolvedWorkspaceRoot
+  Invoke-AcceptanceStep -Step "validate" -Arguments @("validate", $specPath) -WorkingDirectory $resolvedWorkspaceRoot
+  Invoke-AcceptanceStep -Step "plan" -Arguments @("plan", $specPath, $runsRoot) -WorkingDirectory $resolvedWorkspaceRoot
+  Invoke-AcceptanceStep -Step "run" -Arguments @("run", $specPath, $runsRoot, $RunId) -WorkingDirectory $resolvedWorkspaceRoot
+  Invoke-AcceptanceStep -Step "autonomous" -Arguments @("autonomous", $runStatePath) -WorkingDirectory $resolvedWorkspaceRoot
 
-$planningHandoffIndex = Get-Content -LiteralPath $handoffIndexPath -Raw -Encoding utf8 | ConvertFrom-Json
-$planningDryRun = Get-Content -LiteralPath $dispatchResultsPath -Raw -Encoding utf8 | ConvertFrom-Json
-$planningRuntimeIds = @($planningHandoffIndex.descriptors | ForEach-Object { $_.runtime.id })
-$planningHasAutomatedRuntime = $false
+  $autonomousSummary = Get-Content -LiteralPath $autonomousSummaryPath -Raw -Encoding utf8 | ConvertFrom-Json
+  $doctorJsonPath = $autonomousSummary.doctorReportPath
+  $doctorSummary = Get-Content -LiteralPath $doctorJsonPath -Raw -Encoding utf8 | ConvertFrom-Json
+  $runState = Get-Content -LiteralPath $runStatePath -Raw -Encoding utf8 | ConvertFrom-Json
+  $dispatchResults = Get-Content -LiteralPath $dispatchResultsPath -Raw -Encoding utf8 | ConvertFrom-Json
 
-foreach ($runtimeId in $planningRuntimeIds) {
-  if ($runtimeId -in @("gpt-runner", "codex", "local-ci", "openclaw")) {
-    $planningHasAutomatedRuntime = $true
-    break
+  if ($runState.status -ne "completed") {
+    throw "Expected autonomous acceptance run to complete, but status was $($runState.status)."
   }
+
+  if ($autonomousSummary.finalStatus -ne "completed") {
+    throw "Expected autonomous summary finalStatus=completed, but got $($autonomousSummary.finalStatus)."
+  }
+
+  $requiredPaths = @(
+    (Join-Path $resolvedWorkspaceRoot "AGENTS.md"),
+    (Join-Path $resolvedWorkspaceRoot "config\factory.config.json"),
+    $packageJsonPath,
+    $specPath,
+    (Join-Path $runRoot "report.md"),
+    $runStatePath,
+    $autonomousSummaryPath,
+    $handoffIndexPath,
+    $dispatchResultsPath,
+    $doctorJsonPath,
+    (Join-Path $reportsRoot "runtime-doctor.md")
+  )
+
+  foreach ($requiredPath in $requiredPaths) {
+    if (!(Test-Path -LiteralPath $requiredPath)) {
+      throw "Expected artifact is missing: $requiredPath"
+    }
+  }
+
+  $requiredRuntimeStatuses = @{}
+  foreach ($check in $doctorSummary.checks) {
+    if ($check.requiredByDefaultRoute) {
+      $requiredRuntimeStatuses[$check.id] = $check.ok
+    }
+  }
+
+  $summary = [ordered]@{
+    generatedAt = (Get-Date).ToString("o")
+    releaseZip = $resolvedReleaseZip
+    exePath = $exePath
+    outputRoot = $resolvedOutputRoot
+    workspaceRoot = $resolvedWorkspaceRoot
+    runId = $RunId
+    autonomous = @{
+      finalStatus = $autonomousSummary.finalStatus
+      stopReason = $autonomousSummary.stopReason
+      rounds = $autonomousSummary.rounds.Count
+      doctorReportPath = $doctorJsonPath
+      requiredRuntimeStatuses = $requiredRuntimeStatuses
+      finalDispatchCompleted = $dispatchResults.summary.completed
+    }
+    artifacts = @{
+      reportsRoot = $reportsRoot
+      runRoot = $runRoot
+      autonomousSummaryPath = $autonomousSummaryPath
+      handoffIndexPath = $handoffIndexPath
+      dispatchResultsPath = $dispatchResultsPath
+      doctorJsonPath = $doctorJsonPath
+    }
+    steps = $results
+  }
+
+  $summaryJsonPath = Join-Path $resolvedOutputRoot "acceptance-summary.json"
+  $summaryMarkdownPath = Join-Path $resolvedOutputRoot "acceptance-summary.md"
+
+  $summary | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $summaryJsonPath -Encoding utf8
+
+  $markdown = @(
+    "# First Acceptance Smoke Summary",
+    "",
+    "- Generated at: $($summary.generatedAt)",
+    "- Release ZIP: $resolvedReleaseZip",
+    "- EXE: $exePath",
+    "- Workspace: $resolvedWorkspaceRoot",
+    "- Run ID: $RunId",
+    "- Autonomous final status: $($summary.autonomous.finalStatus)",
+    "- Autonomous stop reason: $($summary.autonomous.stopReason)",
+    "- Autonomous rounds: $($summary.autonomous.rounds)",
+    "",
+    "## Artifacts",
+    "- acceptance-summary.json",
+    "- logs/",
+    "- workspace/",
+    "- reports/"
+  ) -join "`r`n"
+
+  $markdown | Set-Content -LiteralPath $summaryMarkdownPath -Encoding utf8
+
+  Write-Host "Acceptance smoke passed."
+  Write-Host "Summary JSON: $summaryJsonPath"
+  Write-Host "Summary Markdown: $summaryMarkdownPath"
 }
-
-if ($planningHasAutomatedRuntime) {
-  if ($planningDryRun.summary.wouldExecute -lt 1) {
-    throw "Expected planning dry-run to include at least one executable task."
-  }
-} else {
-  if ($planningDryRun.summary.wouldSkip -lt 1) {
-    throw "Expected planning dry-run to skip at least one manual task."
-  }
+finally {
+  $env:PATH = $originalPath
 }
-
-Invoke-AcceptanceStep -Step "planning-complete" -Arguments @("task", $runStatePath, "planning-brief", "completed", "acceptance planner complete") -WorkingDirectory $resolvedWorkspaceRoot
-Invoke-AcceptanceStep -Step "tick" -Arguments @("tick", $runStatePath) -WorkingDirectory $resolvedWorkspaceRoot
-Invoke-AcceptanceStep -Step "dispatch-implementation-dry-run" -Arguments @("dispatch", $handoffIndexPath, "dry-run") -WorkingDirectory $resolvedWorkspaceRoot
-
-$implementationHandoffIndex = Get-Content -LiteralPath $handoffIndexPath -Raw -Encoding utf8 | ConvertFrom-Json
-$implementationDryRun = Get-Content -LiteralPath $dispatchResultsPath -Raw -Encoding utf8 | ConvertFrom-Json
-$implementationRuntimeIds = @($implementationHandoffIndex.descriptors | ForEach-Object { $_.runtime.id })
-$hasAutomatedRuntime = $false
-
-foreach ($runtimeId in $implementationRuntimeIds) {
-  if ($runtimeId -in @("gpt-runner", "codex", "local-ci", "openclaw")) {
-    $hasAutomatedRuntime = $true
-    break
-  }
-}
-
-if ($implementationHandoffIndex.readyTaskCount -lt 1) {
-  throw "Expected at least one ready implementation task after planning completion."
-}
-
-if ($hasAutomatedRuntime) {
-  if ($implementationDryRun.summary.wouldExecute -lt 1) {
-    throw "Expected implementation dry-run to include at least one executable task."
-  }
-} else {
-  if ($implementationDryRun.summary.wouldSkip -lt $implementationHandoffIndex.readyTaskCount) {
-    throw "Expected manual fallback dry-run to skip all ready implementation tasks."
-  }
-}
-
-$requiredPaths = @(
-  (Join-Path $resolvedWorkspaceRoot "AGENTS.md"),
-  (Join-Path $resolvedWorkspaceRoot "config\factory.config.json"),
-  $specPath,
-  (Join-Path $runRoot "report.md"),
-  $runStatePath,
-  $handoffIndexPath,
-  $dispatchResultsPath,
-  (Join-Path $reportsRoot "runtime-doctor.json"),
-  (Join-Path $reportsRoot "runtime-doctor.md")
-)
-
-foreach ($requiredPath in $requiredPaths) {
-  if (!(Test-Path -LiteralPath $requiredPath)) {
-    throw "Expected artifact is missing: $requiredPath"
-  }
-}
-
-$summary = [ordered]@{
-  generatedAt = (Get-Date).ToString("o")
-  releaseZip = $resolvedReleaseZip
-  exePath = $exePath
-  outputRoot = $resolvedOutputRoot
-  workspaceRoot = $resolvedWorkspaceRoot
-  runId = $RunId
-  planningDryRun = @{
-    wouldSkip = $planningDryRun.summary.wouldSkip
-    wouldExecute = $planningDryRun.summary.wouldExecute
-    runtimeIds = $planningRuntimeIds
-    automatedRuntimeAvailable = $planningHasAutomatedRuntime
-  }
-  implementationDryRun = @{
-    wouldSkip = $implementationDryRun.summary.wouldSkip
-    wouldExecute = $implementationDryRun.summary.wouldExecute
-    runtimeIds = $implementationRuntimeIds
-    automatedRuntimeAvailable = $hasAutomatedRuntime
-  }
-  artifacts = @{
-    reportsRoot = $reportsRoot
-    runRoot = $runRoot
-    handoffIndexPath = $handoffIndexPath
-    dispatchResultsPath = $dispatchResultsPath
-    doctorJsonPath = (Join-Path $reportsRoot "runtime-doctor.json")
-  }
-  steps = $results
-}
-
-$summaryJsonPath = Join-Path $resolvedOutputRoot "acceptance-summary.json"
-$summaryMarkdownPath = Join-Path $resolvedOutputRoot "acceptance-summary.md"
-
-$summary | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $summaryJsonPath -Encoding utf8
-
-$markdown = @(
-  "# First Acceptance Smoke Summary",
-  "",
-  "- Generated at: $($summary.generatedAt)",
-  "- Release ZIP: $resolvedReleaseZip",
-  "- EXE: $exePath",
-  "- Workspace: $resolvedWorkspaceRoot",
-  "- Run ID: $RunId",
-  "- Planning dry-run: wouldSkip=$($summary.planningDryRun.wouldSkip), wouldExecute=$($summary.planningDryRun.wouldExecute)",
-  "- Implementation dry-run: wouldSkip=$($summary.implementationDryRun.wouldSkip), wouldExecute=$($summary.implementationDryRun.wouldExecute)",
-  "",
-  "## Artifacts",
-  "- acceptance-summary.json",
-  "- logs/",
-  "- workspace/",
-  "- reports/"
-) -join "`r`n"
-
-$markdown | Set-Content -LiteralPath $summaryMarkdownPath -Encoding utf8
-
-Write-Host "Acceptance smoke passed."
-Write-Host "Summary JSON: $summaryJsonPath"
-Write-Host "Summary Markdown: $summaryMarkdownPath"

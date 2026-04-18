@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -8,173 +8,199 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const validSpecPath = path.join(projectRoot, "examples", "project-spec.valid.json");
 
-async function runNode(args) {
-  await execFileAsync(process.execPath, args, {
+async function runNode(args, options = {}) {
+  const result = await execFileAsync(process.execPath, args, {
     cwd: projectRoot,
-    encoding: "utf8"
+    encoding: "utf8",
+    ...options
   });
-}
 
-function escapePowerShellSingleQuoted(value) {
-  return String(value).replace(/'/g, "''");
-}
-
-function escapeShellSingleQuoted(value) {
-  return String(value).replace(/'/g, `'"'"'`);
-}
-
-function toPowerShellLiteral(value) {
-  if (Array.isArray(value)) {
-    return `@(${value.map((item) => toPowerShellLiteral(item)).join(", ")})`;
-  }
-
-  if (typeof value === "string") {
-    return `'${escapePowerShellSingleQuoted(value)}'`;
-  }
-
-  if (typeof value === "number") {
-    return String(value);
-  }
-
-  if (typeof value === "boolean") {
-    return value ? "$true" : "$false";
-  }
-
-  if (value === null) {
-    return "$null";
-  }
-
-  throw new Error(`Unsupported PowerShell literal: ${typeof value}`);
-}
-
-function buildResultArtifactScript(resultPath, artifact) {
-  const completeArtifact = {
-    runId: "{{RUN_ID}}",
-    taskId: "{{TASK_ID}}",
-    handoffId: "{{HANDOFF_ID}}",
-    ...artifact
+  return {
+    stdout: result.stdout.trim(),
+    stderr: result.stderr.trim()
   };
+}
+
+async function createFakeCodexBinary(binDir) {
+  await mkdir(binDir, { recursive: true });
+  const fakeNodeScriptPath = path.join(binDir, "fake-codex.mjs");
+
+  await writeFile(
+    fakeNodeScriptPath,
+    [
+      'import { mkdir, writeFile } from "node:fs/promises";',
+      'import path from "node:path";',
+      "",
+      "const args = process.argv.slice(2);",
+      "",
+      'if (args.includes("--help")) {',
+      '  console.log("fake codex help");',
+      "  process.exit(0);",
+      "}",
+      "",
+      'if (args[0] === "login" && args[1] === "status") {',
+      '  console.log("Authenticated as fake-codex");',
+      "  process.exit(0);",
+      "}",
+      "",
+      'let promptText = "";',
+      "for await (const chunk of process.stdin) {",
+      "  promptText += chunk;",
+      "}",
+      "",
+      'const resultPath = promptText.match(/Write a JSON file to this exact path when you finish: (.+)$/m)?.[1]?.trim();',
+      'const runId = promptText.match(/^- runId: (.+)$/m)?.[1]?.trim();',
+      'const taskId = promptText.match(/^- taskId: (.+)$/m)?.[1]?.trim();',
+      'const handoffId = promptText.match(/^- handoffId: (.+)$/m)?.[1]?.trim();',
+      "",
+      "if (!resultPath || !runId || !taskId || !handoffId) {",
+      '  console.error("fake codex could not parse the prompt contract");',
+      "  process.exit(1);",
+      "}",
+      "",
+      "await mkdir(path.dirname(resultPath), { recursive: true });",
+      "await writeFile(",
+      "  resultPath,",
+      "  JSON.stringify(",
+      "    {",
+      "      runId,",
+      "      taskId,",
+      "      handoffId,",
+      '      status: "completed",',
+      '      summary: `fake codex completed ${taskId}`,',
+      "      changedFiles: [],",
+      '      verification: ["fake autonomous e2e codex"],',
+      '      notes: ["simulated gpt-runner/codex launcher execution"]',
+      "    },",
+      "    null,",
+      "    2",
+      "  ),",
+      '  "utf8"',
+      ");",
+      'console.log(`fake codex completed ${taskId}`);'
+    ].join("\n"),
+    "utf8"
+  );
 
   if (process.platform === "win32") {
-    const escapedResultPath = escapePowerShellSingleQuoted(resultPath);
-    const lines = ["$result = @{"];
-
-    for (const [key, value] of Object.entries(completeArtifact)) {
-      lines.push(`  ${key} = ${toPowerShellLiteral(value)}`);
-    }
-
-    lines.push("} | ConvertTo-Json -Depth 5");
-    lines.push(`$result | Set-Content -Path '${escapedResultPath}' -Encoding utf8`);
-
-    return `${lines.join("\n")}\n`;
+    const fakeCommandPath = path.join(binDir, "codex.cmd");
+    await writeFile(
+      fakeCommandPath,
+      `@echo off\r\nnode "%~dp0fake-codex.mjs" %*\r\n`,
+      "utf8"
+    );
+    return fakeCommandPath;
   }
 
-  return `cat > '${escapeShellSingleQuoted(resultPath)}' <<'JSON'
-${JSON.stringify(completeArtifact, null, 2)}
-JSON
-`;
+  const fakeCommandPath = path.join(binDir, "codex");
+  await writeFile(
+    fakeCommandPath,
+    `#!/usr/bin/env sh\nnode "$(dirname "$0")/fake-codex.mjs" "$@"\n`,
+    "utf8"
+  );
+  await chmod(fakeCommandPath, 0o755);
+
+  return fakeCommandPath;
 }
 
-function bindArtifactScriptIdentity(script, descriptor) {
-  return script
-    .replaceAll("{{RUN_ID}}", descriptor.runId ?? "e2e-run")
-    .replaceAll("{{TASK_ID}}", descriptor.taskId)
-    .replaceAll("{{HANDOFF_ID}}", descriptor.handoffId ?? "e2e-handoff");
+async function prepareWorkspace(workspaceRoot) {
+  const specPath = path.join(workspaceRoot, "specs", "project-spec.json");
+  const packageJsonPath = path.join(workspaceRoot, "package.json");
+  const baseSpec = JSON.parse(await readFile(validSpecPath, "utf8"));
+  const singleFeatureSpec = {
+    ...baseSpec,
+    coreFeatures: Array.isArray(baseSpec.coreFeatures) ? baseSpec.coreFeatures.slice(0, 1) : []
+  };
+  const packageJson = {
+    name: "ai-factory-autonomous-e2e",
+    private: true,
+    version: "1.0.0",
+    scripts: {
+      build: 'node -e "console.log(\'build ok\')"',
+      lint: 'node -e "console.log(\'lint ok\')"',
+      typecheck: 'node -e "console.log(\'typecheck ok\')"',
+      test: 'node -e "console.log(\'test ok\')"',
+      "test:integration": 'node -e "console.log(\'integration ok\')"',
+      "test:e2e": 'node -e "console.log(\'fixture e2e ok\')"'
+    }
+  };
+
+  await runNode(["src/index.mjs", "init", workspaceRoot]);
+  await writeFile(specPath, `${JSON.stringify(singleFeatureSpec, null, 2)}\n`, "utf8");
+  await writeFile(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`, "utf8");
+
+  return {
+    specPath,
+    packageJsonPath
+  };
 }
 
 async function main() {
-  const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-e2e-"));
-  const reportsDir = path.join(tempDir, "reports");
-  const runRoot = path.join(tempDir, "runs");
-  const runStatePath = path.join(runRoot, "e2e-run", "run-state.json");
-  const handoffIndexPath = path.join(runRoot, "e2e-run", "handoffs", "index.json");
-  const dispatchResultsPath = path.join(runRoot, "e2e-run", "handoffs", "dispatch-results.json");
-  const reportPath = path.join(runRoot, "e2e-run", "report.md");
-  const syntheticDoctorPath = path.join(reportsDir, "synthetic-doctor.json");
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-autonomous-e2e-"));
+  const workspaceRoot = path.join(tempDir, "workspace");
+  const runsRoot = path.join(workspaceRoot, "runs");
+  const runId = "e2e-autonomous-run";
+  const runRoot = path.join(runsRoot, runId);
+  const runStatePath = path.join(runRoot, "run-state.json");
+  const summaryPath = path.join(runRoot, "autonomous-summary.json");
+  const reportPath = path.join(runRoot, "report.md");
+  const handoffResultsPath = path.join(runRoot, "handoffs-autonomous", "dispatch-results.json");
+  const fakeBinDir = path.join(tempDir, "fake-bin");
 
-  await runNode(["src/index.mjs", "validate", "examples/project-spec.valid.json"]);
-  await runNode(["src/index.mjs", "plan", "examples/project-spec.valid.json", tempDir]);
-  await runNode(["src/index.mjs", "doctor", reportsDir]);
-  await runNode(["src/index.mjs", "run", "examples/project-spec.valid.json", runRoot, "e2e-run"]);
-  await writeFile(
-    syntheticDoctorPath,
-    JSON.stringify(
-      {
-        checks: [
-          { id: "openclaw", installed: true, ok: true },
-          { id: "cursor", installed: true, ok: true },
-          { id: "codex", installed: true, ok: true },
-          { id: "local-ci", installed: true, ok: true }
-        ]
-      },
-      null,
-      2
-    ),
-    "utf8"
-  );
-  await runNode(["src/index.mjs", "tick", runStatePath, syntheticDoctorPath]);
-  await runNode(["src/index.mjs", "dispatch", handoffIndexPath, "dry-run"]);
+  await prepareWorkspace(workspaceRoot);
+  await createFakeCodexBinary(fakeBinDir);
 
-  const planningDryRunResults = JSON.parse(await readFile(dispatchResultsPath, "utf8"));
-  assert.equal(planningDryRunResults.summary.wouldSkip, 1);
-  assert.equal(planningDryRunResults.results[0]?.taskId, "planning-brief");
-  assert.equal(planningDryRunResults.results[0]?.status, "would_skip");
+  const env = {
+    ...process.env,
+    PATH: `${fakeBinDir}${path.delimiter}${process.env.PATH ?? ""}`
+  };
 
-  const planningHandoffIndex = JSON.parse(await readFile(handoffIndexPath, "utf8"));
-  assert.equal(planningHandoffIndex.readyTaskCount, 1);
-  assert.equal(planningHandoffIndex.descriptors[0]?.runtime.id, "manual");
-
-  await runNode(["src/index.mjs", "task", runStatePath, "planning-brief", "completed", "synthetic planner"]);
-  await runNode(["src/index.mjs", "tick", runStatePath, syntheticDoctorPath]);
-  await runNode(["src/index.mjs", "dispatch", handoffIndexPath, "dry-run"]);
-
-  const implementationDryRunResults = JSON.parse(await readFile(dispatchResultsPath, "utf8"));
-  assert.equal(implementationDryRunResults.summary.wouldExecute, 2);
-  assert.ok(implementationDryRunResults.results.every((result) => result.status === "would_execute"));
-
-  const implementationHandoffIndex = JSON.parse(await readFile(handoffIndexPath, "utf8"));
-  assert.equal(implementationHandoffIndex.readyTaskCount, 2);
-  assert.ok(implementationHandoffIndex.descriptors.every((descriptor) => descriptor.runtime.id === "codex"));
-
-  for (const descriptor of implementationHandoffIndex.descriptors) {
-    await writeFile(
-      descriptor.launcherPath,
-      bindArtifactScriptIdentity(buildResultArtifactScript(descriptor.resultPath, {
-        status: "completed",
-        summary: `synthetic completion for ${descriptor.taskId}`,
-        changedFiles: [`src/generated/${descriptor.taskId}.mjs`],
-        verification: ["synthetic dispatch execute smoke"],
-        notes: ["e2e synthetic artifact"]
-      }), descriptor),
-      "utf8"
-    );
-  }
-
-  await runNode(["src/index.mjs", "dispatch", handoffIndexPath, "execute"]);
-
-  const executeResults = JSON.parse(await readFile(dispatchResultsPath, "utf8"));
-  assert.equal(executeResults.summary.completed, 2);
-  assert.equal(executeResults.runStateSync?.updatedTasks.length, 2);
-  assert.ok(
-    executeResults.runStateSync?.updatedTasks.every((taskUpdate) => taskUpdate.nextStatus === "completed")
-  );
+  await runNode(["src/index.mjs", "validate", path.join(workspaceRoot, "specs", "project-spec.json")], { env });
+  await runNode(["src/index.mjs", "run", path.join(workspaceRoot, "specs", "project-spec.json"), runsRoot, runId], {
+    env
+  });
+  await runNode(["src/index.mjs", "autonomous", runStatePath], { env });
 
   const runState = JSON.parse(await readFile(runStatePath, "utf8"));
-  const planningTask = runState.taskLedger.find((task) => task.id === "planning-brief");
-  const implementationTasks = runState.taskLedger.filter((task) => task.id.startsWith("implement-"));
-  const reviewTasks = runState.taskLedger.filter((task) => task.id.startsWith("review-"));
+  const summary = JSON.parse(await readFile(summaryPath, "utf8"));
   const report = await readFile(reportPath, "utf8");
+  const finalDispatchResults = JSON.parse(await readFile(handoffResultsPath, "utf8"));
+  const doctorReport = JSON.parse(await readFile(summary.doctorReportPath, "utf8"));
+  const taskIds = runState.taskLedger.map((task) => task.id);
+  const requiredRuntimeChecks = new Map(
+    doctorReport.checks
+      .filter((check) => check.requiredByDefaultRoute)
+      .map((check) => [check.id, check.ok])
+  );
 
-  assert.equal(planningTask?.status, "completed");
-  assert.ok(implementationTasks.length > 0);
-  assert.ok(implementationTasks.every((task) => task.status === "completed"));
-  assert.ok(reviewTasks.every((task) => task.status === "ready"));
+  assert.equal(runState.status, "completed");
+  assert.equal(summary.finalStatus, "completed");
+  assert.equal(summary.stopReason, "run completed");
+  assert.equal(summary.rounds.length, 5);
+  assert.equal(summary.rounds.filter((round) => (round.dispatchSummary?.completed ?? 0) === 1).length, 5);
+  assert.ok(runState.taskLedger.every((task) => task.status === "completed"));
+  assert.deepEqual(taskIds, [
+    "planning-brief",
+    "implement-spec-intake",
+    "review-spec-intake",
+    "verify-spec-intake",
+    "delivery-package"
+  ]);
+  assert.equal(requiredRuntimeChecks.get("gpt-runner"), true);
+  assert.equal(requiredRuntimeChecks.get("codex"), true);
+  assert.equal(requiredRuntimeChecks.get("local-ci"), true);
+  assert.equal(finalDispatchResults.summary.completed, 1);
+  assert.equal(finalDispatchResults.results[0]?.taskId, "delivery-package");
+  assert.equal(finalDispatchResults.results[0]?.status, "completed");
   assert.match(report, /\[completed\] planning-brief ->/);
-  assert.match(report, /\[completed\] implement-/);
-  assert.match(report, /\[ready\] review-/);
+  assert.match(report, /\[completed\] implement-spec-intake ->/);
+  assert.match(report, /\[completed\] review-spec-intake ->/);
+  assert.match(report, /\[completed\] verify-spec-intake ->/);
+  assert.match(report, /\[completed\] delivery-package ->/);
 
-  console.log(`E2E smoke passed in ${tempDir}`);
+  console.log(`Autonomous E2E smoke passed in ${tempDir}`);
 }
 
 main().catch((error) => {

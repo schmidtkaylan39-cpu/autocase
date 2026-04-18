@@ -65,6 +65,8 @@ The workflow is intentionally file-first and auditable:
    `*.prompt.md`, `*.handoff.json`, `*.handoff.md`, `*.launch.<ps1|sh>`, plus expected `results/<taskId>.<handoffId>.result.json`.
 7. `dispatch` (`dry-run` or `execute`)
    Runs auto-executable launchers, validates result artifact contract, writes dispatch reports, and in `execute` mode syncs outcomes back into run artifacts.
+8. `autonomous`
+   Runs `doctor -> tick -> dispatch execute` rounds until the run completes or hits a stop condition, then writes `autonomous-summary.json` and `autonomous-summary.md`.
 
 Planning, run creation, handoff generation, and dispatch now fail closed whenever a workspace-level clarification artifact exists but is not yet confirmed.
 
@@ -103,7 +105,7 @@ Important behavior:
   `runId`, `taskId`, `handoffId`, `status` (`completed|failed|blocked`), `summary`, `changedFiles[]`, `verification[]`, `notes[]`.
 - `handoff` uses attempt-specific result paths and `dispatch execute` clears any pre-existing result file before launching, so stale artifacts are not silently reused.
 - In `execute` mode, dispatch maps outcomes back into run ledger:
-  `completed -> completed`, `failed -> failed`, `incomplete -> blocked`.
+  `completed -> completed`, `failed -> failed`, `incomplete -> blocked`, and blocked artifacts with a valid `automationDecision` are surfaced as `continued` while the run-state applies the requested retry/rework/replan transition.
 - When run files are present, dispatch updates `run-state.json` and regenerates `report.md`.
 
 ## Model Routing
@@ -231,6 +233,7 @@ npm run doctor
 ```
 
 `npm run validate:workflows` now also enforces that `.github/workflows/release-readiness.yml` still carries Windows-only `backup:project` and `release:win` smoke coverage.
+`npm run test:e2e` now runs an isolated autonomous CLI canary with a fake Codex surface and a fixture local-ci workspace, so release gates cover the real `autonomous` route instead of the older manual dry-run flow.
 
 Or capture the same release-gate run in one machine-readable pass:
 
@@ -262,6 +265,7 @@ Recommended release evidence to keep with the candidate:
 
 - `reports/release-burnin-summary.json`
 - `reports/runtime-doctor.json`
+- `runs/<run-id>/autonomous-summary.json`
 - `runs/<run-id>/handoffs/dispatch-results.json`
 - `runs/<run-id>/run-state.json`
 - `runs/<run-id>/report.md`
@@ -314,6 +318,7 @@ node src/index.mjs report demo-workspace/runs/demo-run/run-state.json
 node src/index.mjs doctor demo-workspace/reports
 node src/index.mjs handoff demo-workspace/runs/demo-run/run-state.json
 node src/index.mjs dispatch demo-workspace/runs/demo-run/handoffs/index.json dry-run
+node src/index.mjs autonomous demo-workspace/runs/demo-run/run-state.json
 ```
 
 `npm run init -- <targetDir>` bootstraps a new workspace and writes a starter `AGENTS.md` file only when that workspace does not already have one.
@@ -363,6 +368,7 @@ node src/index.mjs review-bundle [outputDir] [bundleName] [--no-archive]
 node src/index.mjs doctor [outputDir]
 node src/index.mjs handoff <runStatePath> [outputDir] [doctorReportPath]
 node src/index.mjs dispatch <handoffIndexPath> [dry-run|execute]
+node src/index.mjs autonomous <runStatePath> [doctorReportPath] [outputDir] [maxRounds]
 ```
 
 ## Repository Layout

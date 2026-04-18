@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { createRunHandoffs, runProject, updateRunTask } from "../src/lib/commands.mjs";
+import { createRunHandoffs, initProject, runProject, updateRunTask } from "../src/lib/commands.mjs";
 import { dispatchHandoffs } from "../src/lib/dispatch.mjs";
 import { writeJson } from "../src/lib/fs-utils.mjs";
 import { getLauncherMetadata } from "../src/lib/handoffs.mjs";
@@ -262,6 +262,61 @@ async function createPlannerDispatchReadyRun(tempDir, runId, doctorOverrides = {
     },
     runDirectory: path.dirname(runResult.statePath),
     reportPath: path.join(path.dirname(runResult.statePath), "report.md")
+  };
+}
+
+async function createVerifierDispatchReadyRun(tempDir, runId, doctorOverrides = {}) {
+  const workspaceRoot = path.join(tempDir, "workspace");
+  const specPath = path.join(workspaceRoot, "specs", "project-spec.json");
+  const doctorReportPath = path.join(tempDir, `${runId}.doctor.json`);
+  const packageJsonPath = path.join(workspaceRoot, "package.json");
+  const baseSpec = JSON.parse(await readFile(validSpecPath, "utf8"));
+  const singleFeatureSpec = {
+    ...baseSpec,
+    coreFeatures: Array.isArray(baseSpec.coreFeatures) ? baseSpec.coreFeatures.slice(0, 1) : []
+  };
+  const packageJson = {
+    name: "ai-factory-verifier-fixture",
+    private: true,
+    version: "1.0.0",
+    scripts: {
+      build: 'node -e "console.log(\'build ok\')"',
+      lint: 'node -e "console.log(\'lint ok\')"',
+      typecheck: 'node -e "console.log(\'typecheck ok\')"',
+      test: 'node -e "console.log(\'test ok\')"',
+      "test:integration": 'node -e "console.log(\'integration ok\')"',
+      "test:e2e": 'node -e "console.log(\'e2e ok\')"'
+    }
+  };
+
+  await initProject(workspaceRoot);
+  await writeFile(specPath, `${JSON.stringify(singleFeatureSpec, null, 2)}\n`, "utf8");
+  await writeFile(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`, "utf8");
+
+  const runResult = await runProject(specPath, path.join(workspaceRoot, "runs"), runId);
+
+  await updateRunTask(runResult.statePath, "planning-brief", "completed", "planner finished");
+  await updateRunTask(runResult.statePath, "implement-spec-intake", "completed", "executor finished");
+  await updateRunTask(runResult.statePath, "review-spec-intake", "completed", "reviewer finished");
+  await writeFakeDoctorReport(doctorReportPath, doctorOverrides);
+
+  const handoffResult = await createRunHandoffs(runResult.statePath, undefined, doctorReportPath);
+  const baseDescriptor = handoffResult.descriptors.find((descriptor) => descriptor.taskId === "verify-spec-intake");
+
+  if (!baseDescriptor) {
+    throw new Error("Expected a verify-spec-intake handoff descriptor.");
+  }
+
+  return {
+    runResult,
+    handoffResult,
+    descriptor: {
+      ...baseDescriptor,
+      runtime: { ...baseDescriptor.runtime }
+    },
+    runDirectory: path.dirname(runResult.statePath),
+    reportPath: path.join(path.dirname(runResult.statePath), "report.md"),
+    workspaceRoot
   };
 }
 
@@ -560,6 +615,48 @@ async function main() {
         process.env.PATH = previousPath;
       }
     }
+  });
+
+  await runTest("matrix: generated local-ci launcher can execute a verifier task end-to-end", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-matrix-local-ci-"));
+    const { runResult, handoffResult, descriptor, reportPath } = await createVerifierDispatchReadyRun(
+      tempDir,
+      `local-ci-${Date.now()}`,
+      {
+        "local-ci": { ok: true }
+      }
+    );
+
+    assert.equal(descriptor.runtime.id, "local-ci");
+    await limitDispatchToDescriptors(handoffResult.indexPath, handoffResult.runId, [descriptor]);
+
+    const dispatchResult = await dispatchHandoffs(handoffResult.indexPath, "execute");
+    const runState = JSON.parse(await readFile(runResult.statePath, "utf8"));
+    const report = await readFile(reportPath, "utf8");
+    const verificationTask = runState.taskLedger.find((item) => item.id === "verify-spec-intake");
+    const deliveryTask = runState.taskLedger.find((item) => item.id === "delivery-package");
+    const result = dispatchResult.results[0];
+
+    assert.equal(result.status, "completed");
+    assert.equal(dispatchResult.summary.completed, 1);
+    assert.deepEqual(dispatchResult.runStateSync?.updatedTasks[0], {
+      taskId: "verify-spec-intake",
+      nextStatus: "completed"
+    });
+    assert.equal(verificationTask?.status, "completed");
+    assert.equal(deliveryTask?.status, "ready");
+    assert.deepEqual(result.artifact?.changedFiles, []);
+    assert.deepEqual(result.artifact?.verification, [
+      "npm run build",
+      "npm run lint",
+      "npm run typecheck",
+      "npm test",
+      "npm run test:integration",
+      "npm run test:e2e"
+    ]);
+    assert.match(result.artifact?.summary ?? "", /local-ci completed 6 verification command/);
+    assert.match(report, /\[completed\] verify-spec-intake ->/);
+    assert.match(report, /\[ready\] delivery-package ->/);
   });
 
   await runTest("matrix: blocked artifact is valid contract but maps to blocked task via incomplete", async () => {

@@ -193,7 +193,38 @@ function buildCursorLauncher(workspacePath, briefPath, promptPath, modelSelectio
   ].join("\n");
 }
 
-function buildLocalCiLauncher(workspacePath, mandatoryGates = [], platform = process.platform) {
+function buildLocalCiResultArtifact(runId, taskId, handoffId, verificationCommands, mandatoryGates) {
+  const effectiveCommands = verificationCommands.length > 0 ? verificationCommands : ["npm test"];
+  const effectiveGates = mandatoryGates.length > 0 ? mandatoryGates : ["default npm test"];
+
+  return JSON.stringify(
+    {
+      runId,
+      taskId,
+      handoffId,
+      status: "completed",
+      summary: `local-ci completed ${effectiveCommands.length} verification command(s).`,
+      changedFiles: [],
+      verification: effectiveCommands,
+      notes: [`Completed verifier gates: ${effectiveGates.join(", ")}.`]
+    },
+    null,
+    2
+  );
+}
+
+function buildLocalCiLauncher(
+  workspacePath,
+  options = {},
+  platform = process.platform
+) {
+  const {
+    runId,
+    taskId,
+    handoffId,
+    resultPath,
+    mandatoryGates = []
+  } = options;
   const gateToCommand = {
     build: "npm run build",
     lint: "npm run lint",
@@ -206,19 +237,40 @@ function buildLocalCiLauncher(workspacePath, mandatoryGates = [], platform = pro
   const commands = mandatoryGates
     .map((gate) => gateToCommand[gate])
     .filter(Boolean);
+  const artifactJson = buildLocalCiResultArtifact(
+    runId,
+    taskId,
+    handoffId,
+    commands,
+    mandatoryGates
+  );
 
   if (platform === "win32") {
     const workspaceLiteral = toPowerShellSingleQuotedLiteral(workspacePath);
+    const resultPathLiteral = toPowerShellSingleQuotedLiteral(resultPath);
     return [
       `Set-Location -LiteralPath ${workspaceLiteral}`,
-      ...(commands.length > 0 ? commands : ["npm test"])
+      ...(commands.length > 0 ? commands : ["npm test"]),
+      `$resultDirectory = Split-Path -Parent ${resultPathLiteral}`,
+      "if (![string]::IsNullOrWhiteSpace($resultDirectory)) {",
+      "  New-Item -ItemType Directory -Force -Path $resultDirectory | Out-Null",
+      "}",
+      "$resultJson = @'",
+      artifactJson,
+      "'@",
+      `$resultJson | Set-Content -LiteralPath ${resultPathLiteral} -Encoding utf8`
     ].join("\n");
   }
 
   const workspaceLiteral = toShellSingleQuotedLiteral(workspacePath);
+  const resultPathLiteral = toShellSingleQuotedLiteral(resultPath);
   return [
     `cd ${workspaceLiteral}`,
-    ...(commands.length > 0 ? commands : ["npm test"])
+    ...(commands.length > 0 ? commands : ["npm test"]),
+    `mkdir -p "$(dirname -- ${resultPathLiteral})"`,
+    `cat > ${resultPathLiteral} <<'JSON'`,
+    artifactJson,
+    "JSON"
   ].join("\n");
 }
 
@@ -353,7 +405,17 @@ export function buildHandoffDescriptor({
   } else if (selected.runtimeId === "cursor") {
     launcherScript = buildCursorLauncher(workspacePath, briefPath, promptPath, modelSelection, platform);
   } else if (selected.runtimeId === "local-ci") {
-    launcherScript = buildLocalCiLauncher(workspacePath, runState.mandatoryGates, platform);
+    launcherScript = buildLocalCiLauncher(
+      workspacePath,
+      {
+        runId: runState.runId,
+        taskId: task.id,
+        handoffId,
+        resultPath,
+        mandatoryGates: runState.mandatoryGates
+      },
+      platform
+    );
   } else if (selected.runtimeId === "codex") {
     launcherScript = buildCodexLauncher(promptPath, workspacePath, modelSelection, platform);
   }

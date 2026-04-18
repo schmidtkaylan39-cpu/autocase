@@ -2,12 +2,12 @@
 
 This document captures the current release baseline for the multi-AI software factory starter and what must be verified before go-live.
 
-Snapshot date: 2026-04-16 (Asia/Shanghai).
+Snapshot date: 2026-04-18 (Asia/Shanghai).
 
 ## What Is Already Completed
 
 - CLI command surface is in place and wired end-to-end:
-  - `init`, `intake`, `confirm`, `revise`, `validate`, `plan`, `run`, `report`, `task`, `doctor`, `handoff`, `dispatch`
+  - `init`, `intake`, `confirm`, `revise`, `validate`, `plan`, `run`, `report`, `task`, `result`, `retry`, `tick`, `doctor`, `handoff`, `dispatch`, `autonomous`, `review-bundle`
 - Clarification gate is now enforced ahead of planning and execution:
   - workspace-level `artifacts/clarification/intake-spec.json`
   - workspace-level `artifacts/clarification/intake-summary.md`
@@ -17,11 +17,12 @@ Snapshot date: 2026-04-16 (Asia/Shanghai).
 - Dispatch execute loopback is implemented:
   - launcher execution
   - result artifact schema validation
-  - `run-state.json` sync (`completed`/`failed`/`blocked`)
+  - `run-state.json` sync (`completed`/`failed`/`blocked`, plus `continued` when a valid automation decision is applied)
   - `report.md` regeneration when run artifacts are present
-- Tests cover dispatch execute outcomes (missing artifact, invalid artifact, valid artifact) and verify run-state/report sync.
-- E2E smoke includes CLI-level `dispatch execute` synthetic validation.
+- Tests cover dispatch execute outcomes (missing artifact, invalid artifact, valid artifact, automated continuation decisions, generated `gpt-runner` launchers, and generated `local-ci` verifier launchers) and verify run-state/report sync.
+- E2E smoke now exercises the real `autonomous` CLI route in an isolated workspace with a fake Codex surface and fixture local-ci scripts, instead of the older manual planner dry-run flow.
 - Packaged CLI installability is covered by `npm run pack:check`, which validates tarball contents and executes the installed binary.
+- Packaged Windows acceptance smoke script now supports a self-contained autonomous EXE pass with fixture Codex and fixture local-ci scripts.
 - Local CI verifier contract is standardized on six required scripts:
   - `build`, `lint`, `typecheck`, `test`, `test:integration`, `test:e2e`
 - GitHub Actions CI baseline exists at `.github/workflows/ci.yml` and enforces build/lint/typecheck/tests plus example pipeline smoke.
@@ -50,6 +51,7 @@ npm run doctor
 ```
 
 `npm run validate:workflows` is also a semantic guard for `.github/workflows/release-readiness.yml` and fails if Windows `backup:project` or `release:win` smoke commands are missing (or not Windows-scoped).
+`npm run test:e2e` is the autonomous CLI canary and should stay green whenever `autonomous` handoff/tick/dispatch behavior changes.
 
 On a Windows release host, also run packaging smoke:
 
@@ -110,9 +112,9 @@ Why non-blocking for now:
 ## Design Choices (Not Bugs)
 
 - planner/reviewer/orchestrator work now defaults to `gpt-runner`, which executes `gpt-5.4` / `gpt-5.4-pro` through Codex CLI; Cursor is retained only as an auxiliary human IDE / spot-check surface.
-- `dispatch` reports runtime artifact status `blocked` as dispatch result `incomplete`; during run-state sync it is mapped to task status `blocked`.
+- `dispatch` reports runtime artifact status `blocked` as dispatch result `incomplete` unless a valid `automationDecision` is present, in which case it reports `continued`; during run-state sync it either maps to task status `blocked` or applies the requested retry/rework/replan transition.
 - `dispatch execute` claims auto-executable tasks as `in_progress` before launcher execution begins.
-- `doctor` validates runtime readiness and required script presence, not full task-completion capability of every runtime.
+- `doctor` validates runtime readiness and required script presence; packaged acceptance and autonomous E2E smoke provide the higher-level proof that those runtimes can complete tasks end-to-end.
 - `dispatch` does not infer semantic code quality from diffs or logs beyond launcher outcome and artifact schema contract.
 
 ## Go-Live Decision Rule
