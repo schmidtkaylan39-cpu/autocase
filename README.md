@@ -10,6 +10,7 @@ The repository can still be driven from source with `node src/index.mjs`, and it
 Chinese quick guide:
 
 - `docs/usage-guide.zh-TW.md`
+- `docs/panel-quickstart.zh-TW.md`
 
 ## Harness Baseline
 
@@ -341,7 +342,24 @@ Installed CLI usage:
 ```bash
 ai-factory-starter --help
 ai-factory-starter --version
+ai-factory-starter panel [workspaceDir] [port]
 ```
+
+Human-friendly local panel (browser UI):
+
+```bash
+node src/index.mjs panel .
+```
+
+Then open the printed URL (default `http://127.0.0.1:4310`) and click through:
+
+1. `init`
+2. `intake`
+3. `confirm`
+4. `run`
+5. `autonomous`
+
+This panel calls the same CLI workflow functions under the hood and keeps all artifacts in your workspace.
 
 To test full dispatch loop on a run:
 
@@ -369,6 +387,7 @@ node src/index.mjs doctor [outputDir]
 node src/index.mjs handoff <runStatePath> [outputDir] [doctorReportPath]
 node src/index.mjs dispatch <handoffIndexPath> [dry-run|execute]
 node src/index.mjs autonomous <runStatePath> [doctorReportPath] [outputDir] [maxRounds]
+node src/index.mjs panel [workspaceDir] [port]
 ```
 
 ## Repository Layout

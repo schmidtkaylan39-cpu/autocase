@@ -21,6 +21,7 @@ import {
 import { dispatchHandoffs } from "./lib/dispatch.mjs";
 import { runAutonomousLoop } from "./lib/autonomous-run.mjs";
 import { runRuntimeDoctor } from "./lib/doctor.mjs";
+import { normalizePanelPort, startPanelServer } from "./lib/panel.mjs";
 import { createReviewBundle } from "./lib/review-bundle.mjs";
 
 const require = createRequire(import.meta.url);
@@ -47,6 +48,7 @@ Usage:
   ${packageMetadata.name} handoff <runStatePath> [outputDir] [doctorReportPath]
   ${packageMetadata.name} dispatch <handoffIndexPath> [dry-run|execute]
   ${packageMetadata.name} autonomous <runStatePath> [doctorReportPath] [outputDir] [maxRounds]
+  ${packageMetadata.name} panel [workspaceDir] [port]
   ${packageMetadata.name} --help
   ${packageMetadata.name} --version
 `);
@@ -282,6 +284,37 @@ async function runAutonomous(runStatePath, doctorReportPath, outputDir, maxRound
   console.log(JSON.stringify(result.summary.runSummary, null, 2));
 }
 
+async function runPanel(workspaceDir = ".", portArg) {
+  const port = normalizePanelPort(portArg);
+  const panel = await startPanelServer({
+    workspaceDir,
+    port
+  });
+
+  console.log(`Panel workspace: ${panel.workspaceRoot}`);
+  console.log(`Panel URL: ${panel.url}`);
+  console.log("Press Ctrl+C to stop the panel server.");
+
+  await new Promise((resolve, reject) => {
+    let closing = false;
+
+    const closeServer = () => {
+      if (closing) {
+        return;
+      }
+
+      closing = true;
+      panel
+        .close()
+        .then(() => resolve())
+        .catch((error) => reject(error));
+    };
+
+    process.once("SIGINT", closeServer);
+    process.once("SIGTERM", closeServer);
+  });
+}
+
 async function main() {
   const [command, ...args] = process.argv.slice(2);
   const [arg1, arg2, arg3, arg4] = args;
@@ -373,6 +406,9 @@ async function main() {
         throw new Error("Please provide a run-state path.");
       }
       await runAutonomous(arg1, arg2, arg3, arg4);
+      break;
+    case "panel":
+      await runPanel(arg1, arg2);
       break;
     case "help":
     case "--help":
