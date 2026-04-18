@@ -1,0 +1,129 @@
+{
+  "schemaVersion": "1.0.0",
+  "release": {
+    "version": "0.1.2",
+    "tag": "v0.1.2",
+    "commit": "ea4f5a9",
+    "releasedAt": "2026-04-18T08:24:08Z",
+    "timezone": "Asia/Shanghai",
+    "releaseUrl": "https://github.com/schmidtkaylan39-cpu/autocase/releases/tag/v0.1.2"
+  },
+  "provenance": {
+    "packageName": "ai-factory-starter",
+    "packageVersion": "0.1.2",
+    "gitBranch": "main",
+    "gitCommitFull": "ea4f5a9261ed49c57800955f3d68586edc8d644b",
+    "sourceManifestGeneratedAt": "2026-04-18T07:33:44.716Z",
+    "sourceManifestPath": "desktop/money/release-candidates/v0.1.2/windows-release/20260418-073246-ea4f5a9/release-manifest.json",
+    "releaseNotesPath": "docs/releases/v0.1.2.md",
+    "evidenceScriptPath": "scripts/release-publish-evidence.mjs",
+    "notes": [
+      "This evidence artifact is lightweight and tracks published release facts only.",
+      "Use release-manifest.json plus release assets for deep binary-level forensics."
+    ]
+  },
+  "windowsRelease": {
+    "nodeArchitecture": "x64",
+    "windowsTarget": "win-x64",
+    "releaseDirectoryName": "ai-factory-starter-win-x64-ea4f5a9",
+    "releaseArchiveFileName": "ai-factory-starter-win-x64-ea4f5a9.zip"
+  },
+  "validationSummary": {
+    "sourceArtifactPath": "reports/validation-results.json",
+    "sourceArtifactTrackedInRepo": true,
+    "allPassed": true,
+    "resultCount": 9,
+    "commands": [
+      {
+        "command": "npm run validate:workflows",
+        "status": "passed",
+        "evidenceStrength": "artifact"
+      },
+      {
+        "command": "npm run build",
+        "status": "passed",
+        "evidenceStrength": "artifact"
+      },
+      {
+        "command": "npm run pack:check",
+        "status": "passed",
+        "evidenceStrength": "artifact"
+      },
+      {
+        "command": "npm run lint",
+        "status": "passed",
+        "evidenceStrength": "artifact"
+      },
+      {
+        "command": "npm run typecheck",
+        "status": "passed",
+        "evidenceStrength": "artifact"
+      },
+      {
+        "command": "npm test",
+        "status": "passed",
+        "evidenceStrength": "artifact"
+      },
+      {
+        "command": "npm run test:integration",
+        "status": "passed",
+        "evidenceStrength": "artifact"
+      },
+      {
+        "command": "npm run test:e2e",
+        "status": "passed",
+        "evidenceStrength": "artifact"
+      },
+      {
+        "command": "npm run doctor",
+        "status": "passed",
+        "evidenceStrength": "artifact"
+      }
+    ]
+  },
+  "assets": [
+    {
+      "name": "ai-factory-starter-win-x64-ea4f5a9.zip",
+      "kind": "windows-release-zip",
+      "sizeBytes": 34189303,
+      "sha256": "26c8b39c255747111569eef70d41a88934707ab3d99382df51c8a239819f4347",
+      "downloadUrl": "https://github.com/schmidtkaylan39-cpu/autocase/releases/download/v0.1.2/ai-factory-starter-win-x64-ea4f5a9.zip"
+    },
+    {
+      "name": "ai-factory-starter-0.1.2.tgz",
+      "kind": "package-tarball",
+      "sizeBytes": 77875,
+      "sha256": "bd9453aef82b9fae922fe246474f699c09ec208ac4f8e0de3bce51593ec3629e",
+      "downloadUrl": "https://github.com/schmidtkaylan39-cpu/autocase/releases/download/v0.1.2/ai-factory-starter-0.1.2.tgz"
+    },
+    {
+      "name": "release-manifest.json",
+      "kind": "release-manifest",
+      "sizeBytes": 2027,
+      "sha256": "1d094218810c3bc47080eb3dffc3caa907274fa9745082ec739b70bd37719713",
+      "downloadUrl": "https://github.com/schmidtkaylan39-cpu/autocase/releases/download/v0.1.2/release-manifest.json"
+    }
+  ],
+  "verification": {
+    "localChecks": [
+      "npm run validate:workflows",
+      "npm run build",
+      "npm run pack:check",
+      "npm run lint",
+      "npm run typecheck",
+      "npm test",
+      "npm run test:integration",
+      "npm run test:e2e",
+      "npm run doctor",
+      "npm run selfcheck"
+    ],
+    "externalReviewerRerunChecks": [
+      "npm ci",
+      "npm test",
+      "npm run validate:workflows",
+      "npm run pack:check"
+    ],
+    "externalReviewerSummary": "No concrete bug found for a5193f3 review bundle; residual findings are low-severity hardening risks and non-blocking."
+  },
+  "rerunPrerequisite": "From bundle repo/: run npm ci before rerunning repo-level validation commands."
+}
