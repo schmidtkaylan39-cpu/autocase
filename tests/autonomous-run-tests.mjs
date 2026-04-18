@@ -144,6 +144,123 @@ async function main() {
     assert.equal(runState.taskLedger.find((task) => task.id === "verify-spec-intake")?.status, "pending");
   });
 
+  await runTest("autonomous loop keeps delivery interruptions recoverable before the replan boundary", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-autonomous-delivery-recover-"));
+    const runResult = await runProject(validSpecPath, tempDir, "autonomous-delivery-recover-run");
+    const doctorReportPath = path.join(tempDir, "doctor.json");
+    const handoffIndexPath = path.join(tempDir, "handoffs", "index.json");
+    const failureSequence = [
+      { taskId: "review-spec-intake", status: "blocked", interruptDelivery: false },
+      { taskId: "verify-spec-intake", status: "failed", interruptDelivery: true },
+      { taskId: "review-spec-intake", status: "blocked", interruptDelivery: false },
+      { taskId: "verify-spec-intake", status: "failed", interruptDelivery: true }
+    ];
+    let tickCalls = 0;
+    let dispatchCalls = 0;
+    const deliveryStatusBeforeDispatch = [];
+
+    await writeJson(doctorReportPath, { checks: [] });
+    await mkdir(path.dirname(handoffIndexPath), { recursive: true });
+    await writeJson(handoffIndexPath, {
+      generatedAt: new Date().toISOString(),
+      runId: "autonomous-delivery-recover-run",
+      readyTaskCount: 1,
+      descriptors: []
+    });
+
+    await updateRunTask(runResult.statePath, "planning-brief", "completed", "planning completed");
+    await updateRunTask(runResult.statePath, "implement-spec-intake", "completed", "implementation completed");
+
+    const result = await runAutonomousLoop(runResult.statePath, {
+      maxRounds: failureSequence.length,
+      operations: {
+        runRuntimeDoctor: async () => ({ jsonPath: doctorReportPath }),
+        tickProjectRun: async () => {
+          tickCalls += 1;
+          const currentRunState = await readJson(runResult.statePath);
+          deliveryStatusBeforeDispatch.push(
+            currentRunState.taskLedger.find((task) => task.id === "delivery-package")?.status ?? "unknown"
+          );
+
+          return {
+            handoffIndexPath,
+            readyTaskCount: 1
+          };
+        },
+        dispatchHandoffs: async () => {
+          dispatchCalls += 1;
+          const currentRunState = await readJson(runResult.statePath);
+          const step = failureSequence[dispatchCalls - 1];
+
+          if (!step) {
+            throw new Error(`Unexpected dispatch call count: ${dispatchCalls}`);
+          }
+
+          const nextRunState = refreshRunState({
+            ...currentRunState,
+            taskLedger: currentRunState.taskLedger.map((task) => {
+              if (task.id === step.taskId) {
+                return {
+                  ...task,
+                  status: step.status
+                };
+              }
+
+              if (step.interruptDelivery && task.id === "delivery-package") {
+                return {
+                  ...task,
+                  status: "blocked"
+                };
+              }
+
+              return task;
+            })
+          });
+
+          await writeJson(runResult.statePath, nextRunState);
+
+          return {
+            summary: {
+              executed: 1,
+              completed: 0,
+              continued: 1,
+              incomplete: 1,
+              failed: 0,
+              skipped: 0
+            }
+          };
+        }
+      }
+    });
+
+    const runState = await readJson(runResult.statePath);
+    const implementationTask = runState.taskLedger.find((task) => task.id === "implement-spec-intake");
+    const recoveryTypes = result.summary.rounds.map((round) => round.recovery?.type).filter(Boolean);
+
+    assert.equal(tickCalls, 4);
+    assert.equal(dispatchCalls, 4);
+    assert.deepEqual(recoveryTypes, [
+      "feature_rework",
+      "feature_rework",
+      "feature_rework",
+      "feature_replan"
+    ]);
+    assert.ok(
+      deliveryStatusBeforeDispatch.every((status) => status === "pending"),
+      `Expected delivery-package to stay recoverable, received: ${deliveryStatusBeforeDispatch.join(", ")}`
+    );
+    assert.equal(
+      (implementationTask?.notes ?? []).filter((note) => /autonomous-requeue:/i.test(note)).length,
+      3
+    );
+    assert.equal(runState.taskLedger.find((task) => task.id === "planning-brief")?.status, "ready");
+    assert.equal(runState.taskLedger.find((task) => task.id === "implement-spec-intake")?.status, "pending");
+    assert.equal(runState.taskLedger.find((task) => task.id === "review-spec-intake")?.status, "pending");
+    assert.equal(runState.taskLedger.find((task) => task.id === "verify-spec-intake")?.status, "pending");
+    assert.equal(runState.taskLedger.find((task) => task.id === "delivery-package")?.status, "pending");
+    assert.equal(result.summary.stopReason, "maximum rounds reached");
+  });
+
   await runTest("autonomous loop records dispatch progress and reaches completion", async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-autonomous-complete-"));
     const runResult = await runProject(validSpecPath, tempDir, "autonomous-complete-run");
