@@ -76,7 +76,7 @@ async function listRunStateCandidates(runsDirectory) {
         mtimeMs: details.mtimeMs
       });
     } catch {
-      // Ignore directories without a run-state file.
+      // Ignore directories without run-state.
     }
   }
 
@@ -90,18 +90,27 @@ async function findLatestRunStatePath(workspaceRoot) {
   return latest?.runStatePath ?? null;
 }
 
-async function resolveDefaultHandoffIndexPath(runStatePath) {
+async function collectHandoffDirectories(runStatePath) {
   const runDirectory = path.dirname(runStatePath);
-  const runState = await readJson(runStatePath);
-  const candidateDirectories = [path.join(runDirectory, "handoffs")];
+  const candidateDirectories = new Set([
+    path.join(runDirectory, "handoffs"),
+    path.join(runDirectory, "handoffs-autonomous")
+  ]);
+  const runState = await readJson(runStatePath).catch(() => null);
 
-  for (const task of runState.taskLedger ?? []) {
+  for (const task of runState?.taskLedger ?? []) {
     if (typeof task.activeHandoffOutputDir === "string" && task.activeHandoffOutputDir.trim().length > 0) {
-      candidateDirectories.push(path.resolve(task.activeHandoffOutputDir));
+      candidateDirectories.add(path.resolve(task.activeHandoffOutputDir));
     }
   }
 
-  for (const directoryPath of candidateDirectories) {
+  return [...candidateDirectories];
+}
+
+async function resolveDefaultHandoffIndexPath(runStatePath) {
+  const directories = await collectHandoffDirectories(runStatePath);
+
+  for (const directoryPath of directories) {
     const indexPath = path.join(directoryPath, "index.json");
 
     if (await pathExists(indexPath)) {
@@ -109,9 +118,29 @@ async function resolveDefaultHandoffIndexPath(runStatePath) {
     }
   }
 
-  throw new Error(
-    `No handoff index was found for ${runStatePath}. Generate handoffs before dispatching.`
-  );
+  throw new Error(`No handoff index was found for ${runStatePath}. Generate handoffs before dispatching.`);
+}
+
+async function findLatestDispatchResultsPath(runStatePath) {
+  const directories = await collectHandoffDirectories(runStatePath);
+  const candidates = [];
+
+  for (const directoryPath of directories) {
+    const dispatchResultsPath = path.join(directoryPath, "dispatch-results.json");
+
+    try {
+      const details = await stat(dispatchResultsPath);
+      candidates.push({
+        dispatchResultsPath,
+        mtimeMs: details.mtimeMs
+      });
+    } catch {
+      // Ignore missing dispatch-results.
+    }
+  }
+
+  candidates.sort((left, right) => right.mtimeMs - left.mtimeMs);
+  return candidates[0]?.dispatchResultsPath ?? null;
 }
 
 function getDefaultPaths(workspaceRoot) {
@@ -208,6 +237,138 @@ function readStatusCode(error) {
   return null;
 }
 
+function extractPromptFromStderr(stderr) {
+  if (typeof stderr !== "string" || stderr.trim().length === 0) {
+    return null;
+  }
+
+  const normalized = stderr.replaceAll("\r\n", "\n");
+  const userMarker = "\nuser\n";
+  let startIndex = normalized.indexOf(userMarker);
+
+  if (startIndex >= 0) {
+    startIndex += userMarker.length;
+  } else if (normalized.startsWith("user\n")) {
+    startIndex = "user\n".length;
+  } else {
+    return null;
+  }
+
+  let promptBody = normalized.slice(startIndex);
+  const timestampMatch = /\n\d{4}-\d{2}-\d{2}T/.exec(promptBody);
+
+  if (timestampMatch && typeof timestampMatch.index === "number") {
+    promptBody = promptBody.slice(0, timestampMatch.index);
+  }
+
+  const trimmed = promptBody.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function parsePreferredModel(stdout) {
+  if (typeof stdout !== "string") {
+    return null;
+  }
+
+  const match = stdout.match(/Preferred model:\s*(.+)/i);
+  return match ? match[1].trim() : null;
+}
+
+function parseExecutionMetadata(stderr) {
+  if (typeof stderr !== "string") {
+    return {
+      model: null,
+      provider: null,
+      sessionId: null,
+      endpoint: null,
+      cfRay: null
+    };
+  }
+
+  const model = stderr.match(/^\s*model:\s*(.+)$/m)?.[1]?.trim() ?? null;
+  const provider = stderr.match(/^\s*provider:\s*(.+)$/m)?.[1]?.trim() ?? null;
+  const sessionId = stderr.match(/^\s*session id:\s*(.+)$/m)?.[1]?.trim() ?? null;
+  const endpoint = stderr.match(/url:\s*(https?:\/\/\S+)/i)?.[1]?.replace(/[,)]$/, "") ?? null;
+  const cfRay = stderr.match(/cf-ray:\s*([^\s,]+)/i)?.[1]?.trim() ?? null;
+
+  return {
+    model,
+    provider,
+    sessionId,
+    endpoint,
+    cfRay
+  };
+}
+
+function truncateText(value, maxLength = 12000) {
+  if (typeof value !== "string") {
+    return {
+      text: null,
+      truncated: false
+    };
+  }
+
+  if (value.length <= maxLength) {
+    return {
+      text: value,
+      truncated: false
+    };
+  }
+
+  return {
+    text: `${value.slice(0, maxLength)}\n\n... [truncated]`,
+    truncated: true
+  };
+}
+
+async function readGptEvidenceForRun(runStatePath) {
+  const dispatchResultsPath = await findLatestDispatchResultsPath(runStatePath);
+
+  if (!dispatchResultsPath) {
+    throw createUserError("No dispatch-results.json found for this run. Execute dispatch first.");
+  }
+
+  const dispatchResults = await readJson(dispatchResultsPath);
+  const gptInteractions = [];
+
+  for (const result of dispatchResults?.results ?? []) {
+    if (result?.runtime !== "gpt-runner") {
+      continue;
+    }
+
+    const promptInfo = truncateText(extractPromptFromStderr(result?.stderr));
+    const execution = parseExecutionMetadata(result?.stderr);
+
+    gptInteractions.push({
+      taskId: result?.taskId ?? null,
+      handoffId: result?.handoffId ?? null,
+      status: result?.status ?? null,
+      runtime: result?.runtime ?? null,
+      preferredModel: parsePreferredModel(result?.stdout),
+      model: execution.model,
+      provider: execution.provider,
+      sessionId: execution.sessionId,
+      endpoint: execution.endpoint,
+      cfRay: execution.cfRay,
+      launcherPath: result?.launcherPath ?? null,
+      resultPath: result?.resultPath ?? null,
+      promptText: promptInfo.text,
+      promptTextTruncated: promptInfo.truncated
+    });
+  }
+
+  if (gptInteractions.length === 0) {
+    throw createUserError("No gpt-runner execution records were found in dispatch-results.json.");
+  }
+
+  return {
+    runStatePath,
+    dispatchResultsPath,
+    interactionCount: gptInteractions.length,
+    gptInteractions
+  };
+}
+
 async function handlePanelAction(state, action, payload = {}) {
   const defaults = getDefaultPaths(state.workspaceRoot);
 
@@ -255,12 +416,11 @@ async function handlePanelAction(state, action, payload = {}) {
     case "doctor":
       return runRuntimeDoctor(resolveWithinWorkspace(state.workspaceRoot, payload?.outputDir, defaults.reportsDir));
     case "report": {
-      const runStatePath =
-        resolveWithinWorkspace(
-          state.workspaceRoot,
-          payload?.runStatePath,
-          await findLatestRunStatePath(state.workspaceRoot)
-        );
+      const runStatePath = resolveWithinWorkspace(
+        state.workspaceRoot,
+        payload?.runStatePath,
+        await findLatestRunStatePath(state.workspaceRoot)
+      );
 
       if (typeof runStatePath !== "string" || runStatePath.trim().length === 0) {
         throw createUserError("No run-state.json found. Create a run first.");
@@ -269,34 +429,28 @@ async function handlePanelAction(state, action, payload = {}) {
       return reportProjectRun(runStatePath);
     }
     case "handoff": {
-      const runStatePath =
-        resolveWithinWorkspace(
-          state.workspaceRoot,
-          payload?.runStatePath,
-          await findLatestRunStatePath(state.workspaceRoot)
-        );
+      const runStatePath = resolveWithinWorkspace(
+        state.workspaceRoot,
+        payload?.runStatePath,
+        await findLatestRunStatePath(state.workspaceRoot)
+      );
 
       if (typeof runStatePath !== "string" || runStatePath.trim().length === 0) {
         throw createUserError("No run-state.json found. Create a run first.");
       }
 
-      return createRunHandoffs(
-        runStatePath,
-        payload?.outputDir,
-        payload?.doctorReportPath
-      );
+      return createRunHandoffs(runStatePath, payload?.outputDir, payload?.doctorReportPath);
     }
     case "dispatch": {
       const fallbackRunStatePath = await findLatestRunStatePath(state.workspaceRoot);
       const fallbackHandoffIndexPath = fallbackRunStatePath
         ? await resolveDefaultHandoffIndexPath(fallbackRunStatePath).catch(() => null)
         : null;
-      const handoffIndexPath =
-        resolveWithinWorkspace(
-          state.workspaceRoot,
-          payload?.handoffIndexPath,
-          fallbackHandoffIndexPath
-        );
+      const handoffIndexPath = resolveWithinWorkspace(
+        state.workspaceRoot,
+        payload?.handoffIndexPath,
+        fallbackHandoffIndexPath
+      );
 
       if (typeof handoffIndexPath !== "string" || handoffIndexPath.trim().length === 0) {
         throw createUserError("No handoff index was found. Generate handoffs first.");
@@ -306,12 +460,11 @@ async function handlePanelAction(state, action, payload = {}) {
       return dispatchHandoffs(handoffIndexPath, mode);
     }
     case "autonomous": {
-      const runStatePath =
-        resolveWithinWorkspace(
-          state.workspaceRoot,
-          payload?.runStatePath,
-          await findLatestRunStatePath(state.workspaceRoot)
-        );
+      const runStatePath = resolveWithinWorkspace(
+        state.workspaceRoot,
+        payload?.runStatePath,
+        await findLatestRunStatePath(state.workspaceRoot)
+      );
 
       if (typeof runStatePath !== "string" || runStatePath.trim().length === 0) {
         throw createUserError("No run-state.json found. Create a run first.");
@@ -338,6 +491,19 @@ async function handlePanelAction(state, action, payload = {}) {
         handoffOutputDir,
         maxRounds
       });
+    }
+    case "gpt-evidence": {
+      const runStatePath = resolveWithinWorkspace(
+        state.workspaceRoot,
+        payload?.runStatePath,
+        await findLatestRunStatePath(state.workspaceRoot)
+      );
+
+      if (typeof runStatePath !== "string" || runStatePath.trim().length === 0) {
+        throw createUserError("No run-state.json found. Create a run first.");
+      }
+
+      return readGptEvidenceForRun(runStatePath);
     }
     case "status":
       return buildWorkspaceOverview(state.workspaceRoot);
@@ -396,189 +562,46 @@ function renderPanelHtml(workspaceRoot) {
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>AI Factory 中文操作面板</title>
   <style>
-    :root {
-      --ink: #132238;
-      --subtle: #59708d;
-      --line: #d9e3f1;
-      --accent: #0f9d7a;
-      --accent-strong: #0f7f63;
-      --warning: #c76716;
-      --error: #be2f3b;
-      --bg-a: #eef8ff;
-      --bg-b: #f9fff4;
-      --bg-c: #fff8f1;
-      --code: #0a1d2f;
-    }
+    :root { --ink:#132238; --sub:#4a6078; --bg:#eef4f8; --card:#fff; --line:#d8e3ef; --accent:#0f9d7a; --warn:#bf6f15; --bad:#bb3a43; --code:#0f1727; }
     * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      color: var(--ink);
-      font-family: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", sans-serif;
-      background:
-        radial-gradient(circle at 8% 10%, var(--bg-a), transparent 34%),
-        radial-gradient(circle at 88% 15%, var(--bg-c), transparent 32%),
-        radial-gradient(circle at 76% 84%, var(--bg-b), transparent 35%),
-        #f4f7fb;
-      min-height: 100vh;
-      padding: 24px 16px 32px;
-    }
-    .shell {
-      max-width: 1080px;
-      margin: 0 auto;
-      display: grid;
-      gap: 14px;
-      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-    }
-    .hero, .card {
-      border: 1px solid var(--line);
-      border-radius: 16px;
-      background: linear-gradient(170deg, #fff, #fdfefe 65%, #f7fcff);
-      box-shadow: 0 12px 30px rgba(24, 46, 74, 0.06);
-    }
-    .hero {
-      grid-column: 1 / -1;
-      padding: 18px 20px;
-    }
-    .hero h1 {
-      margin: 0 0 8px;
-      font-size: 1.35rem;
-    }
-    .hero p {
-      margin: 0;
-      color: var(--subtle);
-      line-height: 1.55;
-    }
-    .steps {
-      margin: 8px 0 0;
-      padding-left: 18px;
-      color: #365374;
-      line-height: 1.6;
-      font-size: 0.92rem;
-    }
-    .card { padding: 14px; }
-    .card h2 {
-      margin: 0 0 10px;
-      font-size: 1rem;
-    }
-    .hint {
-      margin: 0 0 10px;
-      color: var(--subtle);
-      font-size: 0.9rem;
-      line-height: 1.5;
-    }
-    label {
-      display: block;
-      margin: 0 0 6px;
-      font-size: 0.84rem;
-      color: #2f4a66;
-    }
-    input, textarea {
-      width: 100%;
-      border: 1px solid #c7d6ea;
-      border-radius: 10px;
-      padding: 9px 10px;
-      font: inherit;
-      color: var(--ink);
-      background: #fff;
-    }
-    textarea {
-      min-height: 90px;
-      resize: vertical;
-      line-height: 1.45;
-    }
-    .grid-2 {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 10px;
-    }
-    .actions {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-      gap: 8px;
-      margin-top: 10px;
-    }
-    button {
-      border: 0;
-      border-radius: 11px;
-      padding: 9px 10px;
-      font: inherit;
-      cursor: pointer;
-      color: #fff;
-      background: linear-gradient(140deg, var(--accent), #13b78d);
-      box-shadow: 0 8px 18px rgba(15, 157, 122, 0.28);
-    }
-    button:hover { filter: brightness(1.03); }
-    button[data-tone="neutral"] {
-      background: linear-gradient(140deg, #4b6d93, #365374);
-      box-shadow: 0 8px 18px rgba(39, 70, 108, 0.24);
-    }
-    button[data-tone="warn"] {
-      background: linear-gradient(140deg, #d1832f, #b2600f);
-      box-shadow: 0 8px 18px rgba(178, 96, 15, 0.24);
-    }
-    .status-pill {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      margin: 0 0 10px;
-      border-radius: 999px;
-      padding: 5px 11px;
-      font-size: 0.8rem;
-      background: #eef8f4;
-      color: var(--accent-strong);
-    }
-    .status-pill.warn { background: #fff5ea; color: var(--warning); }
-    .status-pill.error { background: #ffeff2; color: var(--error); }
-    .kv {
-      display: grid;
-      grid-template-columns: 120px 1fr;
-      gap: 6px 10px;
-      font-size: 0.9rem;
-    }
-    .kv dt { color: var(--subtle); }
-    .kv dd {
-      margin: 0;
-      word-break: break-all;
-    }
-    details {
-      border: 1px dashed #bdd1e9;
-      border-radius: 12px;
-      padding: 10px;
-      background: #fafdff;
-    }
-    details > summary {
-      cursor: pointer;
-      font-size: 0.9rem;
-      font-weight: 600;
-      color: #365374;
-      margin-bottom: 8px;
-    }
-    pre {
-      margin: 0;
-      padding: 12px;
-      border-radius: 12px;
-      border: 1px solid #dde6f3;
-      background: var(--code);
-      color: #dbe6f4;
-      font-family: "Cascadia Code", Consolas, monospace;
-      font-size: 0.8rem;
-      line-height: 1.5;
-      max-height: 350px;
-      overflow: auto;
-    }
-    @media (max-width: 680px) {
-      .grid-2 { grid-template-columns: 1fr; }
-    }
+    body { margin:0; font-family:"Noto Sans TC","Microsoft JhengHei",ui-sans-serif,system-ui,sans-serif; color:var(--ink); background:radial-gradient(circle at 0% 0%, rgba(15,157,122,.08), transparent 45%),radial-gradient(circle at 100% 100%, rgba(30,94,157,.08), transparent 45%),var(--bg); }
+    .shell { max-width:1080px; margin:0 auto; padding:22px 16px 28px; display:grid; gap:14px; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); }
+    .hero { grid-column:1/-1; background:linear-gradient(160deg,#f7fcff,#f5fdfa); border:1px solid var(--line); border-radius:18px; padding:16px 18px; box-shadow:0 8px 20px rgba(16,54,87,.08); }
+    .hero h1 { margin:0 0 6px; font-size:1.35rem; letter-spacing:.01em; }
+    .hero p { margin:0; color:var(--sub); line-height:1.6; }
+    .steps { margin:10px 0 0; padding-left:20px; color:#335374; line-height:1.6; }
+    .card { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:14px; box-shadow:0 6px 16px rgba(16,54,87,.06); }
+    .card h2 { margin:0 0 8px; font-size:1rem; }
+    .hint { margin:0 0 10px; color:var(--sub); font-size:.9rem; line-height:1.55; }
+    label { display:block; font-size:.84rem; color:#335374; margin-bottom:5px; font-weight:600; }
+    input, textarea { width:100%; border:1px solid #cfdbea; border-radius:11px; padding:10px 11px; font:inherit; color:var(--ink); background:#fbfeff; }
+    textarea { min-height:118px; resize:vertical; line-height:1.55; }
+    .grid-2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+    .actions { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:8px; margin-top:10px; }
+    button { border:0; border-radius:11px; padding:9px 10px; font:inherit; cursor:pointer; color:#fff; background:linear-gradient(140deg,var(--accent),#13b78d); box-shadow:0 8px 18px rgba(15,157,122,.28); }
+    button:hover { filter:brightness(1.03); }
+    button[data-tone="neutral"] { background:linear-gradient(140deg,#4b6d93,#365374); box-shadow:0 8px 18px rgba(39,70,108,.24); }
+    button[data-tone="warn"] { background:linear-gradient(140deg,#d1832f,#b2600f); box-shadow:0 8px 18px rgba(178,96,15,.24); }
+    .status-pill { display:inline-flex; align-items:center; gap:8px; border-radius:999px; padding:7px 12px; font-size:.84rem; font-weight:600; background:rgba(18,143,98,.13); color:#136548; }
+    .status-pill.warn { background:rgba(193,119,31,.16); color:#8d5112; }
+    .status-pill.error { background:rgba(187,58,67,.14); color:#8d2028; }
+    .kv { margin:10px 0 0; display:grid; grid-template-columns:130px 1fr; row-gap:6px; column-gap:10px; font-size:.88rem; }
+    .kv dt { color:#48627f; font-weight:600; }
+    .kv dd { margin:0; word-break:break-word; color:#142b45; }
+    details { border:1px dashed #cad7e8; border-radius:12px; padding:10px; background:#fafdff; }
+    details > summary { cursor:pointer; font-size:.9rem; font-weight:600; color:#365374; margin-bottom:8px; }
+    pre { margin:0; padding:12px; border-radius:12px; border:1px solid #dde6f3; background:var(--code); color:#dbe6f4; font-family:"Cascadia Code",Consolas,monospace; font-size:.8rem; line-height:1.5; max-height:360px; overflow:auto; }
+    @media (max-width: 680px) { .grid-2 { grid-template-columns:1fr; } }
   </style>
 </head>
 <body>
   <main class="shell">
     <section class="hero">
       <h1>AI Factory 中文操作面板</h1>
-      <p>你可以直接按「一鍵開始（推薦）」完成：初始化 → 需求澄清 → 需求確認 → 建立 Run → 全自動執行。</p>
+      <p>給人類操作的簡化流程：一鍵完成初始化、需求澄清、確認、建立 Run、全自動執行。</p>
       <ol class="steps">
         <li>先確認工作區路徑</li>
-        <li>填入需求內容</li>
+        <li>輸入需求文字</li>
         <li>按「一鍵開始（推薦）」</li>
       </ol>
       <p style="margin-top:8px"><strong>目前工作區：</strong> <code id="workspaceTag">${escapedWorkspace}</code></p>
@@ -586,7 +609,7 @@ function renderPanelHtml(workspaceRoot) {
 
     <section class="card">
       <h2>基本設定</h2>
-      <p class="hint">給非工程同事使用。通常只要按一鍵開始就可以。</p>
+      <p class="hint">一般情況下按一鍵開始即可。需要時再使用進階按鈕。</p>
       <label for="workspaceInput">工作區路徑</label>
       <input id="workspaceInput" value="${escapedWorkspace}" />
       <label for="requestInput" style="margin-top:10px">需求內容</label>
@@ -597,7 +620,7 @@ function renderPanelHtml(workspaceRoot) {
           <input id="runIdInput" placeholder="例如 today-run-001" />
         </div>
         <div>
-          <label for="maxRoundsInput">最多自動輪數</label>
+          <label for="maxRoundsInput">最大自動輪數</label>
           <input id="maxRoundsInput" value="8" />
         </div>
       </div>
@@ -605,12 +628,13 @@ function renderPanelHtml(workspaceRoot) {
         <button id="applyWorkspaceBtn" data-tone="neutral">套用工作區</button>
         <button id="quickStartBtn" data-tone="warn">一鍵開始（推薦）</button>
         <button id="refreshStatusBtn" data-tone="neutral">重新整理狀態</button>
+        <button id="viewGptPromptBtn" data-tone="neutral">查看 GPT 發問內容</button>
       </div>
     </section>
 
     <section class="card">
       <h2>目前狀態</h2>
-      <div id="statusPill" class="status-pill">讀取中…</div>
+      <div id="statusPill" class="status-pill">讀取中...</div>
       <dl class="kv" id="statusDetail"></dl>
     </section>
 
@@ -618,7 +642,7 @@ function renderPanelHtml(workspaceRoot) {
       <h2>進階操作（選用）</h2>
       <details>
         <summary>展開進階按鈕</summary>
-        <p class="hint">需要手動排查時再用。平常不用碰。</p>
+        <p class="hint">只有需要手動排查時才用，平常不用。</p>
         <div class="actions">
           <button id="initBtn">只做初始化</button>
           <button id="intakeBtn">只做需求澄清</button>
@@ -632,8 +656,8 @@ function renderPanelHtml(workspaceRoot) {
 
     <section class="card" style="grid-column: 1 / -1">
       <h2>操作紀錄</h2>
-      <p class="hint">每次動作的回應都會寫在這裡。</p>
-      <pre id="logBox">等待操作…</pre>
+      <p class="hint">每次動作的回應都會顯示在這裡。</p>
+      <pre id="logBox">等待操作...</pre>
     </section>
   </main>
 
@@ -649,25 +673,25 @@ function renderPanelHtml(workspaceRoot) {
     const logBox = document.getElementById("logBox");
 
     const runStatusLabelMap = {
-      "planned": "已規劃",
-      "in_progress": "進行中",
-      "completed": "已完成",
-      "attention_required": "需要人工處理",
-      "pending": "等待中",
-      "ready": "可執行",
-      "waiting_retry": "等待重試",
-      "blocked": "已阻塞",
-      "failed": "已失敗",
+      planned: "已規劃",
+      in_progress: "進行中",
+      completed: "已完成",
+      attention_required: "需要人工處理",
+      pending: "等待中",
+      ready: "可執行",
+      waiting_retry: "等待重試",
+      blocked: "已阻塞",
+      failed: "已失敗",
       "not-found": "尚未建立",
       "no-run": "尚未建立"
     };
 
     const intakeStatusLabelMap = {
-      "clarifying": "澄清中",
-      "awaiting_confirmation": "等待確認",
-      "confirmed": "已確認",
-      "clarification_blocked": "確認失敗（需補資訊）",
-      "clarification_abandoned": "已放棄",
+      clarifying: "澄清中",
+      awaiting_confirmation: "等待確認",
+      confirmed: "已確認",
+      clarification_blocked: "確認失敗（需補資訊）",
+      clarification_abandoned: "已放棄",
       "not-found": "尚未建立"
     };
 
@@ -682,26 +706,19 @@ function renderPanelHtml(workspaceRoot) {
 
     async function parseJsonResponse(response) {
       const text = await response.text();
-
       try {
         return JSON.parse(text);
       } catch {
-        return {
-          ok: false,
-          error: "伺服器回傳非 JSON 內容。",
-          raw: text
-        };
+        return { ok: false, error: "伺服器回傳非 JSON 內容。", raw: text };
       }
     }
 
     async function callApi(urlPath, options = {}) {
       const response = await fetch(urlPath, options);
       const payload = await parseJsonResponse(response);
-
       if (!response.ok || payload.ok === false) {
         throw new Error(payload.error || payload.message || "API 呼叫失敗。");
       }
-
       return payload;
     }
 
@@ -710,29 +727,17 @@ function renderPanelHtml(workspaceRoot) {
       logBox.textContent = "[" + new Date().toLocaleString() + "] " + title + "\\n\\n" + body;
     }
 
-    function labelForRunStatus(value) {
-      return runStatusLabelMap[value] || value || "-";
-    }
-
-    function labelForIntakeStatus(value) {
-      return intakeStatusLabelMap[value] || value || "-";
-    }
+    function labelForRunStatus(value) { return runStatusLabelMap[value] || value || "-"; }
+    function labelForIntakeStatus(value) { return intakeStatusLabelMap[value] || value || "-"; }
 
     function renderStatus(overview) {
       workspaceTag.textContent = overview.workspaceRoot;
-
       const intakeState = overview.intake?.clarificationStatus || "not-found";
       const runState = overview.latestRun?.summary?.status || "no-run";
       const waitingConfirm = overview.intake?.exists && overview.intake?.confirmedByUser === false;
-
-      statusPill.textContent =
-        "需求狀態：" + labelForIntakeStatus(intakeState) + " | 執行狀態：" + labelForRunStatus(runState);
+      statusPill.textContent = "需求狀態：" + labelForIntakeStatus(intakeState) + " | 執行狀態：" + labelForRunStatus(runState);
       statusPill.className = "status-pill";
-
-      if (waitingConfirm) {
-        statusPill.classList.add("warn");
-      }
-
+      if (waitingConfirm) { statusPill.classList.add("warn"); }
       if (overview.latestRun?.summary?.blockedTasks > 0 || overview.latestRun?.summary?.failedTasks > 0) {
         statusPill.classList.remove("warn");
         statusPill.classList.add("error");
@@ -752,10 +757,7 @@ function renderPanelHtml(workspaceRoot) {
         ["阻塞任務", String(summary.blockedTasks ?? "-")],
         ["失敗任務", String(summary.failedTasks ?? "-")]
       ];
-
-      statusDetail.innerHTML = fields
-        .map(([key, value]) => "<dt>" + key + "</dt><dd>" + String(value) + "</dd>")
-        .join("");
+      statusDetail.innerHTML = fields.map(([key, value]) => "<dt>" + key + "</dt><dd>" + String(value) + "</dd>").join("");
     }
 
     async function setWorkspace(logResult = true) {
@@ -763,15 +765,9 @@ function renderPanelHtml(workspaceRoot) {
       const result = await callApi("/api/action", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          action: "set-workspace",
-          payload: { workspaceDir }
-        })
+        body: JSON.stringify({ action: "set-workspace", payload: { workspaceDir } })
       });
-
-      if (logResult) {
-        setLog("套用工作區", result);
-      }
+      if (logResult) { setLog("套用工作區", result); }
       await refreshStatus();
       return result;
     }
@@ -780,12 +776,8 @@ function renderPanelHtml(workspaceRoot) {
       const result = await callApi("/api/action", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          action,
-          payload
-        })
+        body: JSON.stringify({ action, payload })
       });
-
       setLog(logTitle, result);
       await refreshStatus();
       return result;
@@ -796,12 +788,8 @@ function renderPanelHtml(workspaceRoot) {
       await callApi("/api/action", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          action: "set-workspace",
-          payload: { workspaceDir }
-        })
+        body: JSON.stringify({ action: "set-workspace", payload: { workspaceDir } })
       });
-
       const overviewPayload = await callApi("/api/status");
       renderStatus(overviewPayload.overview);
       return overviewPayload;
@@ -813,9 +801,7 @@ function renderPanelHtml(workspaceRoot) {
         await setWorkspace(false);
         await invokeAction(action, payload, logTitle);
       } catch (error) {
-        setLog(logTitle + " 失敗", {
-          error: error instanceof Error ? error.message : String(error)
-        });
+        setLog(logTitle + " 失敗", { error: error instanceof Error ? error.message : String(error) });
       } finally {
         setButtonsDisabled(false);
       }
@@ -825,27 +811,18 @@ function renderPanelHtml(workspaceRoot) {
       setButtonsDisabled(true);
       try {
         const requestText = requestInput.value.trim();
-
         if (requestText.length === 0) {
           throw new Error("請先輸入需求內容。");
         }
-
         await setWorkspace(false);
         await invokeAction("init", {}, "步驟 1/5：初始化");
         await invokeAction("intake", { request: requestText }, "步驟 2/5：需求澄清");
         await invokeAction("confirm", {}, "步驟 3/5：需求確認");
-        const runResult = await invokeAction(
-          "run",
-          { runId: runIdInput.value.trim() || undefined },
-          "步驟 4/5：建立 Run"
-        );
+        const runResult = await invokeAction("run", { runId: runIdInput.value.trim() || undefined }, "步驟 4/5：建立 Run");
         const runStatePath = runResult?.result?.statePath;
         const autonomousResult = await invokeAction(
           "autonomous",
-          {
-            runStatePath,
-            maxRounds: maxRoundsInput.value.trim() || undefined
-          },
+          { runStatePath, maxRounds: maxRoundsInput.value.trim() || undefined },
           "步驟 5/5：全自動執行"
         );
 
@@ -855,9 +832,7 @@ function renderPanelHtml(workspaceRoot) {
         });
         await refreshStatus();
       } catch (error) {
-        setLog("一鍵開始失敗", {
-          error: error instanceof Error ? error.message : String(error)
-        });
+        setLog("一鍵開始失敗", { error: error instanceof Error ? error.message : String(error) });
       } finally {
         setButtonsDisabled(false);
       }
@@ -868,56 +843,41 @@ function renderPanelHtml(workspaceRoot) {
       try {
         await setWorkspace(true);
       } catch (error) {
-        setLog("套用工作區失敗", {
-          error: error instanceof Error ? error.message : String(error)
-        });
+        setLog("套用工作區失敗", { error: error instanceof Error ? error.message : String(error) });
       } finally {
         setButtonsDisabled(false);
       }
     });
-
     document.getElementById("quickStartBtn").addEventListener("click", runQuickStart);
-
     document.getElementById("refreshStatusBtn").addEventListener("click", async () => {
       setButtonsDisabled(true);
       try {
         await refreshStatus();
       } catch (error) {
-        setLog("重新整理狀態失敗", {
-          error: error instanceof Error ? error.message : String(error)
-        });
+        setLog("重新整理狀態失敗", { error: error instanceof Error ? error.message : String(error) });
       } finally {
         setButtonsDisabled(false);
       }
     });
-
-    document.getElementById("initBtn").addEventListener("click", () =>
-      runAction("init", {}, "只做初始化")
+    document.getElementById("viewGptPromptBtn").addEventListener("click", () =>
+      runAction("gpt-evidence", {}, "查看 GPT 發問內容")
     );
+
+    document.getElementById("initBtn").addEventListener("click", () => runAction("init", {}, "只做初始化"));
     document.getElementById("intakeBtn").addEventListener("click", () =>
       runAction("intake", { request: requestInput.value }, "只做需求澄清")
     );
-    document.getElementById("confirmBtn").addEventListener("click", () =>
-      runAction("confirm", {}, "只做需求確認")
-    );
+    document.getElementById("confirmBtn").addEventListener("click", () => runAction("confirm", {}, "只做需求確認"));
     document.getElementById("runBtn").addEventListener("click", () =>
       runAction("run", { runId: runIdInput.value.trim() || undefined }, "只建立 Run")
     );
     document.getElementById("autonomousBtn").addEventListener("click", () =>
-      runAction(
-        "autonomous",
-        { maxRounds: maxRoundsInput.value.trim() || undefined },
-        "只跑全自動"
-      )
+      runAction("autonomous", { maxRounds: maxRoundsInput.value.trim() || undefined }, "只跑全自動")
     );
-    document.getElementById("doctorBtn").addEventListener("click", () =>
-      runAction("doctor", {}, "環境健康檢查")
-    );
+    document.getElementById("doctorBtn").addEventListener("click", () => runAction("doctor", {}, "環境健康檢查"));
 
     refreshStatus().catch((error) => {
-      setLog("初始化狀態讀取失敗", {
-        error: error instanceof Error ? error.message : String(error)
-      });
+      setLog("初始化狀態讀取失敗", { error: error instanceof Error ? error.message : String(error) });
     });
   </script>
 </body>

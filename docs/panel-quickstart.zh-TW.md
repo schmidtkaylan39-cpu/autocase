@@ -1,6 +1,6 @@
 # AI Factory 面板使用說明（繁中）
 
-這個面板是給一般使用者操作的，不需要會寫程式。
+這個面板是給一般使用者操作的，不需要先會寫程式。
 
 ## 1. 啟動面板
 
@@ -10,19 +10,19 @@
 node src/index.mjs panel .
 ```
 
-瀏覽器打開：
+開瀏覽器進入：
 
 ```text
 http://127.0.0.1:4310
 ```
 
-如果 `4310` 被占用，換埠號：
+如果 `4310` 被占用，可改成：
 
 ```bash
 node src/index.mjs panel . 4320
 ```
 
-## 2. 最簡單操作（推薦）
+## 2. 最簡單流程（推薦）
 
 面板上只要做三件事：
 
@@ -30,48 +30,57 @@ node src/index.mjs panel . 4320
 2. 輸入「需求內容」
 3. 按「一鍵開始（推薦）」
 
-一鍵開始會自動依序執行：
+一鍵開始會自動依序做：
 
-1. 初始化
-2. 需求澄清（intake）
-3. 需求確認（confirm）
-4. 建立 Run
-5. 全自動執行（autonomous）
+1. 初始化 `init`
+2. 需求澄清 `intake`
+3. 需求確認 `confirm`
+4. 建立 Run `run`
+5. 全自動執行 `autonomous`
 
 ## 3. 怎麼看有沒有成功
 
-看「目前狀態」區塊：
+看「目前狀態」：
 
 - 需求狀態：`已確認`
 - 執行狀態：`已完成`
 - 阻塞任務：`0`
 - 失敗任務：`0`
 
-再看「操作紀錄」最後一條是否顯示：
+再看「操作紀錄」最後一行是否顯示：
 
 - `一鍵開始完成`
 
-## 4. 輸出檔案位置
+## 4. 在面板直接看 GPT 發問內容
 
-假設工作區是 `C:\demo`，會產生：
+按「查看 GPT 發問內容」按鈕。
 
-- `C:\demo\runs\<run-id>\run-state.json`
-- `C:\demo\runs\<run-id>\report.md`
-- `C:\demo\runs\<run-id>\autonomous-summary.json`
-- `C:\demo\runs\<run-id>\autonomous-summary.md`
+面板會顯示：
 
-## 5. 常見情況
+- 使用的 runtime/model（例如 `gpt-runner`、`gpt-5.4`）
+- provider / session id / endpoint / cf-ray（如果有）
+- 擷取到的 prompt 內容（從 `dispatch-results.json`）
 
-- 一鍵開始失敗，顯示「確認失敗（需補資訊）」  
-  需求太模糊，請把需求改得更具體（輸入檔、輸出檔、不要做什麼），再按一次。
+## 5. 主要產物位置
 
-- 執行狀態不是「已完成」  
-  先按「重新整理狀態」，再看「操作紀錄」最後一條錯誤內容。
+假設工作區是 `C:\\demo`，會有：
 
+- `C:\\demo\\runs\\<run-id>\\run-state.json`
+- `C:\\demo\\runs\\<run-id>\\report.md`
+- `C:\\demo\\runs\\<run-id>\\autonomous-summary.json`
+- `C:\\demo\\runs\\<run-id>\\autonomous-summary.md`
+- `C:\\demo\\runs\\<run-id>\\handoffs\\dispatch-results.json`
+
+## 6. 常見狀況
+
+- 顯示「等待確認」或「確認失敗」  
+  需求可能太模糊，請把輸入/輸出/限制寫更明確後再重試。
+- 顯示「失敗任務 > 0」  
+  先按「重新整理狀態」，再看操作紀錄中的錯誤訊息。
 - 想手動一步一步跑  
-  打開「進階操作（選用）」再按對應按鈕。
+  展開「進階操作（選用）」再按對應按鈕。
 
-## 6. 關閉面板
+## 7. 關閉面板
 
 回到啟動面板的終端視窗，按：
 

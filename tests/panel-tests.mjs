@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, stat } from "node:fs/promises";
+import { mkdtemp, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -90,6 +90,55 @@ async function main() {
 
       await stat(path.join(workspaceRoot, "runs", "panel-run", "run-state.json"));
       await stat(path.join(workspaceRoot, "runs", "panel-run", "handoffs", "index.json"));
+
+      const dispatchResultsFixture = {
+        summary: {
+          mode: "execute",
+          total: 1
+        },
+        results: [
+          {
+            taskId: "planning-brief",
+            handoffId: "handoff-123",
+            runtime: "gpt-runner",
+            status: "incomplete",
+            stdout: "Preferred model: gpt-5.4-pro",
+            stderr: [
+              "OpenAI Codex v0.120.0 (research preview)",
+              "model: gpt-5.4-pro",
+              "provider: OpenAI",
+              "session id: session-123",
+              "user",
+              "# Planner Prompt",
+              "hello from planner",
+              "2026-04-19T01:00:00.000Z WARN retrying..."
+            ].join("\n"),
+            launcherPath: path.join(workspaceRoot, "runs", "panel-run", "handoffs", "planning-brief.launch.ps1"),
+            resultPath: path.join(
+              workspaceRoot,
+              "runs",
+              "panel-run",
+              "handoffs",
+              "results",
+              "planning-brief.handoff-123.result.json"
+            )
+          }
+        ]
+      };
+      await writeFile(
+        path.join(workspaceRoot, "runs", "panel-run", "handoffs", "dispatch-results.json"),
+        `${JSON.stringify(dispatchResultsFixture, null, 2)}\n`,
+        "utf8"
+      );
+
+      const gptEvidenceResponse = await postAction(panel.url, "gpt-evidence", {
+        runStatePath: runResponse.result.statePath
+      });
+      assert.equal(gptEvidenceResponse.result.interactionCount, 1);
+      assert.equal(gptEvidenceResponse.result.gptInteractions[0]?.preferredModel, "gpt-5.4-pro");
+      assert.equal(gptEvidenceResponse.result.gptInteractions[0]?.provider, "OpenAI");
+      assert.equal(gptEvidenceResponse.result.gptInteractions[0]?.sessionId, "session-123");
+      assert.match(gptEvidenceResponse.result.gptInteractions[0]?.promptText ?? "", /Planner Prompt/);
     } finally {
       await panel.close();
     }
