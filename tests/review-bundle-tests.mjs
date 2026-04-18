@@ -196,6 +196,9 @@ async function main() {
     await mkdir(path.join(sourceDir, "docs"), { recursive: true });
     await mkdir(path.join(sourceDir, "prompts"), { recursive: true });
     await mkdir(path.join(sourceDir, "reports"), { recursive: true });
+    await mkdir(path.join(sourceDir, "reports", "release-readiness", "windows-release-smoke-demo"), {
+      recursive: true
+    });
     await mkdir(path.join(sourceDir, "artifacts", "clarification"), { recursive: true });
     await mkdir(path.join(sourceDir, "runs", "demo-run"), { recursive: true });
     await mkdir(path.join(sourceDir, "templates"), { recursive: true });
@@ -296,6 +299,18 @@ async function main() {
       }
     });
     await writeFile(path.join(sourceDir, "reports", "test-output.log"), "tests passed\n", "utf8");
+    await writeFile(
+      path.join(sourceDir, "reports", "release-readiness", "windows-release-smoke-demo", "ai-factory-starter.exe"),
+      "not-a-real-exe\n",
+      "utf8"
+    );
+    await writeJson(
+      path.join(sourceDir, "reports", "release-readiness", "windows-release-smoke-demo", "release-manifest.json"),
+      {
+        generatedAt: "2026-04-16T00:00:00.000Z",
+        windowsTarget: "win-x64"
+      }
+    );
     await mkdir(path.join(sourceDir, "reports", "validation-evidence"), { recursive: true });
     await writeFile(path.join(sourceDir, "reports", "validation-evidence", "build.log"), "build ok\n", "utf8");
     await writeFile(path.join(sourceDir, "reports", "validation-evidence", "test.log"), "test ok\n", "utf8");
@@ -407,6 +422,18 @@ async function main() {
     await assert.rejects(
       () => stat(path.join(result.bundleSourceDirectory, "review-bundles", "old-bundle", "stale.txt"))
     );
+    await assert.rejects(
+      () =>
+        stat(
+          path.join(
+            result.bundleSourceDirectory,
+            "reports",
+            "release-readiness",
+            "windows-release-smoke-demo",
+            "ai-factory-starter.exe"
+          )
+        )
+    );
 
     const manifest = JSON.parse(await readFile(result.manifestPath, "utf8"));
     const reviewBrief = await readFile(result.reviewBriefPath, "utf8");
@@ -487,6 +514,7 @@ async function main() {
     assert.deepEqual(sourceFileList.trim().split(/\r?\n/).sort(), bundleFiles);
     assert.doesNotMatch(sourceFileList, /node_modules/);
     assert.doesNotMatch(sourceFileList, /review-bundles\/old-bundle/);
+    assert.doesNotMatch(sourceFileList, /reports\/release-readiness/);
     assert.equal(result.archivePath, null);
   });
 

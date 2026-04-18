@@ -15,6 +15,26 @@ import { validateZipArchiveEntryNames } from "./zip-archive.mjs";
 const execFileAsync = promisify(execFile);
 const excludedDirectoryNames = new Set([".git", "node_modules", "review-bundles"]);
 
+function shouldExcludeRelativePath(relativePath) {
+  if (!relativePath || relativePath === ".") {
+    return false;
+  }
+
+  const segments = relativePath.split(path.sep).filter(Boolean);
+
+  if (segments.some((segment) => excludedDirectoryNames.has(segment))) {
+    return true;
+  }
+
+  // Release-readiness packaging outputs can contain repeated .exe/.zip artifacts
+  // that bloat external review bundles without improving code-level review signal.
+  if (segments.length >= 2 && segments[0] === "reports" && segments[1] === "release-readiness") {
+    return true;
+  }
+
+  return false;
+}
+
 function compactTimestamp(timestamp = new Date().toISOString()) {
   const [datePart, timePart] = timestamp.split("T");
   const compactDate = datePart.replace(/-/g, "");
@@ -335,9 +355,12 @@ async function collectRunsMetadata(sourceDir) {
 
 async function collectEvidenceSummary(sourceDir) {
   const reportsDirectory = path.join(sourceDir, "reports");
-  const reportFiles = (await fileExists(reportsDirectory))
+  const rawReportFiles = (await fileExists(reportsDirectory))
     ? await listRelativeFiles(reportsDirectory)
     : [];
+  const reportFiles = rawReportFiles
+    .map((relativePath) => path.join("reports", relativePath))
+    .filter((relativePath) => !shouldExcludeRelativePath(relativePath));
 
   const [runtimeDoctor, qualityBurnin, exampleBurnin] = await Promise.all([
     readOptionalJson(path.join(reportsDirectory, "runtime-doctor.json")),
@@ -346,7 +369,7 @@ async function collectEvidenceSummary(sourceDir) {
   ]);
 
   return {
-    reportFiles: reportFiles.map((relativePath) => safePathLabel(path.join("repo", "reports", relativePath))),
+    reportFiles: reportFiles.map((relativePath) => safePathLabel(path.join("repo", relativePath))),
     runtimeDoctor: summarizeDoctorReport(runtimeDoctor),
     qualityBurnin: summarizeBurninReport(qualityBurnin),
     exampleBurnin: summarizeBurninReport(exampleBurnin),
@@ -373,9 +396,7 @@ function shouldExcludeEntry(entryPath, sourceDir, outputRootInSourceTree) {
     return false;
   }
 
-  return relativePath
-    .split(path.sep)
-    .some((segment) => excludedDirectoryNames.has(segment));
+  return shouldExcludeRelativePath(relativePath);
 }
 
 function renderReviewBrief(manifest) {
