@@ -40,7 +40,8 @@ The CLI currently supports these stages:
 10. `tick`
    Refreshes the run state, releases expired retry windows back to `ready`, regenerates `report.md`, and rebuilds the current handoff index.
 11. `doctor`
-   Checks runtime readiness for OpenClaw, optional Cursor surface availability, Codex, and local CI.
+   Checks runtime readiness with a GPT-5.4 + Codex default profile:
+   required `codex` + `local-ci`, optional `openclaw` + `cursor`.
 12. `handoff`
    Creates prompt files, handoff descriptors, Markdown summaries, launcher scripts,
    and expected result artifact paths for every task that is currently `ready`.
@@ -75,7 +76,7 @@ outcomes derived from dispatch results.
 
 The execution plan and the default factory config use these high-level labels:
 
-- orchestrator: `OpenClaw`
+- orchestrator: `GPT-5.4 + Codex (manual orchestration)`
 - planner: `GPT-5.4 / GPT-5.4 Pro`
 - executor: `Codex`
 - reviewer: `GPT-5.4 / GPT-5.4 Pro`
@@ -122,7 +123,7 @@ The runtime registry currently defines:
 
 Runtime preference order is currently:
 
-- orchestrator: `openclaw`, then `manual`
+- orchestrator: `manual`
 - planner: `manual`
 - reviewer: `manual`
 - executor: `codex`, then `manual`
@@ -130,10 +131,11 @@ Runtime preference order is currently:
 
 This now aligns the starter with its intended operating model:
 
-- OpenClaw orchestrates
+- GPT-5.4 + Codex drive default manual orchestration
 - GPT-5.4 / GPT-5.4 Pro drive planning and review work through manual-first handoffs
 - Codex executes implementation work
 - local CI verifies
+- OpenClaw remains an optional orchestrator adapter for teams that explicitly opt it in
 - Cursor remains an auxiliary human IDE / spot-check surface and is not auto-selected by the default planner/reviewer route
 
 If a team wants Cursor as an explicit planner/reviewer fallback, it must opt in through `runtimeRouting.roleOverrides`, for example:
@@ -155,7 +157,7 @@ If a team wants Cursor as an explicit planner/reviewer fallback, it must opt in 
 
 Default mapping:
 
-- orchestrator -> `openclaw`
+- orchestrator -> `gpt-5.4`
 - planner -> `gpt-5.4`
 - reviewer -> `gpt-5.4`
 - executor -> `codex`
@@ -337,6 +339,7 @@ Automated runtimes also depend on the generated launcher shell being available f
 - `bash` on Linux/macOS (or `AI_FACTORY_LAUNCHER_SHELL_COMMAND` when explicitly overridden)
 
 If that launcher shell is unavailable, doctor marks `openclaw`, `codex`, and `local-ci` as not ready so routing can fall back cleanly instead of failing only at dispatch time.
+In the default GPT-5.4 + Codex route, `codex` and `local-ci` are the required checks; `openclaw` remains optional.
 
 If that report is missing, the loader returns an empty check list. Runtime
 normalization then treats all non-manual runtimes as not ready, so routing falls

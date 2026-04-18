@@ -44,7 +44,7 @@ Runtime selection is based on:
 
 Current preference order:
 
-- `orchestrator`: `openclaw`, then `manual`
+- `orchestrator`: `manual`
 - `planner`: `manual`
 - `reviewer`: `manual`
 - `executor`: `codex`, then `manual`
@@ -52,6 +52,7 @@ Current preference order:
 
 Automated roles select the first non-manual runtime with `ok: true`.
 Planner/reviewer work is intentionally manual-only in the default routing table, so Cursor is not auto-selected even when it is available.
+OpenClaw is available as an optional orchestrator route, but it is not selected by default in the GPT-5.4 + Codex baseline.
 
 If you need an emergency human-side Cursor route, set `runtimeRouting.roleOverrides` in `config/factory.config.json`, for example:
 
@@ -111,6 +112,9 @@ Each generated prompt includes:
 ## Launcher behavior by runtime
 
 ### `openclaw`
+
+OpenClaw launcher support remains available for teams that explicitly opt it in through `runtimeRouting.roleOverrides`.
+It is not part of the default runtime preference order.
 
 The launcher reads the generated prompt and runs:
 

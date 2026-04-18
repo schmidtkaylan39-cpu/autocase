@@ -1,6 +1,6 @@
 export const defaultModelPolicy = {
   orchestrator: {
-    defaultModel: "openclaw",
+    defaultModel: "gpt-5.4",
     autoSwitch: false
   },
   planner: {

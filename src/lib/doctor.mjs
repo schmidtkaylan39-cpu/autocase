@@ -13,6 +13,14 @@ import {
 } from "./powershell.mjs";
 
 const execFileAsync = promisify(execFile);
+const defaultReadinessProfile = {
+  id: "gpt54-codex",
+  label: "GPT-5.4 + Codex",
+  description:
+    "Manual orchestration with GPT-5.4, Codex for execution, and local CI for verification.",
+  requiredRuntimeIds: ["codex", "local-ci"]
+};
+const requiredRuntimeIdSet = new Set(defaultReadinessProfile.requiredRuntimeIds);
 
 async function resolveCommand(command) {
   if (process.platform === "win32") {
@@ -320,16 +328,40 @@ function applyLauncherRuntimeRequirement(check, launcherStatus) {
   };
 }
 
+function applyReadinessProfile(check) {
+  const requiredByDefaultRoute = requiredRuntimeIdSet.has(check.id);
+
+  return {
+    ...check,
+    requiredByDefaultRoute,
+    readinessClass: requiredByDefaultRoute ? "required" : "optional"
+  };
+}
+
 function renderDoctorReport(checks) {
+  const requiredRuntimes = checks.filter((check) => check.requiredByDefaultRoute);
+  const optionalRuntimes = checks.filter((check) => !check.requiredByDefaultRoute);
+
   return [
     "# Runtime Doctor",
     "",
-    ...checks.map((check) => `- ${check.label}: ${check.ok ? "READY" : "NOT READY"}`),
+    `- Default readiness profile: ${defaultReadinessProfile.label} (\`${defaultReadinessProfile.id}\`)`,
+    `- Profile description: ${defaultReadinessProfile.description}`,
+    `- Required runtimes: ${requiredRuntimes.map((check) => check.id).join(", ") || "none"}`,
+    `- Optional runtimes: ${optionalRuntimes.map((check) => check.id).join(", ") || "none"}`,
+    "",
+    ...checks.map(
+      (check) =>
+        `- ${check.label}: ${check.requiredByDefaultRoute ? "REQUIRED" : "OPTIONAL"} / ${
+          check.ok ? "READY" : "NOT READY"
+        }`
+    ),
     "",
     "## Details",
     ...checks.flatMap((check) => {
       const lines = [
         `### ${check.label}`,
+        `- Required by default route: ${check.requiredByDefaultRoute ? "yes" : "no"}`,
         `- Installed: ${check.installed ? "yes" : "no"}`,
         `- Command: ${check.command}`,
         `- Status: ${check.ok ? "READY" : "NOT READY"}`
@@ -378,7 +410,7 @@ export async function runRuntimeDoctor(outputDir = "reports") {
     await checkCursor(),
     applyLauncherRuntimeRequirement(await checkCodex(), launcherStatus),
     applyLauncherRuntimeRequirement(await checkLocalCi(), launcherStatus)
-  ];
+  ].map((check) => applyReadinessProfile(check));
 
   const resolvedOutputDir = path.resolve(outputDir);
   await ensureDirectory(resolvedOutputDir);
@@ -388,6 +420,7 @@ export async function runRuntimeDoctor(outputDir = "reports") {
 
   await writeJson(jsonPath, {
     generatedAt: new Date().toISOString(),
+    defaultReadinessProfile,
     checks
   });
 

@@ -5,7 +5,7 @@ export const sampleProjectSpec = {
     oneLine:
       "Allow the system to plan, implement, review, and verify a software project with minimal supervision.",
     details:
-      "This starter project turns project intake, risk-stop rules, execution planning, and acceptance rules into reusable artifacts so OpenClaw can orchestrate, GPT-5.4 can plan and review, Codex can implement, and human operators can step in when needed."
+      "This starter project turns project intake, risk-stop rules, execution planning, and acceptance rules into reusable artifacts so GPT-5.4 can plan and review, Codex can implement, and human operators can orchestrate safely, with OpenClaw remaining an optional add-on path."
   },
   targetUsers: [
     "Non-programmers who want a structured AI software workflow",
@@ -34,7 +34,7 @@ export const sampleProjectSpec = {
     }
   ],
   backlogFeatures: [
-    "Wire real OpenClaw task submission",
+    "Add optional OpenClaw orchestration adapter",
     "Wire Codex and GPT-5.4 execution backends",
     "Wire CI and Playwright verification"
   ],
@@ -44,7 +44,7 @@ export const sampleProjectSpec = {
   ],
   design: {
     tone: "Clear, practical, and beginner-friendly",
-    references: ["https://docs.openclaw.ai", "https://openai.com/codex"],
+    references: ["https://openai.com/codex"],
     mobileRequired: false,
     desktopRequired: true
   },
@@ -59,8 +59,8 @@ export const sampleProjectSpec = {
   integrations: [
     {
       name: "OpenClaw",
-      status: "planned",
-      notes: "Primary orchestrator"
+      status: "optional",
+      notes: "Optional orchestrator adapter"
     },
     {
       name: "Codex",
@@ -69,15 +69,15 @@ export const sampleProjectSpec = {
     },
     {
       name: "GPT-5.4 / GPT-5.4 Pro",
-      status: "optional",
-      notes: "Planning and review surface with human-in-the-loop operation"
+      status: "planned",
+      notes: "Primary planning and review surface with human-in-the-loop operation"
     }
   ],
   dataSources: ["Project requirement document", "Acceptance checklist", "Risk-stop rules"],
   definitionOfDone: [
     "The spec validates successfully",
     "The execution plan is generated",
-    "The outputs are ready to connect to OpenClaw, Codex, and CI"
+    "The outputs are ready to connect to GPT-5.4, Codex, and CI, with OpenClaw as an optional route"
   ],
   acceptanceCriteria: [
     "The CLI supports init, validate, and plan commands",

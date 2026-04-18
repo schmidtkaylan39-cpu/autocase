@@ -85,7 +85,7 @@ Review bundle note:
 
 ## External Non-Blocking Warnings
 
-The following OpenClaw audit items are currently treated as non-blocking in this starter:
+In the default GPT-5.4 + Codex route, OpenClaw is optional. The following OpenClaw audit items are therefore treated as non-blocking unless a team explicitly routes orchestration to OpenClaw:
 
 - `gateway.trusted_proxies_missing`
 - `gateway.nodes.deny_commands_ineffective`
@@ -96,7 +96,7 @@ Observed runtime note that may appear together with healthy probe:
 
 Why non-blocking for now:
 
-- current workflow gates on CLI behavior and artifact contracts, not full OpenClaw deployment hardening
+- current default workflow gates on Codex/local-ci readiness plus CLI behavior and artifact contracts, not full OpenClaw deployment hardening
 - these warnings do not currently prevent local orchestration and dispatch workflows from completing
 
 ## Design Choices (Not Bugs)

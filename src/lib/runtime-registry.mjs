@@ -32,7 +32,7 @@ export const runtimeDefinitions = {
 };
 
 const rolePreferences = {
-  orchestrator: ["openclaw", "manual"],
+  orchestrator: ["manual"],
   planner: ["manual"],
   reviewer: ["manual"],
   executor: ["codex", "manual"],

@@ -14,7 +14,7 @@ Model routing decides which model should be preferred inside that surface.
 
 | Task role | Runtime | Default model | Escalated model | Typical use |
 | --- | --- | --- | --- | --- |
-| orchestrator | `openclaw` | `openclaw` | none | scheduling, retries, dispatch, risk-stop enforcement |
+| orchestrator | `manual` primary | `gpt-5.4` | none | delivery coordination, retries, dispatch/risk-stop decisions |
 | planner | `manual` primary | `gpt-5.4` | `gpt-5.4-pro` | requirement breakdown, sequencing, clarification |
 | reviewer | `manual` primary | `gpt-5.4` | `gpt-5.4-pro` | review, risk analysis, finding hidden issues |
 | executor | `codex` | `codex` | none | implementation, bug fixing, integration |
@@ -70,6 +70,14 @@ part of automatic planner/reviewer runtime routing in this starter.
 If you need Cursor as an explicit fallback surface for planning or review, enable it through
 `runtimeRouting.roleOverrides` in `config/factory.config.json`. That keeps the default route
 manual-first while making any Cursor usage intentional and testable.
+
+## OpenClaw Position
+
+`openclaw` remains supported, but it is treated as an optional orchestrator adapter in the
+default GPT-5.4 + Codex operating route.
+
+If a team wants OpenClaw to handle orchestrator tasks automatically, it can be opted in through
+`runtimeRouting.roleOverrides` (for example, `orchestrator: ["openclaw", "manual"]`).
 
 ## Configuration
 

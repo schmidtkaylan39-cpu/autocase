@@ -4,9 +4,14 @@ export const defaultFactoryConfig = {
   version: 1,
   roles: {
     orchestrator: {
-      tool: "OpenClaw",
-      automation: "automated",
-      responsibilities: ["scheduling", "dispatching", "retries", "risk-stop enforcement"],
+      tool: "GPT-5.4 + Codex (manual orchestration)",
+      automation: "manual",
+      responsibilities: [
+        "release coordination",
+        "dispatch oversight",
+        "retry policy decisions",
+        "risk-stop enforcement"
+      ],
       finalAuthority: false
     },
     planner: {
