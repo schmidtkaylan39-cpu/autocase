@@ -1,6 +1,6 @@
 {
   "name": "ai-factory-starter",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "description": "Starter CLI for a multi-agent software factory workflow.",
   "type": "module",
