@@ -1,61 +1,79 @@
-# AI Factory 面板快啟（繁中）
+# AI Factory 面板使用說明（繁中）
 
-這個面板是給人類操作的本機瀏覽器介面，底層仍然走同一套 CLI 與 artifact contract。
+這個面板是給一般使用者操作的，不需要會寫程式。
 
-## 1. 開啟面板
+## 1. 啟動面板
 
-在 repo 根目錄執行：
+在專案根目錄開 PowerShell，執行：
 
 ```bash
 node src/index.mjs panel .
 ```
 
-預設網址：
+瀏覽器打開：
 
 ```text
 http://127.0.0.1:4310
 ```
 
-如果 `4310` 已被占用，可以換埠號：
+如果 `4310` 被占用，換埠號：
 
 ```bash
 node src/index.mjs panel . 4320
 ```
 
-## 2. 最小操作流程（按鈕順序）
+## 2. 最簡單操作（推薦）
 
-1. `套用工作區`
-2. `初始化 init`
-3. `1. Intake`
-4. `2. Confirm`
-5. `3. 建立 Run`
-6. `4. Autonomous`
+面板上只要做三件事：
 
-完成後可在面板右側看到最新 run 狀態與任務統計。
+1. 確認「工作區路徑」
+2. 輸入「需求內容」
+3. 按「一鍵開始（推薦）」
 
-## 3. 輸出檔案在哪裡
+一鍵開始會自動依序執行：
 
-以 `workspace = C:\demo` 為例：
+1. 初始化
+2. 需求澄清（intake）
+3. 需求確認（confirm）
+4. 建立 Run
+5. 全自動執行（autonomous）
 
-- run state: `C:\demo\runs\<run-id>\run-state.json`
-- run report: `C:\demo\runs\<run-id>\report.md`
-- autonomous summary:
-  - `C:\demo\runs\<run-id>\autonomous-summary.json`
-  - `C:\demo\runs\<run-id>\autonomous-summary.md`
-- dispatch results: `C:\demo\runs\<run-id>\handoffs\dispatch-results.json`
+## 3. 怎麼看有沒有成功
 
-## 4. 常見情況
+看「目前狀態」區塊：
 
-- `intake` 之後 `confirm` 失敗：
-  代表澄清條件不足，先修正需求後再按 `intake` / `confirm`。
-- `autonomous` 跑完仍非 `completed`：
-  打開 run report 檢查 `blocked` / `failed` task，再用 `handoff + dispatch` 或 `autonomous` 續跑。
-- 看不到 run：
-  先按一次 `重新整理狀態`。
+- 需求狀態：`已確認`
+- 執行狀態：`已完成`
+- 阻塞任務：`0`
+- 失敗任務：`0`
 
-## 5. 關閉面板
+再看「操作紀錄」最後一條是否顯示：
 
-回到終端按：
+- `一鍵開始完成`
+
+## 4. 輸出檔案位置
+
+假設工作區是 `C:\demo`，會產生：
+
+- `C:\demo\runs\<run-id>\run-state.json`
+- `C:\demo\runs\<run-id>\report.md`
+- `C:\demo\runs\<run-id>\autonomous-summary.json`
+- `C:\demo\runs\<run-id>\autonomous-summary.md`
+
+## 5. 常見情況
+
+- 一鍵開始失敗，顯示「確認失敗（需補資訊）」  
+  需求太模糊，請把需求改得更具體（輸入檔、輸出檔、不要做什麼），再按一次。
+
+- 執行狀態不是「已完成」  
+  先按「重新整理狀態」，再看「操作紀錄」最後一條錯誤內容。
+
+- 想手動一步一步跑  
+  打開「進階操作（選用）」再按對應按鈕。
+
+## 6. 關閉面板
+
+回到啟動面板的終端視窗，按：
 
 ```text
 Ctrl + C

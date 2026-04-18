@@ -351,13 +351,15 @@ Human-friendly local panel (browser UI):
 node src/index.mjs panel .
 ```
 
-Then open the printed URL (default `http://127.0.0.1:4310`) and click through:
+Then open the printed URL (default `http://127.0.0.1:4310`).
 
-1. `init`
-2. `intake`
-3. `confirm`
-4. `run`
-5. `autonomous`
+The panel is now simplified and localized in Chinese. Recommended flow:
+
+1. set workspace path
+2. fill request text
+3. click `一鍵開始（推薦）`
+
+Detailed Chinese guide: `docs/panel-quickstart.zh-TW.md`
 
 This panel calls the same CLI workflow functions under the hood and keeps all artifacts in your workspace.
 

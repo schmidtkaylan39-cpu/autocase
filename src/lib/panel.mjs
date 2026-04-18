@@ -394,13 +394,12 @@ function renderPanelHtml(workspaceRoot) {
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>AI Factory 控制面板</title>
+  <title>AI Factory 中文操作面板</title>
   <style>
     :root {
       --ink: #132238;
       --subtle: #59708d;
       --line: #d9e3f1;
-      --panel: #ffffff;
       --accent: #0f9d7a;
       --accent-strong: #0f7f63;
       --warning: #c76716;
@@ -410,82 +409,70 @@ function renderPanelHtml(workspaceRoot) {
       --bg-c: #fff8f1;
       --code: #0a1d2f;
     }
-
-    * {
-      box-sizing: border-box;
-    }
-
+    * { box-sizing: border-box; }
     body {
       margin: 0;
       color: var(--ink);
-      font-family: "Noto Sans TC", "Segoe UI", "PingFang TC", "Microsoft JhengHei", sans-serif;
+      font-family: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", sans-serif;
       background:
         radial-gradient(circle at 8% 10%, var(--bg-a), transparent 34%),
         radial-gradient(circle at 88% 15%, var(--bg-c), transparent 32%),
         radial-gradient(circle at 76% 84%, var(--bg-b), transparent 35%),
         #f4f7fb;
       min-height: 100vh;
-      padding: 28px 18px 34px;
+      padding: 24px 16px 32px;
     }
-
     .shell {
-      max-width: 1120px;
+      max-width: 1080px;
       margin: 0 auto;
       display: grid;
       gap: 14px;
-      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
     }
-
-    .hero,
-    .card {
+    .hero, .card {
       border: 1px solid var(--line);
       border-radius: 16px;
       background: linear-gradient(170deg, #fff, #fdfefe 65%, #f7fcff);
       box-shadow: 0 12px 30px rgba(24, 46, 74, 0.06);
     }
-
     .hero {
       grid-column: 1 / -1;
-      padding: 22px 22px 18px;
+      padding: 18px 20px;
     }
-
     .hero h1 {
       margin: 0 0 8px;
-      font-size: 1.45rem;
-      letter-spacing: 0.01em;
+      font-size: 1.35rem;
     }
-
     .hero p {
       margin: 0;
       color: var(--subtle);
+      line-height: 1.55;
     }
-
-    .card {
-      padding: 16px;
+    .steps {
+      margin: 8px 0 0;
+      padding-left: 18px;
+      color: #365374;
+      line-height: 1.6;
+      font-size: 0.92rem;
     }
-
+    .card { padding: 14px; }
     .card h2 {
-      margin: 0 0 12px;
+      margin: 0 0 10px;
       font-size: 1rem;
     }
-
     .hint {
-      margin: 0 0 12px;
+      margin: 0 0 10px;
       color: var(--subtle);
-      font-size: 0.92rem;
+      font-size: 0.9rem;
       line-height: 1.5;
     }
-
     label {
       display: block;
       margin: 0 0 6px;
       font-size: 0.84rem;
       color: #2f4a66;
     }
-
-    input,
-    textarea,
-    select {
+    input, textarea {
       width: 100%;
       border: 1px solid #c7d6ea;
       border-radius: 10px;
@@ -494,26 +481,22 @@ function renderPanelHtml(workspaceRoot) {
       color: var(--ink);
       background: #fff;
     }
-
     textarea {
-      min-height: 92px;
+      min-height: 90px;
       resize: vertical;
       line-height: 1.45;
     }
-
     .grid-2 {
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: 10px;
     }
-
     .actions {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
       gap: 8px;
       margin-top: 10px;
     }
-
     button {
       border: 0;
       border-radius: 11px;
@@ -522,63 +505,54 @@ function renderPanelHtml(workspaceRoot) {
       cursor: pointer;
       color: #fff;
       background: linear-gradient(140deg, var(--accent), #13b78d);
-      transition: transform 0.12s ease, box-shadow 0.2s ease, filter 0.15s ease;
       box-shadow: 0 8px 18px rgba(15, 157, 122, 0.28);
     }
-
-    button:hover {
-      filter: brightness(1.03);
-      transform: translateY(-1px);
-    }
-
+    button:hover { filter: brightness(1.03); }
     button[data-tone="neutral"] {
       background: linear-gradient(140deg, #4b6d93, #365374);
       box-shadow: 0 8px 18px rgba(39, 70, 108, 0.24);
     }
-
     button[data-tone="warn"] {
       background: linear-gradient(140deg, #d1832f, #b2600f);
       box-shadow: 0 8px 18px rgba(178, 96, 15, 0.24);
     }
-
     .status-pill {
       display: inline-flex;
       align-items: center;
       gap: 6px;
-      margin: 0 0 12px;
+      margin: 0 0 10px;
       border-radius: 999px;
       padding: 5px 11px;
       font-size: 0.8rem;
       background: #eef8f4;
       color: var(--accent-strong);
     }
-
-    .status-pill.warn {
-      background: #fff5ea;
-      color: var(--warning);
-    }
-
-    .status-pill.error {
-      background: #ffeff2;
-      color: var(--error);
-    }
-
+    .status-pill.warn { background: #fff5ea; color: var(--warning); }
+    .status-pill.error { background: #ffeff2; color: var(--error); }
     .kv {
       display: grid;
-      grid-template-columns: 130px 1fr;
+      grid-template-columns: 120px 1fr;
       gap: 6px 10px;
       font-size: 0.9rem;
     }
-
-    .kv dt {
-      color: var(--subtle);
-    }
-
+    .kv dt { color: var(--subtle); }
     .kv dd {
       margin: 0;
       word-break: break-all;
     }
-
+    details {
+      border: 1px dashed #bdd1e9;
+      border-radius: 12px;
+      padding: 10px;
+      background: #fafdff;
+    }
+    details > summary {
+      cursor: pointer;
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: #365374;
+      margin-bottom: 8px;
+    }
     pre {
       margin: 0;
       padding: 12px;
@@ -586,65 +560,51 @@ function renderPanelHtml(workspaceRoot) {
       border: 1px solid #dde6f3;
       background: var(--code);
       color: #dbe6f4;
-      font-family: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+      font-family: "Cascadia Code", Consolas, monospace;
       font-size: 0.8rem;
       line-height: 1.5;
-      max-height: 360px;
+      max-height: 350px;
       overflow: auto;
     }
-
     @media (max-width: 680px) {
-      .grid-2 {
-        grid-template-columns: 1fr;
-      }
+      .grid-2 { grid-template-columns: 1fr; }
     }
   </style>
 </head>
 <body>
   <main class="shell">
     <section class="hero">
-      <h1>AI Factory 本機控制面板</h1>
-      <p>給人類操作的簡化入口。點按流程：初始化 → 需求 intake → confirm → 建立 run → autonomous。</p>
-      <p style="margin-top:8px"><strong>目前工作目錄：</strong> <code id="workspaceTag">${escapedWorkspace}</code></p>
+      <h1>AI Factory 中文操作面板</h1>
+      <p>你可以直接按「一鍵開始（推薦）」完成：初始化 → 需求澄清 → 需求確認 → 建立 Run → 全自動執行。</p>
+      <ol class="steps">
+        <li>先確認工作區路徑</li>
+        <li>填入需求內容</li>
+        <li>按「一鍵開始（推薦）」</li>
+      </ol>
+      <p style="margin-top:8px"><strong>目前工作區：</strong> <code id="workspaceTag">${escapedWorkspace}</code></p>
     </section>
 
     <section class="card">
-      <h2>工作區設定</h2>
-      <p class="hint">把你要執行任務的資料夾填在下面，先按「套用工作區」。</p>
-      <label for="workspaceInput">Workspace 路徑</label>
+      <h2>基本設定</h2>
+      <p class="hint">給非工程同事使用。通常只要按一鍵開始就可以。</p>
+      <label for="workspaceInput">工作區路徑</label>
       <input id="workspaceInput" value="${escapedWorkspace}" />
-      <div class="actions">
-        <button id="setWorkspaceBtn" data-tone="neutral">套用工作區</button>
-        <button id="refreshStatusBtn" data-tone="neutral">重新整理狀態</button>
-        <button id="initBtn">初始化 init</button>
-      </div>
-    </section>
-
-    <section class="card">
-      <h2>需求與執行</h2>
-      <label for="requestInput">需求描述（給 intake）</label>
-      <textarea id="requestInput">在本地資料夾讀取資料並輸出報告，不要呼叫外部 API。</textarea>
+      <label for="requestInput" style="margin-top:10px">需求內容</label>
+      <textarea id="requestInput">Read local sales.json and write summary.md to artifacts/reports; do not send email and do not call external APIs.</textarea>
       <div class="grid-2" style="margin-top:10px">
         <div>
           <label for="runIdInput">Run ID（可留空）</label>
-          <input id="runIdInput" placeholder="例如 prod-run-001" />
+          <input id="runIdInput" placeholder="例如 today-run-001" />
         </div>
         <div>
-          <label for="maxRoundsInput">Autonomous 最大輪數</label>
+          <label for="maxRoundsInput">最多自動輪數</label>
           <input id="maxRoundsInput" value="8" />
         </div>
       </div>
       <div class="actions">
-        <button id="intakeBtn">1. Intake</button>
-        <button id="confirmBtn">2. Confirm</button>
-        <button id="runBtn">3. 建立 Run</button>
-        <button id="autonomousBtn" data-tone="warn">4. Autonomous</button>
-      </div>
-      <div class="actions">
-        <button id="doctorBtn" data-tone="neutral">Doctor</button>
-        <button id="handoffBtn" data-tone="neutral">Handoff</button>
-        <button id="dispatchDryBtn" data-tone="neutral">Dispatch Dry-run</button>
-        <button id="dispatchExecBtn" data-tone="neutral">Dispatch Execute</button>
+        <button id="applyWorkspaceBtn" data-tone="neutral">套用工作區</button>
+        <button id="quickStartBtn" data-tone="warn">一鍵開始（推薦）</button>
+        <button id="refreshStatusBtn" data-tone="neutral">重新整理狀態</button>
       </div>
     </section>
 
@@ -654,9 +614,25 @@ function renderPanelHtml(workspaceRoot) {
       <dl class="kv" id="statusDetail"></dl>
     </section>
 
+    <section class="card">
+      <h2>進階操作（選用）</h2>
+      <details>
+        <summary>展開進階按鈕</summary>
+        <p class="hint">需要手動排查時再用。平常不用碰。</p>
+        <div class="actions">
+          <button id="initBtn">只做初始化</button>
+          <button id="intakeBtn">只做需求澄清</button>
+          <button id="confirmBtn">只做需求確認</button>
+          <button id="runBtn">只建立 Run</button>
+          <button id="autonomousBtn" data-tone="warn">只跑全自動</button>
+          <button id="doctorBtn" data-tone="neutral">環境健康檢查</button>
+        </div>
+      </details>
+    </section>
+
     <section class="card" style="grid-column: 1 / -1">
-      <h2>執行回應</h2>
-      <p class="hint">每次操作都會把 API 回應寫在這裡，方便你追蹤。</p>
+      <h2>操作紀錄</h2>
+      <p class="hint">每次動作的回應都會寫在這裡。</p>
       <pre id="logBox">等待操作…</pre>
     </section>
   </main>
@@ -671,6 +647,29 @@ function renderPanelHtml(workspaceRoot) {
     const statusPill = document.getElementById("statusPill");
     const statusDetail = document.getElementById("statusDetail");
     const logBox = document.getElementById("logBox");
+
+    const runStatusLabelMap = {
+      "planned": "已規劃",
+      "in_progress": "進行中",
+      "completed": "已完成",
+      "attention_required": "需要人工處理",
+      "pending": "等待中",
+      "ready": "可執行",
+      "waiting_retry": "等待重試",
+      "blocked": "已阻塞",
+      "failed": "已失敗",
+      "not-found": "尚未建立",
+      "no-run": "尚未建立"
+    };
+
+    const intakeStatusLabelMap = {
+      "clarifying": "澄清中",
+      "awaiting_confirmation": "等待確認",
+      "confirmed": "已確認",
+      "clarification_blocked": "確認失敗（需補資訊）",
+      "clarification_abandoned": "已放棄",
+      "not-found": "尚未建立"
+    };
 
     workspaceInput.value = initialWorkspace;
 
@@ -689,18 +688,18 @@ function renderPanelHtml(workspaceRoot) {
       } catch {
         return {
           ok: false,
-          error: "Server returned invalid JSON.",
+          error: "伺服器回傳非 JSON 內容。",
           raw: text
         };
       }
     }
 
-    async function callApi(path, options = {}) {
-      const response = await fetch(path, options);
+    async function callApi(urlPath, options = {}) {
+      const response = await fetch(urlPath, options);
       const payload = await parseJsonResponse(response);
 
       if (!response.ok || payload.ok === false) {
-        throw new Error(payload.error || payload.message || "API request failed.");
+        throw new Error(payload.error || payload.message || "API 呼叫失敗。");
       }
 
       return payload;
@@ -711,6 +710,14 @@ function renderPanelHtml(workspaceRoot) {
       logBox.textContent = "[" + new Date().toLocaleString() + "] " + title + "\\n\\n" + body;
     }
 
+    function labelForRunStatus(value) {
+      return runStatusLabelMap[value] || value || "-";
+    }
+
+    function labelForIntakeStatus(value) {
+      return intakeStatusLabelMap[value] || value || "-";
+    }
+
     function renderStatus(overview) {
       workspaceTag.textContent = overview.workspaceRoot;
 
@@ -718,7 +725,8 @@ function renderPanelHtml(workspaceRoot) {
       const runState = overview.latestRun?.summary?.status || "no-run";
       const waitingConfirm = overview.intake?.exists && overview.intake?.confirmedByUser === false;
 
-      statusPill.textContent = "Intake: " + intakeState + " | Run: " + runState;
+      statusPill.textContent =
+        "需求狀態：" + labelForIntakeStatus(intakeState) + " | 執行狀態：" + labelForRunStatus(runState);
       statusPill.className = "status-pill";
 
       if (waitingConfirm) {
@@ -733,16 +741,16 @@ function renderPanelHtml(workspaceRoot) {
       const latestRun = overview.latestRun || {};
       const summary = latestRun.summary || {};
       const fields = [
-        ["Workspace", overview.workspaceRoot],
-        ["Spec", overview.defaults?.specPath || "-"],
-        ["Intake Spec", overview.intake?.intakeSpecPath || "-"],
-        ["Latest Run", latestRun.runStatePath || "-"],
+        ["工作區", overview.workspaceRoot],
+        ["規格檔", overview.defaults?.specPath || "-"],
+        ["最新 Run 檔案", latestRun.runStatePath || "-"],
         ["Run ID", summary.runId || "-"],
-        ["Run Status", summary.status || "-"],
-        ["Completed", String(summary.completedTasks ?? "-")],
-        ["Ready", String(summary.readyTasks ?? "-")],
-        ["Blocked", String(summary.blockedTasks ?? "-")],
-        ["Failed", String(summary.failedTasks ?? "-")]
+        ["需求狀態", labelForIntakeStatus(intakeState)],
+        ["執行狀態", labelForRunStatus(summary.status || runState)],
+        ["已完成任務", String(summary.completedTasks ?? "-")],
+        ["可執行任務", String(summary.readyTasks ?? "-")],
+        ["阻塞任務", String(summary.blockedTasks ?? "-")],
+        ["失敗任務", String(summary.failedTasks ?? "-")]
       ];
 
       statusDetail.innerHTML = fields
@@ -750,45 +758,62 @@ function renderPanelHtml(workspaceRoot) {
         .join("");
     }
 
-    async function setWorkspace() {
+    async function setWorkspace(logResult = true) {
       const workspaceDir = workspaceInput.value.trim();
       const result = await callApi("/api/action", {
         method: "POST",
-        headers: {
-          "content-type": "application/json"
-        },
+        headers: { "content-type": "application/json" },
         body: JSON.stringify({
           action: "set-workspace",
-          payload: {
-            workspaceDir
-          }
+          payload: { workspaceDir }
         })
       });
 
-      setLog("set-workspace", result);
+      if (logResult) {
+        setLog("套用工作區", result);
+      }
       await refreshStatus();
       return result;
     }
 
-    async function runAction(action, payload = {}) {
-      setButtonsDisabled(true);
+    async function invokeAction(action, payload = {}, logTitle = action) {
+      const result = await callApi("/api/action", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          action,
+          payload
+        })
+      });
 
+      setLog(logTitle, result);
+      await refreshStatus();
+      return result;
+    }
+
+    async function refreshStatus() {
+      const workspaceDir = workspaceInput.value.trim();
+      await callApi("/api/action", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          action: "set-workspace",
+          payload: { workspaceDir }
+        })
+      });
+
+      const overviewPayload = await callApi("/api/status");
+      renderStatus(overviewPayload.overview);
+      return overviewPayload;
+    }
+
+    async function runAction(action, payload = {}, logTitle = action) {
+      setButtonsDisabled(true);
       try {
-        await setWorkspace();
-        const result = await callApi("/api/action", {
-          method: "POST",
-          headers: {
-            "content-type": "application/json"
-          },
-          body: JSON.stringify({
-            action,
-            payload
-          })
-        });
-        setLog(action, result);
-        await refreshStatus();
+        await setWorkspace(false);
+        await invokeAction(action, payload, logTitle);
       } catch (error) {
-        setLog(action + " failed", {
+        setLog(logTitle + " 失敗", {
           error: error instanceof Error ? error.message : String(error)
         });
       } finally {
@@ -796,48 +821,69 @@ function renderPanelHtml(workspaceRoot) {
       }
     }
 
-    async function refreshStatus() {
-      const workspaceDir = workspaceInput.value.trim();
-      const status = await callApi("/api/action", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json"
-        },
-        body: JSON.stringify({
-          action: "set-workspace",
-          payload: {
-            workspaceDir
-          }
-        })
-      });
-
-      const overviewPayload = await callApi("/api/status");
-      renderStatus(overviewPayload.overview);
-      return {
-        status,
-        overviewPayload
-      };
-    }
-
-    document.getElementById("setWorkspaceBtn").addEventListener("click", async () => {
+    async function runQuickStart() {
       setButtonsDisabled(true);
       try {
-        await setWorkspace();
+        const requestText = requestInput.value.trim();
+
+        if (requestText.length === 0) {
+          throw new Error("請先輸入需求內容。");
+        }
+
+        await setWorkspace(false);
+        await invokeAction("init", {}, "步驟 1/5：初始化");
+        await invokeAction("intake", { request: requestText }, "步驟 2/5：需求澄清");
+        await invokeAction("confirm", {}, "步驟 3/5：需求確認");
+        const runResult = await invokeAction(
+          "run",
+          { runId: runIdInput.value.trim() || undefined },
+          "步驟 4/5：建立 Run"
+        );
+        const runStatePath = runResult?.result?.statePath;
+        const autonomousResult = await invokeAction(
+          "autonomous",
+          {
+            runStatePath,
+            maxRounds: maxRoundsInput.value.trim() || undefined
+          },
+          "步驟 5/5：全自動執行"
+        );
+
+        setLog("一鍵開始完成", {
+          runId: runResult?.result?.runId ?? "-",
+          finalStatus: autonomousResult?.result?.summary?.runSummary?.status ?? "unknown"
+        });
+        await refreshStatus();
       } catch (error) {
-        setLog("set-workspace failed", {
+        setLog("一鍵開始失敗", {
+          error: error instanceof Error ? error.message : String(error)
+        });
+      } finally {
+        setButtonsDisabled(false);
+      }
+    }
+
+    document.getElementById("applyWorkspaceBtn").addEventListener("click", async () => {
+      setButtonsDisabled(true);
+      try {
+        await setWorkspace(true);
+      } catch (error) {
+        setLog("套用工作區失敗", {
           error: error instanceof Error ? error.message : String(error)
         });
       } finally {
         setButtonsDisabled(false);
       }
     });
+
+    document.getElementById("quickStartBtn").addEventListener("click", runQuickStart);
 
     document.getElementById("refreshStatusBtn").addEventListener("click", async () => {
       setButtonsDisabled(true);
       try {
         await refreshStatus();
       } catch (error) {
-        setLog("status refresh failed", {
+        setLog("重新整理狀態失敗", {
           error: error instanceof Error ? error.message : String(error)
         });
       } finally {
@@ -845,38 +891,31 @@ function renderPanelHtml(workspaceRoot) {
       }
     });
 
-    document.getElementById("initBtn").addEventListener("click", () => runAction("init"));
-    document.getElementById("intakeBtn").addEventListener("click", () =>
-      runAction("intake", {
-        request: requestInput.value
-      })
+    document.getElementById("initBtn").addEventListener("click", () =>
+      runAction("init", {}, "只做初始化")
     );
-    document.getElementById("confirmBtn").addEventListener("click", () => runAction("confirm"));
+    document.getElementById("intakeBtn").addEventListener("click", () =>
+      runAction("intake", { request: requestInput.value }, "只做需求澄清")
+    );
+    document.getElementById("confirmBtn").addEventListener("click", () =>
+      runAction("confirm", {}, "只做需求確認")
+    );
     document.getElementById("runBtn").addEventListener("click", () =>
-      runAction("run", {
-        runId: runIdInput.value.trim() || undefined
-      })
+      runAction("run", { runId: runIdInput.value.trim() || undefined }, "只建立 Run")
     );
     document.getElementById("autonomousBtn").addEventListener("click", () =>
-      runAction("autonomous", {
-        maxRounds: maxRoundsInput.value.trim() || undefined
-      })
+      runAction(
+        "autonomous",
+        { maxRounds: maxRoundsInput.value.trim() || undefined },
+        "只跑全自動"
+      )
     );
-    document.getElementById("doctorBtn").addEventListener("click", () => runAction("doctor"));
-    document.getElementById("handoffBtn").addEventListener("click", () => runAction("handoff"));
-    document.getElementById("dispatchDryBtn").addEventListener("click", () =>
-      runAction("dispatch", {
-        mode: "dry-run"
-      })
-    );
-    document.getElementById("dispatchExecBtn").addEventListener("click", () =>
-      runAction("dispatch", {
-        mode: "execute"
-      })
+    document.getElementById("doctorBtn").addEventListener("click", () =>
+      runAction("doctor", {}, "環境健康檢查")
     );
 
     refreshStatus().catch((error) => {
-      setLog("initial refresh failed", {
+      setLog("初始化狀態讀取失敗", {
         error: error instanceof Error ? error.message : String(error)
       });
     });
