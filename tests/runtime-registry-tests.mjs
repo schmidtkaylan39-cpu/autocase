@@ -457,6 +457,121 @@ async function main() {
     }
   });
 
+  await runTest("local-ci launchers stay platform-explicit and retain result artifact writes", async () => {
+    const descriptorFixture = {
+      role: "verifier",
+      taskId: "verify-spec-intake",
+      runState: {
+        runId: "routing-run",
+        mandatoryGates: ["build", "lint", "typecheck", "unit test"]
+      },
+      doctorReport: {
+        checks: [
+          {
+            id: "local-ci",
+            installed: true,
+            ok: true,
+            source: "C:/tools/node.exe"
+          }
+        ]
+      }
+    };
+    const windowsDescriptor = createDescriptorFixture({
+      ...descriptorFixture,
+      platform: "win32"
+    });
+    const linuxDescriptor = createDescriptorFixture({
+      ...descriptorFixture,
+      platform: "linux"
+    });
+
+    assert.equal(windowsDescriptor.runtime.id, "local-ci");
+    assert.equal(linuxDescriptor.runtime.id, "local-ci");
+    assert.equal(windowsDescriptor.launcher.language, "powershell");
+    assert.equal(linuxDescriptor.launcher.language, "bash");
+
+    assert.match(windowsDescriptor.launcherScript, /Set-Location -LiteralPath 'C:\/workspace\/demo'/);
+    assert.match(windowsDescriptor.launcherScript, /\bnpm run build\b/);
+    assert.match(windowsDescriptor.launcherScript, /\bnpm run lint\b/);
+    assert.match(windowsDescriptor.launcherScript, /\bnpm run typecheck\b/);
+    assert.match(windowsDescriptor.launcherScript, /\bnpm test\b/);
+    assert.match(windowsDescriptor.launcherScript, /\$resultJson \| Set-Content -LiteralPath /);
+    assert.match(
+      windowsDescriptor.launcherScript,
+      /'C:[\\/]workspace[\\/]demo[\\/]runs[\\/]example[\\/]handoffs[\\/]results[\\/]verify-spec-intake\.result\.json'/
+    );
+
+    assert.match(linuxDescriptor.launcherScript, /cd 'C:\/workspace\/demo'/);
+    assert.match(linuxDescriptor.launcherScript, /\bnpm run build\b/);
+    assert.match(linuxDescriptor.launcherScript, /\bnpm run lint\b/);
+    assert.match(linuxDescriptor.launcherScript, /\bnpm run typecheck\b/);
+    assert.match(linuxDescriptor.launcherScript, /\bnpm test\b/);
+    assert.match(
+      linuxDescriptor.launcherScript,
+      /mkdir -p "\$\(dirname -- 'C:[\\/]workspace[\\/]demo[\\/]runs[\\/]example[\\/]handoffs[\\/]results[\\/]verify-spec-intake\.result\.json'\)"/
+    );
+    assert.match(
+      linuxDescriptor.launcherScript,
+      /cat > 'C:[\\/]workspace[\\/]demo[\\/]runs[\\/]example[\\/]handoffs[\\/]results[\\/]verify-spec-intake\.result\.json' <<'JSON'/
+    );
+  });
+
+  await runTest("manual launcher text stays platform-explicit when reviewer is forced to manual", async () => {
+    const descriptorFixture = {
+      role: "reviewer",
+      taskId: "review-spec-intake",
+      runState: {
+        runtimeRouting: {
+          roleOverrides: {
+            reviewer: ["manual"]
+          }
+        }
+      },
+      doctorReport: {
+        checks: [
+          {
+            id: "gpt-runner",
+            installed: true,
+            ok: true,
+            source: "C:/tools/codex.cmd"
+          }
+        ]
+      }
+    };
+    const windowsDescriptor = createDescriptorFixture({
+      ...descriptorFixture,
+      platform: "win32"
+    });
+    const linuxDescriptor = createDescriptorFixture({
+      ...descriptorFixture,
+      platform: "linux"
+    });
+
+    assert.equal(windowsDescriptor.runtime.id, "manual");
+    assert.equal(linuxDescriptor.runtime.id, "manual");
+    assert.equal(windowsDescriptor.runtime.mode, "manual");
+    assert.equal(linuxDescriptor.runtime.mode, "manual");
+    assert.equal(windowsDescriptor.launcher.language, "powershell");
+    assert.equal(linuxDescriptor.launcher.language, "bash");
+
+    assert.match(windowsDescriptor.launcherScript, /Write-Host 'Please handle this task manually\.'/);
+    assert.match(windowsDescriptor.launcherScript, /Write-Host \('Workspace root: ' \+ 'C:[\\/]workspace[\\/]demo'\)/);
+    assert.match(
+      windowsDescriptor.launcherScript,
+      /Write-Host \('Prompt: ' \+ 'C:[\\/]workspace[\\/]demo[\\/]runs[\\/]example[\\/]handoffs[\\/]review-spec-intake\.prompt\.md'\)/
+    );
+
+    assert.match(linuxDescriptor.launcherScript, /echo 'Please handle this task manually\.'/);
+    assert.match(
+      linuxDescriptor.launcherScript,
+      /printf 'Workspace root: %s\\n' 'C:[\\/]workspace[\\/]demo'/
+    );
+    assert.match(
+      linuxDescriptor.launcherScript,
+      /printf 'Prompt: %s\\n' 'C:[\\/]workspace[\\/]demo[\\/]runs[\\/]example[\\/]handoffs[\\/]review-spec-intake\.prompt\.md'/
+    );
+  });
+
   await runTest("launcher metadata matches the requested platform", async () => {
     assert.deepEqual(getLauncherMetadata("win32"), {
       extension: ".ps1",
