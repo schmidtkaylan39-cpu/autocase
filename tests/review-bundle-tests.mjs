@@ -407,6 +407,13 @@ async function main() {
     await mkdir(path.join(sourceDir, "reports", "release-readiness", "windows-release-smoke-demo"), {
       recursive: true
     });
+    await mkdir(
+      path.join(sourceDir, "reports", "acceptance", "formal-demo", "release", "ai-factory-starter-win-x64-demo"),
+      { recursive: true }
+    );
+    await mkdir(path.join(sourceDir, "reports", "acceptance", "formal-demo", "workspace"), {
+      recursive: true
+    });
     await mkdir(path.join(sourceDir, "artifacts", "clarification"), { recursive: true });
     await mkdir(path.join(sourceDir, "runs", "demo-run"), { recursive: true });
     await mkdir(path.join(sourceDir, "templates"), { recursive: true });
@@ -492,6 +499,33 @@ async function main() {
         { id: "codex", installed: true, ok: true }
       ]
     });
+    await writeJson(path.join(sourceDir, "reports", "acceptance", "formal-demo", "acceptance-summary.json"), {
+      runId: "formal-demo",
+      finalStatus: "completed"
+    });
+    await writeFile(
+      path.join(sourceDir, "reports", "acceptance", "formal-demo", "acceptance-summary.md"),
+      "# Acceptance Summary\n",
+      "utf8"
+    );
+    await writeFile(
+      path.join(
+        sourceDir,
+        "reports",
+        "acceptance",
+        "formal-demo",
+        "release",
+        "ai-factory-starter-win-x64-demo",
+        "ai-factory-starter.exe"
+      ),
+      "demo exe payload\n",
+      "utf8"
+    );
+    await writeFile(
+      path.join(sourceDir, "reports", "acceptance", "formal-demo", "workspace", "package.json"),
+      "{}\n",
+      "utf8"
+    );
     await writeJson(path.join(sourceDir, "reports", "release-burnin-summary.json"), {
       finishedAt: "2026-04-16T00:00:00.000Z",
       durationMs: 1234,
@@ -610,6 +644,12 @@ async function main() {
     await stat(path.join(result.bundleSourceDirectory, "artifacts", "clarification", "intake-spec.json"));
     await stat(path.join(result.bundleSourceDirectory, "artifacts", "clarification", "intake-summary.md"));
     await stat(path.join(result.bundleSourceDirectory, "reports", "runtime-doctor.json"));
+    await stat(
+      path.join(result.bundleSourceDirectory, "reports", "acceptance", "formal-demo", "acceptance-summary.json")
+    );
+    await stat(
+      path.join(result.bundleSourceDirectory, "reports", "acceptance", "formal-demo", "acceptance-summary.md")
+    );
     await stat(path.join(result.bundleSourceDirectory, "runs", "demo-run", "run-state.json"));
     await stat(path.join(result.bundleSourceDirectory, "docs", "artifact-contract.md"));
     await stat(path.join(result.bundleSourceDirectory, "prompts", "planner.md"));
@@ -640,6 +680,26 @@ async function main() {
             "windows-release-smoke-demo",
             "ai-factory-starter.exe"
           )
+        )
+    );
+    await assert.rejects(
+      () =>
+        stat(
+          path.join(
+            result.bundleSourceDirectory,
+            "reports",
+            "acceptance",
+            "formal-demo",
+            "release",
+            "ai-factory-starter-win-x64-demo",
+            "ai-factory-starter.exe"
+          )
+        )
+    );
+    await assert.rejects(
+      () =>
+        stat(
+          path.join(result.bundleSourceDirectory, "reports", "acceptance", "formal-demo", "workspace", "package.json")
         )
     );
 
@@ -721,6 +781,8 @@ async function main() {
     assert.match(sourceFileList, /repo\/reports\/validation-evidence\/build\.log/);
     assert.match(sourceFileList, /repo\/reports\/validation-evidence\/test\.log/);
     assert.match(sourceFileList, /repo\/reports\/test-output\.log/);
+    assert.match(sourceFileList, /repo\/reports\/acceptance\/formal-demo\/acceptance-summary\.json/);
+    assert.match(sourceFileList, /repo\/reports\/acceptance\/formal-demo\/acceptance-summary\.md/);
     assert.match(sourceFileList, /repo\/README\.md/);
     assert.match(sourceFileList, /repo\/src\/index\.mjs/);
     assert.equal(manifest.inventory.fileCount, bundleFiles.length);
@@ -728,6 +790,8 @@ async function main() {
     assert.doesNotMatch(sourceFileList, /node_modules/);
     assert.doesNotMatch(sourceFileList, /review-bundles\/old-bundle/);
     assert.doesNotMatch(sourceFileList, /reports\/release-readiness/);
+    assert.doesNotMatch(sourceFileList, /reports\/acceptance\/formal-demo\/release\//);
+    assert.doesNotMatch(sourceFileList, /reports\/acceptance\/formal-demo\/workspace\//);
     assert.equal(result.archivePath, null);
   });
 

@@ -14,6 +14,8 @@ import { validateZipArchiveEntryNames } from "./zip-archive.mjs";
 
 const execFileAsync = promisify(execFile);
 const excludedDirectoryNames = new Set([".git", "node_modules", "review-bundles"]);
+const acceptanceSummaryFileNames = new Set(["acceptance-summary.json", "acceptance-summary.md"]);
+const acceptanceExcludedSubtrees = new Set(["release", "workspace", "logs"]);
 
 function shouldExcludeRelativePath(relativePath) {
   if (!relativePath || relativePath === ".") {
@@ -30,6 +32,26 @@ function shouldExcludeRelativePath(relativePath) {
   // that bloat external review bundles without improving code-level review signal.
   if (segments.length >= 2 && segments[0] === "reports" && segments[1] === "release-readiness") {
     return true;
+  }
+
+  // Acceptance runs can retain unpacked Windows release payloads, logs, and workspace copies
+  // that add hundreds of MB without helping code-level external review. Keep only the concise
+  // acceptance summaries from those runs.
+  if (segments.length >= 2 && segments[0] === "reports" && segments[1] === "acceptance") {
+    const lowerSegments = segments.map((segment) => segment.toLowerCase());
+
+    if (lowerSegments.some((segment) => acceptanceExcludedSubtrees.has(segment))) {
+      return true;
+    }
+
+    const lastSegment = lowerSegments[lowerSegments.length - 1];
+    const isLikelyFile = lastSegment.includes(".");
+
+    if (isLikelyFile && !acceptanceSummaryFileNames.has(lastSegment)) {
+      return true;
+    }
+
+    return false;
   }
 
   return false;
