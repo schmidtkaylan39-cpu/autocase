@@ -7,6 +7,10 @@ This repository is a local starter for a multi-AI software factory workflow. It 
 
 The repository can still be driven from source with `node src/index.mjs`, and it now also exposes an installable CLI entrypoint as `ai-factory-starter`.
 
+Chinese quick guide:
+
+- `docs/usage-guide.zh-TW.md`
+
 ## Harness Baseline
 
 This starter now includes a lightweight natural-language harness layer:
