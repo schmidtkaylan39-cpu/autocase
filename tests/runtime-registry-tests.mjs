@@ -22,7 +22,8 @@ function createDescriptorFixture({
   role,
   taskId,
   doctorReport,
-  runState = {}
+  runState = {},
+  platform = process.platform
 }) {
   const workspacePath = "C:/workspace/demo";
   const outputDir = "C:/workspace/demo/runs/example/handoffs";
@@ -56,7 +57,8 @@ function createDescriptorFixture({
     promptPath,
     briefPath,
     resultPath,
-    doctorReport
+    doctorReport,
+    platform
   });
 }
 
@@ -175,7 +177,7 @@ async function main() {
   });
 
   await runTest("buildHandoffDescriptor uses gpt-runner as the default planner surface when available", async () => {
-    const descriptor = createDescriptorFixture({
+    const descriptorFixture = {
       role: "planner",
       taskId: "planning-brief",
       doctorReport: {
@@ -188,18 +190,39 @@ async function main() {
           }
         ]
       }
+    };
+    const windowsDescriptor = createDescriptorFixture({
+      ...descriptorFixture,
+      platform: "win32"
+    });
+    const linuxDescriptor = createDescriptorFixture({
+      ...descriptorFixture,
+      platform: "linux"
     });
 
-    assert.equal(descriptor.runtime.id, "gpt-runner");
-    assert.equal(descriptor.runtime.mode, "automated");
-    assert.equal(descriptor.runtime.selectionStatus, "ready");
-    assert.equal(descriptor.model.preferredModel, "gpt-5.4");
-    assert.equal(descriptor.model.selectionMode, "default");
-    assert.match(descriptor.runtime.selectionReason, /GPT Runner is ready/i);
-    assert.equal(descriptor.paths.workspacePath, "C:/workspace/demo");
-    assert.ok(descriptor.promptText.includes("- workspaceRoot: C:/workspace/demo"));
-    assert.ok(descriptor.promptText.includes("# Workspace Root Path\nC:/workspace/demo"));
-    assert.match(descriptor.launcherScript, /\$prompt \| & codex -m 'gpt-5\.4' -a never exec -C \. -s workspace-write -/i);
+    for (const descriptor of [windowsDescriptor, linuxDescriptor]) {
+      assert.equal(descriptor.runtime.id, "gpt-runner");
+      assert.equal(descriptor.runtime.mode, "automated");
+      assert.equal(descriptor.runtime.selectionStatus, "ready");
+      assert.equal(descriptor.model.preferredModel, "gpt-5.4");
+      assert.equal(descriptor.model.selectionMode, "default");
+      assert.match(descriptor.runtime.selectionReason, /GPT Runner is ready/i);
+      assert.equal(descriptor.paths.workspacePath, "C:/workspace/demo");
+      assert.ok(descriptor.promptText.includes("- workspaceRoot: C:/workspace/demo"));
+      assert.ok(descriptor.promptText.includes("# Workspace Root Path\nC:/workspace/demo"));
+    }
+
+    assert.equal(windowsDescriptor.launcher.language, "powershell");
+    assert.match(
+      windowsDescriptor.launcherScript,
+      /\$prompt \| & codex -m 'gpt-5\.4' -a never exec -C \. -s workspace-write -/i
+    );
+
+    assert.equal(linuxDescriptor.launcher.language, "bash");
+    assert.match(
+      linuxDescriptor.launcherScript,
+      /printf "%s" "\$prompt" \| codex -m 'gpt-5\.4' -a never exec -C \. -s workspace-write -/i
+    );
   });
 
   await runTest("manual planner or reviewer surfaces are skipped by dispatch execute when explicitly forced", async () => {
