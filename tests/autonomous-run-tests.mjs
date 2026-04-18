@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -497,6 +497,138 @@ async function main() {
     assert.equal(
       result.summary.stopReason,
       "dispatch skipped all ready tasks; no automatic runtime was available"
+    );
+  });
+
+  await runTest("autonomous loop rejects concurrent execution for the same run-state", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-autonomous-lock-"));
+    const runResult = await runProject(validSpecPath, tempDir, "autonomous-lock-run");
+    const doctorReportPath = path.join(tempDir, "doctor.json");
+    /** @type {(value?: unknown) => void} */
+    let releaseDoctor = () => {};
+    const doctorGate = new Promise((resolve) => {
+      releaseDoctor = resolve;
+    });
+
+    await writeJson(doctorReportPath, { checks: [] });
+
+    const firstRunPromise = runAutonomousLoop(runResult.statePath, {
+      maxRounds: 1,
+      operations: {
+        runRuntimeDoctor: async () => {
+          await doctorGate;
+          return { jsonPath: doctorReportPath };
+        },
+        tickProjectRun: async () => ({
+          handoffIndexPath: path.join(tempDir, "handoffs", "index.json"),
+          readyTaskCount: 0
+        }),
+        dispatchHandoffs: async () => {
+          throw new Error("dispatchHandoffs should not run when readyTaskCount is 0");
+        }
+      }
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    await assert.rejects(
+      () =>
+        runAutonomousLoop(runResult.statePath, {
+          maxRounds: 1,
+          operations: {
+            runRuntimeDoctor: async () => ({ jsonPath: doctorReportPath }),
+            tickProjectRun: async () => ({
+              handoffIndexPath: path.join(tempDir, "handoffs", "index.json"),
+              readyTaskCount: 0
+            }),
+            dispatchHandoffs: async () => ({ summary: { executed: 0, skipped: 0 } })
+          }
+        }),
+      /another autonomous loop is already running/i
+    );
+
+    releaseDoctor();
+    await firstRunPromise;
+  });
+
+  await runTest("autonomous loop reclaims orphaned run locks from dead processes", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-autonomous-dead-lock-"));
+    const runResult = await runProject(validSpecPath, tempDir, "autonomous-dead-lock-run");
+    const doctorReportPath = path.join(tempDir, "doctor.json");
+    const lockPath = `${runResult.statePath}.autonomous.lock`;
+
+    await writeJson(doctorReportPath, { checks: [] });
+    await writeFile(lockPath, `999999 ${new Date().toISOString()} stale-lock\n`, "utf8");
+
+    const result = await runAutonomousLoop(runResult.statePath, {
+      maxRounds: 1,
+      operations: {
+        runRuntimeDoctor: async () => ({ jsonPath: doctorReportPath }),
+        tickProjectRun: async () => ({
+          handoffIndexPath: path.join(tempDir, "handoffs", "index.json"),
+          readyTaskCount: 0
+        }),
+        dispatchHandoffs: async () => {
+          throw new Error("dispatchHandoffs should not run when readyTaskCount is 0");
+        }
+      }
+    });
+
+    await assert.rejects(() => readFile(lockPath, "utf8"), /ENOENT/);
+    assert.equal(result.summary.stopReason, "no ready tasks were available for autonomous dispatch");
+  });
+
+  await runTest("autonomous loop recovers stale in-progress planner claims before tick", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-autonomous-stale-inprogress-"));
+    const runResult = await runProject(validSpecPath, tempDir, "autonomous-stale-inprogress-run");
+    const doctorReportPath = path.join(tempDir, "doctor.json");
+    const staleClaimTimestamp = new Date(Date.now() - 60_000).toISOString();
+    const existingRunState = await readJson(runResult.statePath);
+    const staleResultPath = path.join(tempDir, "stale.result.json");
+    const staleExecuteLockPath = `${staleResultPath}.execute.lock`;
+
+    await writeJson(doctorReportPath, { checks: [] });
+    await writeFile(staleExecuteLockPath, `999999 ${new Date().toISOString()}\n`, "utf8");
+    await writeJson(
+      runResult.statePath,
+      refreshRunState({
+        ...existingRunState,
+        taskLedger: existingRunState.taskLedger.map((task) =>
+          task.id === "planning-brief"
+            ? {
+                ...task,
+                status: "in_progress",
+                activeHandoffId: "stale-claimed-handoff",
+                activeResultPath: staleResultPath,
+                notes: [...(Array.isArray(task.notes) ? task.notes : []), `${staleClaimTimestamp} dispatch:claimed stale-claimed-handoff`]
+              }
+            : task
+        )
+      })
+    );
+
+    const result = await runAutonomousLoop(runResult.statePath, {
+      maxRounds: 1,
+      operations: {
+        runRuntimeDoctor: async () => ({ jsonPath: doctorReportPath }),
+        tickProjectRun: async () => {
+          throw new Error("tickProjectRun should not be reached before stale in-progress recovery");
+        },
+        dispatchHandoffs: async () => {
+          throw new Error("dispatchHandoffs should not be reached before stale in-progress recovery");
+        }
+      }
+    });
+
+    const nextRunState = await readJson(runResult.statePath);
+    const planningTask = nextRunState.taskLedger.find((task) => task.id === "planning-brief");
+
+    assert.equal(result.summary.rounds[0]?.recovery?.type, "planner_retry");
+    assert.equal(planningTask?.status, "ready");
+    await assert.rejects(() => readFile(staleExecuteLockPath, "utf8"), /ENOENT/);
+    assert.ok(
+      (planningTask?.notes ?? []).some((note) => /autonomous-planner-retry:/i.test(note)),
+      "planning task should record autonomous stale in-progress recovery note"
     );
   });
 
