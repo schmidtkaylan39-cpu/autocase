@@ -54,6 +54,83 @@ async function main() {
     assert.equal(runState.taskLedger.find((task) => task.id === "verify-spec-intake")?.status, "pending");
   });
 
+  await runTest("autonomous loop retries blocked planning tasks before ticking dispatch", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-autonomous-planner-retry-"));
+    const runResult = await runProject(validSpecPath, tempDir, "autonomous-planner-retry-run");
+    const doctorReportPath = path.join(tempDir, "doctor.json");
+
+    await writeJson(doctorReportPath, { checks: [] });
+    await updateRunTask(runResult.statePath, "planning-brief", "blocked", "planning needs another pass");
+
+    const result = await runAutonomousLoop(runResult.statePath, {
+      maxRounds: 1,
+      operations: {
+        runRuntimeDoctor: async () => ({ jsonPath: doctorReportPath }),
+        tickProjectRun: async () => {
+          throw new Error("tickProjectRun should not be reached before planner recovery");
+        },
+        dispatchHandoffs: async () => {
+          throw new Error("dispatchHandoffs should not be reached before planner recovery");
+        }
+      }
+    });
+
+    const runState = await readJson(runResult.statePath);
+    const planningTask = runState.taskLedger.find((task) => task.id === "planning-brief");
+
+    assert.equal(result.summary.rounds[0]?.recovery?.type, "planner_retry");
+    assert.equal(result.summary.rounds[0]?.recovery?.sourceTaskId, "planning-brief");
+    assert.equal(planningTask?.status, "ready");
+    assert.ok(
+      (planningTask?.notes ?? []).some((note) => /autonomous-planner-retry:/i.test(note)),
+      "planning task should record an autonomous planner retry note"
+    );
+  });
+
+  await runTest("autonomous loop retries blocked delivery packaging tasks before ticking dispatch", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-autonomous-delivery-retry-"));
+    const runResult = await runProject(validSpecPath, tempDir, "autonomous-delivery-retry-run");
+    const doctorReportPath = path.join(tempDir, "doctor.json");
+    const runState = await readJson(runResult.statePath);
+
+    await writeJson(doctorReportPath, { checks: [] });
+    await writeJson(
+      runResult.statePath,
+      refreshRunState({
+        ...runState,
+        taskLedger: runState.taskLedger.map((task) => ({
+          ...task,
+          status: task.id === "delivery-package" ? "blocked" : "completed"
+        }))
+      })
+    );
+
+    const result = await runAutonomousLoop(runResult.statePath, {
+      maxRounds: 1,
+      operations: {
+        runRuntimeDoctor: async () => ({ jsonPath: doctorReportPath }),
+        tickProjectRun: async () => {
+          throw new Error("tickProjectRun should not be reached before delivery recovery");
+        },
+        dispatchHandoffs: async () => {
+          throw new Error("dispatchHandoffs should not be reached before delivery recovery");
+        }
+      }
+    });
+
+    const nextRunState = await readJson(runResult.statePath);
+    const deliveryTask = nextRunState.taskLedger.find((task) => task.id === "delivery-package");
+
+    assert.equal(result.summary.rounds[0]?.recovery?.type, "task_retry");
+    assert.equal(result.summary.rounds[0]?.recovery?.sourceTaskId, "delivery-package");
+    assert.deepEqual(result.summary.rounds[0]?.recovery?.targetTaskIds, ["delivery-package"]);
+    assert.equal(deliveryTask?.status, "ready");
+    assert.ok(
+      (deliveryTask?.notes ?? []).some((note) => /autonomous-task-retry:/i.test(note)),
+      "delivery task should record an autonomous task retry note"
+    );
+  });
+
   await runTest("autonomous loop escalates repeated reviewer and verifier failures from rework to replan", async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-autonomous-replan-"));
     const runResult = await runProject(validSpecPath, tempDir, "autonomous-replan-run");
