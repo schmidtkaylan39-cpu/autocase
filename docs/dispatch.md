@@ -44,6 +44,7 @@ Each descriptor is processed in order.
 These runtimes are currently executed automatically:
 
 - `openclaw`
+- `gpt-runner`
 - `local-ci`
 - `codex`
 
@@ -64,7 +65,12 @@ In `execute` mode, a task can end up in one of these states:
   - the launcher exited successfully
   - but no result artifact was written
   - or the result artifact was invalid
-  - or the runtime reported a `blocked` artifact, which is currently surfaced as `incomplete` in dispatch results
+  - or the runtime reported a `blocked` artifact without an automation continuation decision
+- `continued`
+  - the launcher exited successfully
+  - the result artifact was valid
+  - the runtime reported a `blocked` artifact with a valid `automationDecision`
+  - dispatch applied that decision back into the run-state, for example reopening implementation or scheduling a timed retry
 - `failed`
   - the launcher threw an error or timed out
 - `skipped`
@@ -112,6 +118,9 @@ The expected fields are:
   - an array
 - `notes`
   - an array
+- optional `automationDecision`
+  - a machine-readable follow-up action used only with `status: "blocked"`
+  - current actions are `retry_task`, `rework_feature`, and `replan_feature`
 
 If the artifact shape is invalid, the dispatch result is `incomplete`.
 If the artifact belongs to another run, task, or handoff, the dispatch result is also `incomplete`.
@@ -125,6 +134,7 @@ If `run-state.json` exists there:
 - `completed` dispatch results are written back as task status `completed`
 - `failed` dispatch results are written back as task status `failed`
 - `incomplete` dispatch results are written back as task status `blocked`
+- `continued` dispatch results apply their `automationDecision` and may reopen tasks as `ready`, `pending`, or `waiting_retry`
 
 If `execution-plan.json` also exists, `report.md` is regenerated from the updated run state.
 

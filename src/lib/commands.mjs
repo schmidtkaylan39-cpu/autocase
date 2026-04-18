@@ -26,6 +26,7 @@ import {
 } from "./run-state.mjs";
 import { updateTaskInRunState } from "./run-state.mjs";
 import { validateResultArtifact } from "./result-artifact.mjs";
+import { applyTaskArtifactToRunState } from "./result-application.mjs";
 import { sampleProjectSpec } from "./sample-spec.mjs";
 import { summarizeSpec, validateProjectSpec } from "./spec.mjs";
 import { buildExecutionPlan, renderPlanMarkdown } from "./workflow.mjs";
@@ -90,15 +91,6 @@ function summarizeIntake(spec) {
     canFullyAutomate: spec.automationAssessment?.canFullyAutomate ?? false,
     estimatedAutomatablePercent: spec.automationAssessment?.estimatedAutomatablePercent ?? 0,
     recommendedNextStep: spec.recommendedNextStep
-  };
-}
-
-function clearActiveHandoffFields(task) {
-  return {
-    ...task,
-    activeHandoffId: null,
-    activeResultPath: null,
-    activeHandoffOutputDir: null
   };
 }
 
@@ -605,18 +597,6 @@ export async function tickProjectRun(
   };
 }
 
-function mapArtifactStatusToTaskStatus(status) {
-  if (status === "completed") {
-    return "completed";
-  }
-
-  if (status === "failed") {
-    return "failed";
-  }
-
-  return "blocked";
-}
-
 export async function applyTaskResult(runStatePath, taskId, resultPath) {
   const resolvedRunStatePath = path.resolve(runStatePath);
   const resolvedResultPath = path.resolve(resultPath);
@@ -660,33 +640,29 @@ export async function applyTaskResult(runStatePath, taskId, resultPath) {
     taskId,
     handoffId: targetTask.activeHandoffId
   });
-  const nextStatus = mapArtifactStatusToTaskStatus(artifact.status);
-  const preparedRunState = {
-    ...existingRunState,
-    taskLedger: existingRunState.taskLedger.map((task) =>
-      task.id === taskId ? clearActiveHandoffFields(task) : task
-    )
-  };
-
-  const nextRunState = updateTaskInRunState(
-    preparedRunState,
+  const application = applyTaskArtifactToRunState(
+    existingRunState,
     taskId,
-    nextStatus,
-    `result:${artifact.status}`
+    artifact,
+    {
+      notePrefix: "result"
+    }
   );
   const plan = await readJson(path.join(runDirectory, "execution-plan.json"));
   const reportPath = path.join(runDirectory, "report.md");
 
-  await writeJson(resolvedRunStatePath, nextRunState);
-  await writeFile(reportPath, `${renderRunReport(nextRunState, plan)}\n`, "utf8");
+  await writeJson(resolvedRunStatePath, application.runState);
+  await writeFile(reportPath, `${renderRunReport(application.runState, plan)}\n`, "utf8");
 
   return {
     runDirectory,
     reportPath,
     resultPath: resolvedResultPath,
     artifact,
-    summary: summarizeRunState(nextRunState),
-    task: nextRunState.taskLedger.find((task) => task.id === taskId)
+    summary: summarizeRunState(application.runState),
+    task: application.task,
+    updatedTasks: application.updatedTasks,
+    appliedDecision: application.appliedDecision
   };
 }
 

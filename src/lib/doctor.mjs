@@ -14,11 +14,11 @@ import {
 
 const execFileAsync = promisify(execFile);
 const defaultReadinessProfile = {
-  id: "gpt54-codex",
-  label: "GPT-5.4 + Codex",
+  id: "autonomous-gpt54-codex",
+  label: "Autonomous GPT-5.4 + Codex",
   description:
-    "Manual orchestration with GPT-5.4, Codex for execution, and local CI for verification.",
-  requiredRuntimeIds: ["codex", "local-ci"]
+    "Automated GPT-5.4 / GPT-5.4 Pro planning-review loops via Codex CLI, Codex execution, and local CI verification.",
+  requiredRuntimeIds: ["gpt-runner", "codex", "local-ci"]
 };
 const requiredRuntimeIdSet = new Set(defaultReadinessProfile.requiredRuntimeIds);
 
@@ -201,6 +201,49 @@ async function checkCursor() {
   }
 }
 
+async function checkGptRunner() {
+  const resolution = await resolveCommand("codex");
+
+  if (!resolution.installed) {
+    return {
+      id: "gpt-runner",
+      label: "GPT Runner",
+      installed: false,
+      ok: false,
+      command: "codex exec -m gpt-5.4 -",
+      error: "codex command not found"
+    };
+  }
+
+  try {
+    const loginStatus = await runCommand("codex", ["login", "status"]);
+
+    return {
+      id: "gpt-runner",
+      label: "GPT Runner",
+      installed: true,
+      ok: true,
+      source: resolution.source,
+      command: "codex exec -m gpt-5.4 -",
+      stdout: combineOutput(loginStatus),
+      details: {
+        provider: "codex-cli",
+        preferredModels: ["gpt-5.4", "gpt-5.4-pro"].join(", ")
+      }
+    };
+  } catch (error) {
+    return {
+      id: "gpt-runner",
+      label: "GPT Runner",
+      installed: true,
+      ok: false,
+      source: resolution.source,
+      command: "codex exec -m gpt-5.4 -",
+      error: error instanceof Error ? error.message : String(error)
+    };
+  }
+}
+
 async function checkCodex() {
   const resolution = await resolveCommand("codex");
 
@@ -248,8 +291,9 @@ async function checkCodex() {
   }
 }
 
-async function checkLocalCi() {
-  const packageJsonPath = path.resolve("package.json");
+async function checkLocalCi(workspaceRoot = process.cwd()) {
+  const resolvedWorkspaceRoot = path.resolve(workspaceRoot);
+  const packageJsonPath = path.join(resolvedWorkspaceRoot, "package.json");
 
   try {
     const packageJson = JSON.parse(await readFile(packageJsonPath, "utf8"));
@@ -301,7 +345,7 @@ async function checkLauncherRuntimeAvailability() {
 }
 
 function applyLauncherRuntimeRequirement(check, launcherStatus) {
-  if (!["openclaw", "codex", "local-ci"].includes(check.id)) {
+  if (!["openclaw", "gpt-runner", "codex", "local-ci"].includes(check.id)) {
     return check;
   }
 
@@ -403,13 +447,14 @@ function renderDoctorReport(checks) {
   ].join("\n");
 }
 
-export async function runRuntimeDoctor(outputDir = "reports") {
+export async function runRuntimeDoctor(outputDir = "reports", workspaceRoot = process.cwd()) {
   const launcherStatus = await checkLauncherRuntimeAvailability();
   const checks = [
     applyLauncherRuntimeRequirement(await checkOpenClaw(), launcherStatus),
     await checkCursor(),
+    applyLauncherRuntimeRequirement(await checkGptRunner(), launcherStatus),
     applyLauncherRuntimeRequirement(await checkCodex(), launcherStatus),
-    applyLauncherRuntimeRequirement(await checkLocalCi(), launcherStatus)
+    applyLauncherRuntimeRequirement(await checkLocalCi(workspaceRoot), launcherStatus)
   ].map((check) => applyReadinessProfile(check));
 
   const resolvedOutputDir = path.resolve(outputDir);

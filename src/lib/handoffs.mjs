@@ -40,6 +40,39 @@ function titleForRole(role) {
   }
 }
 
+function buildRoleAutomationGuidance(task) {
+  if (task.role === "planner") {
+    return [
+      "# Planning Completion Rules",
+      "- Use `status: \"completed\"` only when the plan is execution-ready and the brief is sufficiently clarified.",
+      "- Use `status: \"blocked\"` when critical information is missing, a stop rule is triggered, or the plan is unsafe to continue automatically.",
+      "- If you block, make the summary and notes concrete enough for the next automated retry or escalation round."
+    ];
+  }
+
+  if (task.role === "reviewer") {
+    const featureTaskId = String(task.id).replace(/^review-/, "implement-");
+    return [
+      "# Review Completion Rules",
+      "- Use `status: \"completed\"` only when the reviewed implementation is acceptable for verification.",
+      "- Use `status: \"blocked\"` when another Codex implementation round is required.",
+      `- If you block, include an optional \`automationDecision\` object such as \`{"action":"rework_feature","targetTaskId":"${featureTaskId}","reason":"..."}\` or \`{"action":"replan_feature","targetTaskId":"${featureTaskId}","reason":"..."}\`.`,
+      "- Keep findings concrete and file-aware so the next implementation round can act on them."
+    ];
+  }
+
+  if (task.role === "orchestrator") {
+    return [
+      "# Delivery Completion Rules",
+      "- Use `status: \"completed\"` only when the delivery handoff is ready and the run can be considered packaged.",
+      "- Use `status: \"blocked\"` if the run still needs external release approval, missing evidence, or manual intervention.",
+      '- If you expect another automatic pass to resolve it, include an optional `automationDecision` such as `{"action":"retry_task","reason":"release evidence still generating","delayMinutes":5}`.'
+    ];
+  }
+
+  return [];
+}
+
 export function buildPromptDocument({
   workspacePath,
   spec,
@@ -74,6 +107,10 @@ export function buildPromptDocument({
           "- If your current surface lets you choose a model, use the preferred model listed below."
         ]
       : []),
+    ...(() => {
+      const guidance = buildRoleAutomationGuidance(task);
+      return guidance.length > 0 ? ["", ...guidance] : [];
+    })(),
     "",
     "# Model Routing",
     `- preferredModel: ${modelSelection.preferredModel}`,
@@ -96,6 +133,7 @@ export function buildPromptDocument({
     '- `"changedFiles"`: an array of changed file paths',
     '- `"verification"`: an array of checks you ran',
     '- `"notes"`: an array of notable decisions or issues',
+    '- optional `"automationDecision"`: an object with `"action"`, `"reason"`, optional `"targetTaskId"`, and optional `"delayMinutes"` for retry actions',
     "",
     "# Workspace Root Path",
     workspacePath,
@@ -210,6 +248,32 @@ function buildCodexLauncher(promptPath, workspacePath, modelSelection, platform 
   ].join("\n");
 }
 
+function buildGptRunnerLauncher(promptPath, workspacePath, modelSelection, platform = process.platform) {
+  if (platform === "win32") {
+    const promptLiteral = toPowerShellSingleQuotedLiteral(promptPath);
+    const workspaceLiteral = toPowerShellSingleQuotedLiteral(workspacePath);
+    const preferredModelLiteral = toPowerShellSingleQuotedLiteral(modelSelection.preferredModel);
+
+    return [
+      `Set-Location -LiteralPath ${workspaceLiteral}`,
+      `Write-Host ('Preferred model: ' + ${preferredModelLiteral})`,
+      `$prompt = Get-Content -Raw -LiteralPath ${promptLiteral}`,
+      `$prompt | & codex -m ${preferredModelLiteral} -a never exec -C . -s workspace-write -`
+    ].join("\n");
+  }
+
+  const promptLiteral = toShellSingleQuotedLiteral(promptPath);
+  const workspaceLiteral = toShellSingleQuotedLiteral(workspacePath);
+  const preferredModelLiteral = toShellSingleQuotedLiteral(modelSelection.preferredModel);
+
+  return [
+    `cd ${workspaceLiteral}`,
+    `printf 'Preferred model: %s\\n' ${preferredModelLiteral}`,
+    `prompt=$(cat ${promptLiteral})`,
+    `printf "%s" "$prompt" | codex -m ${preferredModelLiteral} -a never exec -C . -s workspace-write -`
+  ].join("\n");
+}
+
 function buildManualLauncher(workspacePath, promptPath, briefPath, modelSelection, platform = process.platform) {
   if (platform === "win32") {
     const workspaceLiteral = toPowerShellSingleQuotedLiteral(workspacePath);
@@ -284,6 +348,8 @@ export function buildHandoffDescriptor({
 
   if (selected.runtimeId === "openclaw") {
     launcherScript = buildOpenClawLauncher(promptPath, platform);
+  } else if (selected.runtimeId === "gpt-runner") {
+    launcherScript = buildGptRunnerLauncher(promptPath, workspacePath, modelSelection, platform);
   } else if (selected.runtimeId === "cursor") {
     launcherScript = buildCursorLauncher(workspacePath, briefPath, promptPath, modelSelection, platform);
   } else if (selected.runtimeId === "local-ci") {

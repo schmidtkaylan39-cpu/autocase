@@ -5,7 +5,7 @@ export const sampleProjectSpec = {
     oneLine:
       "Allow the system to plan, implement, review, and verify a software project with minimal supervision.",
     details:
-      "This starter project turns project intake, risk-stop rules, execution planning, and acceptance rules into reusable artifacts so GPT-5.4 can plan and review, Codex can implement, and human operators can orchestrate safely, with OpenClaw remaining an optional add-on path."
+      "This starter project turns project intake, risk-stop rules, execution planning, and acceptance rules into reusable artifacts so GPT-5.4 can plan and review automatically, Codex can implement, and the run can loop toward delivery with OpenClaw remaining an optional add-on path."
   },
   targetUsers: [
     "Non-programmers who want a structured AI software workflow",
@@ -70,7 +70,7 @@ export const sampleProjectSpec = {
     {
       name: "GPT-5.4 / GPT-5.4 Pro",
       status: "planned",
-      notes: "Primary planning and review surface with human-in-the-loop operation"
+      notes: "Primary planning and review surface with autonomous execution through GPT Runner"
     }
   ],
   dataSources: ["Project requirement document", "Acceptance checklist", "Risk-stop rules"],
@@ -91,7 +91,7 @@ export const sampleProjectSpec = {
   ],
   priorities: [
     "Clarity before polish",
-    "Verification before full automation"
+    "Verification before blind automation"
   ],
   deliverables: [
     "Runnable CLI starter",

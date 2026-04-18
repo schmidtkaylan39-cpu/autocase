@@ -44,15 +44,16 @@ Runtime selection is based on:
 
 Current preference order:
 
-- `orchestrator`: `manual`
-- `planner`: `manual`
-- `reviewer`: `manual`
+- `orchestrator`: `gpt-runner`, then `manual`
+- `planner`: `gpt-runner`, then `manual`
+- `reviewer`: `gpt-runner`, then `manual`
 - `executor`: `codex`, then `manual`
 - `verifier`: `local-ci`, then `manual`
 
 Automated roles select the first non-manual runtime with `ok: true`.
-Planner/reviewer work is intentionally manual-only in the default routing table, so Cursor is not auto-selected even when it is available.
-OpenClaw is available as an optional orchestrator route, but it is not selected by default in the GPT-5.4 + Codex baseline.
+Planner/reviewer/orchestrator work now defaults to `gpt-runner`, which uses Codex CLI with the preferred GPT model from model routing.
+Cursor remains available as an auxiliary human IDE or spot-check surface, but it is not selected by default in the autonomous GPT-5.4 + Codex baseline.
+OpenClaw is available as an optional orchestrator route, but it is not selected by default.
 
 If you need an emergency human-side Cursor route, set `runtimeRouting.roleOverrides` in `config/factory.config.json`, for example:
 
@@ -121,6 +122,16 @@ The launcher reads the generated prompt and runs:
 ```powershell
 openclaw agent --local --json --thinking medium --message $message
 ```
+
+### `gpt-runner`
+
+The GPT runner launcher changes into the workspace, reads the prompt, and pipes it into Codex CLI using the preferred GPT model from the handoff descriptor:
+
+```powershell
+codex -m gpt-5.4 -a never exec -C . -s workspace-write -
+```
+
+When model escalation selects `gpt-5.4-pro`, the same launcher path is used with the escalated model id.
 
 ### `cursor`
 

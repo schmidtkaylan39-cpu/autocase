@@ -5,6 +5,12 @@ export const runtimeDefinitions = {
     mode: "automated",
     roles: ["orchestrator"]
   },
+  "gpt-runner": {
+    id: "gpt-runner",
+    label: "GPT Runner",
+    mode: "automated",
+    roles: ["planner", "reviewer", "orchestrator"]
+  },
   cursor: {
     id: "cursor",
     label: "Cursor",
@@ -32,9 +38,9 @@ export const runtimeDefinitions = {
 };
 
 const rolePreferences = {
-  orchestrator: ["manual"],
-  planner: ["manual"],
-  reviewer: ["manual"],
+  orchestrator: ["gpt-runner", "manual"],
+  planner: ["gpt-runner", "manual"],
+  reviewer: ["gpt-runner", "manual"],
   executor: ["codex", "manual"],
   verifier: ["local-ci", "manual"]
 };

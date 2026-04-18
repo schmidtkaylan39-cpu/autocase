@@ -58,9 +58,8 @@ Automatic today:
 
 Not automatic today:
 
-- `dispatch execute` does not directly call a GPT-5.4 API for planning/review work
-- the system does not directly call a GPT-5.4 API by itself
-- manual surfaces still need the selected model to be honored by the human/operator or future surface integration
+- the system does not call the OpenAI HTTP API directly; it uses Codex CLI as the automated GPT runner surface
+- external approval-bound actions may still require human checkpoints even when the task runtime is automated
 
 ## Cursor Position
 
@@ -68,8 +67,7 @@ Not automatic today:
 part of automatic planner/reviewer runtime routing in this starter.
 
 If you need Cursor as an explicit fallback surface for planning or review, enable it through
-`runtimeRouting.roleOverrides` in `config/factory.config.json`. That keeps the default route
-manual-first while making any Cursor usage intentional and testable.
+`runtimeRouting.roleOverrides` in `config/factory.config.json`. That keeps Cursor usage intentional and testable while the default route stays on the automated GPT runner.
 
 ## OpenClaw Position
 

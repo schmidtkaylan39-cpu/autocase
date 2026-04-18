@@ -11,6 +11,7 @@ import {
   getPowerShellInvocation
 } from "./powershell.mjs";
 import { validateResultArtifact } from "./result-artifact.mjs";
+import { applyTaskArtifactToRunState } from "./result-application.mjs";
 import { renderRunReport, updateTaskInRunState } from "./run-state.mjs";
 
 const execFileAsync = promisify(execFile);
@@ -38,6 +39,7 @@ function renderDispatchReport(summary, results) {
     `- total: ${summary.total}`,
     `- executed: ${summary.executed}`,
     `- completed: ${summary.completed}`,
+    `- continued: ${summary.continued}`,
     `- incomplete: ${summary.incomplete}`,
     `- would_execute: ${summary.wouldExecute}`,
     `- skipped: ${summary.skipped}`,
@@ -45,7 +47,10 @@ function renderDispatchReport(summary, results) {
     `- failed: ${summary.failed}`,
     "",
     "## Results",
-    ...results.map((result) => `- ${result.taskId} -> ${result.status} (${result.runtime})`)
+    ...results.map(
+      (result) =>
+        `- ${result.taskId} -> ${result.status}${result.nextTaskStatus ? ` [task=${result.nextTaskStatus}]` : ""} (${result.runtime})`
+    )
   ].join("\n");
 }
 
@@ -147,7 +152,12 @@ async function runLauncherScript(scriptPath) {
 }
 
 function shouldAutoExecute(runtimeId) {
-  return runtimeId === "openclaw" || runtimeId === "local-ci" || runtimeId === "codex";
+  return (
+    runtimeId === "openclaw" ||
+    runtimeId === "gpt-runner" ||
+    runtimeId === "local-ci" ||
+    runtimeId === "codex"
+  );
 }
 
 async function fileExists(targetPath) {
@@ -331,22 +341,6 @@ async function removeExistingResultArtifact(resultPath) {
   });
 }
 
-function mapDispatchResultToTaskStatus(result) {
-  if (result.status === "completed") {
-    return "completed";
-  }
-
-  if (result.status === "failed") {
-    return "failed";
-  }
-
-  if (result.status === "incomplete") {
-    return "blocked";
-  }
-
-  return null;
-}
-
 function clearActiveHandoffFields(task) {
   return {
     ...task,
@@ -368,7 +362,10 @@ function buildDispatchResultFromArtifact(descriptor, runtimeId, resultArtifact, 
     status = "failed";
     note = withPrefix("Runtime reported a failed task in the result artifact.");
   } else if (resultArtifact.valid && resultArtifact.artifact?.status === "blocked") {
-    note = withPrefix("Runtime reported a blocked task in the result artifact.");
+    status = resultArtifact.artifact?.automationDecision ? "continued" : "incomplete";
+    note = resultArtifact.artifact?.automationDecision
+      ? withPrefix("Runtime reported a blocked task with an automatic continuation decision.")
+      : withPrefix("Runtime reported a blocked task in the result artifact.");
   }
 
   return {
@@ -379,6 +376,7 @@ function buildDispatchResultFromArtifact(descriptor, runtimeId, resultArtifact, 
     launcherPath: descriptor.launcherPath,
     resultPath: descriptor.resultPath ?? null,
     artifact: resultArtifact.artifact,
+    artifactValid: resultArtifact.valid,
     note,
     stdout: execution?.stdout ?? "",
     stderr: execution?.stderr ?? ""
@@ -522,11 +520,10 @@ async function syncDispatchResults(runStatePath, planPath, reportPath, results) 
   return withDispatchLock(runStatePath, async () => {
     let runState = await readJson(runStatePath);
     const updatedTasks = [];
+    const resultUpdates = [];
 
     for (const result of results) {
-      const nextStatus = mapDispatchResultToTaskStatus(result);
-
-      if (!nextStatus) {
+      if (!["completed", "failed", "incomplete", "continued"].includes(result.status)) {
         continue;
       }
 
@@ -554,21 +551,68 @@ async function syncDispatchResults(runStatePath, planPath, reportPath, results) 
         continue;
       }
 
-      runState = updateTaskInRunState(
-        {
-          ...runState,
-          taskLedger: runState.taskLedger.map((item) =>
-            item.id === result.taskId ? clearActiveHandoffFields(item) : item
-          )
-        },
-        result.taskId,
-        nextStatus,
-        `dispatch:${result.status}`
-      );
-      updatedTasks.push({
-        taskId: result.taskId,
-        nextStatus
-      });
+      try {
+        if (result.artifact && result.artifactValid) {
+          const application = applyTaskArtifactToRunState(runState, result.taskId, result.artifact, {
+            notePrefix: "dispatch"
+          });
+          runState = application.runState;
+          updatedTasks.push(...application.updatedTasks);
+          resultUpdates.push({
+            taskId: result.taskId,
+            status: result.status,
+            nextTaskStatus: application.task?.status ?? null,
+            appliedDecision: application.appliedDecision
+          });
+          continue;
+        }
+
+        runState = updateTaskInRunState(
+          {
+            ...runState,
+            taskLedger: runState.taskLedger.map((item) =>
+              item.id === result.taskId ? clearActiveHandoffFields(item) : item
+            )
+          },
+          result.taskId,
+          result.status === "failed" ? "failed" : "blocked",
+          `dispatch:${result.status}`
+        );
+        updatedTasks.push({
+          taskId: result.taskId,
+          nextStatus: result.status === "failed" ? "failed" : "blocked"
+        });
+        resultUpdates.push({
+          taskId: result.taskId,
+          status: result.status,
+          nextTaskStatus: result.status === "failed" ? "failed" : "blocked",
+          appliedDecision: null
+        });
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        runState = updateTaskInRunState(
+          {
+            ...runState,
+            taskLedger: runState.taskLedger.map((item) =>
+              item.id === result.taskId ? clearActiveHandoffFields(item) : item
+            )
+          },
+          result.taskId,
+          "blocked",
+          `dispatch:invalid-automation-decision ${reason}`
+        );
+        updatedTasks.push({
+          taskId: result.taskId,
+          nextStatus: "blocked"
+        });
+        resultUpdates.push({
+          taskId: result.taskId,
+          status: "incomplete",
+          nextTaskStatus: "blocked",
+          appliedDecision: null,
+          error: reason
+        });
+      }
     }
 
     await writeJson(runStatePath, runState);
@@ -581,7 +625,8 @@ async function syncDispatchResults(runStatePath, planPath, reportPath, results) 
     return {
       runStatePath,
       reportPath: (await fileExists(reportPath)) ? reportPath : null,
-      updatedTasks
+      updatedTasks,
+      resultUpdates
     };
   });
 }
@@ -615,13 +660,15 @@ export async function dispatchHandoffs(indexPath, mode = "dry-run") {
    *   runtime: string,
    *   status: string,
    *   launcherPath: string,
-   *   resultPath?: string | null,
-   *   note?: string,
-   *   error?: string,
-   *   artifact?: any,
-   *   stdout?: string,
-   *   stderr?: string
-   * }>} */
+  *   resultPath?: string | null,
+  *   note?: string,
+  *   error?: string,
+  *   artifact?: any,
+  *   nextTaskStatus?: string | null,
+  *   appliedDecision?: any,
+  *   stdout?: string,
+  *   stderr?: string
+  * }>} */
   const results = [];
 
   for (const descriptor of handoffIndex.descriptors) {
@@ -756,27 +803,48 @@ export async function dispatchHandoffs(indexPath, mode = "dry-run") {
     }
   }
 
-  const summary = {
-    generatedAt: new Date().toISOString(),
-    mode,
-    total: results.length,
-    executed: results.filter((item) =>
-      item.status === "completed" || item.status === "incomplete" || item.status === "failed"
-    ).length,
-    completed: results.filter((item) => item.status === "completed").length,
-    incomplete: results.filter((item) => item.status === "incomplete").length,
-    wouldExecute: results.filter((item) => item.status === "would_execute").length,
-    skipped: results.filter((item) => item.status === "skipped" || item.status === "would_skip").length,
-    wouldSkip: results.filter((item) => item.status === "would_skip").length,
-    failed: results.filter((item) => item.status === "failed").length
-  };
-
   const planPath = path.join(runDirectory, "execution-plan.json");
   const reportPath = path.join(runDirectory, "report.md");
   const runStateSync =
     mode === "execute"
       ? await syncDispatchResults(runStatePath, planPath, reportPath, results)
       : null;
+  const finalResults =
+    mode === "execute" && Array.isArray(runStateSync?.resultUpdates)
+      ? results.map((result) => {
+          const update = runStateSync.resultUpdates.find((candidate) => candidate.taskId === result.taskId);
+
+          if (!update) {
+            return result;
+          }
+
+          return {
+            ...result,
+            status: update.status ?? result.status,
+            nextTaskStatus: update.nextTaskStatus ?? result.nextTaskStatus ?? null,
+            appliedDecision: update.appliedDecision ?? result.appliedDecision ?? null,
+            error: update.error ?? result.error
+          };
+        })
+      : results;
+  const summary = {
+    generatedAt: new Date().toISOString(),
+    mode,
+    total: finalResults.length,
+    executed: finalResults.filter((item) =>
+      item.status === "completed" ||
+      item.status === "continued" ||
+      item.status === "incomplete" ||
+      item.status === "failed"
+    ).length,
+    completed: finalResults.filter((item) => item.status === "completed").length,
+    continued: finalResults.filter((item) => item.status === "continued").length,
+    incomplete: finalResults.filter((item) => item.status === "incomplete").length,
+    wouldExecute: finalResults.filter((item) => item.status === "would_execute").length,
+    skipped: finalResults.filter((item) => item.status === "skipped" || item.status === "would_skip").length,
+    wouldSkip: finalResults.filter((item) => item.status === "would_skip").length,
+    failed: finalResults.filter((item) => item.status === "failed").length
+  };
 
   await ensureDirectory(outputDir);
 
@@ -785,16 +853,16 @@ export async function dispatchHandoffs(indexPath, mode = "dry-run") {
 
   await writeJson(resultJsonPath, {
     summary,
-    results,
+    results: finalResults,
     runStateSync
   });
-  await writeFile(resultMarkdownPath, `${renderDispatchReport(summary, results)}\n`, "utf8");
+  await writeFile(resultMarkdownPath, `${renderDispatchReport(summary, finalResults)}\n`, "utf8");
 
   return {
     resultJsonPath,
     resultMarkdownPath,
     summary,
-    results,
+    results: finalResults,
     runStateSync
   };
 }

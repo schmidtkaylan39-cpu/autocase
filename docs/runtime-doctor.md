@@ -9,23 +9,24 @@ The implementation lives in `src/lib/doctor.mjs`.
 
 ## What The Command Does
 
-The doctor runs four checks in sequence:
+The doctor runs five checks in sequence:
 
 1. OpenClaw
 2. Cursor (optional surface)
-3. Codex
-4. Local CI
+3. GPT Runner
+4. Codex
+5. Local CI
 
 Doctor now tags checks using the default readiness profile:
 
-- profile id: `gpt54-codex`
-- required runtimes: `codex`, `local-ci`
+- profile id: `autonomous-gpt54-codex`
+- required runtimes: `gpt-runner`, `codex`, `local-ci`
 - optional runtimes: `openclaw`, `cursor`
 
 Each check records whether the runtime is installed, whether it is considered ready,
 which command path was resolved, and any extra details or diagnostics.
 
-For automated runtimes that rely on generated launchers (`openclaw`, `codex`, and `local-ci`),
+For automated runtimes that rely on generated launchers (`openclaw`, `gpt-runner`, `codex`, and `local-ci`),
 doctor also checks whether the platform launcher shell is available:
 
 - `powershell.exe` on Windows
@@ -93,6 +94,19 @@ The current check does not verify:
 - Cursor authentication state
 - Cursor background agent readiness
 - whether Cursor can complete a real task
+
+## GPT Runner Check
+
+The GPT runner check validates that Codex CLI is available as an automated GPT execution surface.
+
+It resolves the `codex` command and then runs:
+
+- `codex login status`
+
+If that succeeds, the runtime is marked ready and the report includes:
+
+- `details.provider: codex-cli`
+- `details.preferredModels: gpt-5.4, gpt-5.4-pro`
 
 ## Codex Check
 
@@ -176,8 +190,8 @@ That report is normalized by `src/lib/runtime-registry.mjs`:
 
 - missing runtime entries become `ok: false`
 - `manual` is always treated as available
-- planner/reviewer work currently routes to `manual`; Cursor is tracked only as an optional human-side surface
-- orchestrator work now defaults to `manual` in the GPT-5.4 + Codex route, with OpenClaw remaining opt-in
+- planner/reviewer/orchestrator work currently routes to `gpt-runner`; Cursor is tracked only as an optional human-side surface
+- OpenClaw remains opt-in in the autonomous GPT-5.4 + Codex route
 
 Runtime selection then uses the first ready runtime in the role preference list.
 If no automated or hybrid runtime is ready, the task falls back to `manual`.

@@ -41,6 +41,7 @@ async function main() {
     assert.match(help.stdout, new RegExp(`${packageJson.name} confirm \\[workspaceDir\\]`));
     assert.match(help.stdout, new RegExp(`${packageJson.name} revise \\[request\\] \\[workspaceDir\\]`));
     assert.match(help.stdout, new RegExp(`${packageJson.name} dispatch <handoffIndexPath>`));
+    assert.match(help.stdout, new RegExp(`${packageJson.name} autonomous <runStatePath>`));
     assert.match(help.stdout, new RegExp(`${packageJson.name} review-bundle \\[outputDir\\]`));
   });
 

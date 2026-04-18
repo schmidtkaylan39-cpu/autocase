@@ -163,6 +163,36 @@ async function main() {
     }
   });
 
+  await runTest("runtime doctor evaluates local-ci against the provided workspace root", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-doctor-workspace-"));
+    const reportsDir = path.join(tempDir, "reports");
+
+    await mkdir(reportsDir, { recursive: true });
+    await writeFile(
+      path.join(tempDir, "package.json"),
+      JSON.stringify(
+        {
+          name: "doctor-workspace-fixture",
+          version: "0.0.1",
+          scripts: {
+            build: "echo build"
+          }
+        },
+        null,
+        2
+      ),
+      "utf8"
+    );
+
+    const result = await runRuntimeDoctor(reportsDir, tempDir);
+    const localCiCheck = result.checks.find((check) => check.id === "local-ci");
+
+    assert.ok(localCiCheck);
+    assert.equal(localCiCheck.details?.packageJsonPath, path.join(tempDir, "package.json"));
+    assert.equal(localCiCheck.ok, false);
+    assert.ok(localCiCheck.details?.missingScripts.includes("lint"));
+  });
+
   console.log("Doctor tests passed.");
 }
 

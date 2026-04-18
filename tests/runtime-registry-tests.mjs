@@ -107,6 +107,7 @@ async function main() {
   await runTest("pickRuntimeForRole honors per-role preference order and does not cross-route roles", async () => {
     const allReady = {
       openclaw: { ok: true },
+      "gpt-runner": { ok: true },
       cursor: { ok: true },
       codex: { ok: true },
       "local-ci": { ok: true },
@@ -114,10 +115,10 @@ async function main() {
     };
 
     const defaultOrchestratorSelection = pickRuntimeForRole("orchestrator", allReady);
-    assert.equal(defaultOrchestratorSelection.runtimeId, "manual");
-    assert.match(defaultOrchestratorSelection.reason, /manual surface by default/i);
-    assert.equal(pickRuntimeForRole("planner", allReady).runtimeId, "manual");
-    assert.equal(pickRuntimeForRole("reviewer", allReady).runtimeId, "manual");
+    assert.equal(defaultOrchestratorSelection.runtimeId, "gpt-runner");
+    assert.match(defaultOrchestratorSelection.reason, /is ready for this role/i);
+    assert.equal(pickRuntimeForRole("planner", allReady).runtimeId, "gpt-runner");
+    assert.equal(pickRuntimeForRole("reviewer", allReady).runtimeId, "gpt-runner");
     assert.equal(pickRuntimeForRole("executor", allReady).runtimeId, "codex");
     assert.equal(pickRuntimeForRole("verifier", allReady).runtimeId, "local-ci");
 
@@ -132,6 +133,7 @@ async function main() {
 
     const plannerChecks = {
       openclaw: { ok: true },
+      "gpt-runner": { ok: false },
       cursor: { ok: false },
       codex: { ok: true },
       "local-ci": { ok: true },
@@ -140,8 +142,8 @@ async function main() {
     const plannerSelection = pickRuntimeForRole("planner", plannerChecks);
 
     assert.equal(plannerSelection.runtimeId, "manual");
-    assert.equal(plannerSelection.status, "ready");
-    assert.match(plannerSelection.reason, /intentionally handled through a manual surface/i);
+    assert.equal(plannerSelection.status, "fallback");
+    assert.match(plannerSelection.reason, /falls back to manual handling/i);
   });
 
   await runTest("runtime routing can explicitly opt planner and reviewer roles into cursor", async () => {
@@ -172,46 +174,52 @@ async function main() {
     assert.match(plannerSelection.reason, /explicitly enabled/i);
   });
 
-  await runTest("buildHandoffDescriptor uses manual runtime as the default planner surface", async () => {
+  await runTest("buildHandoffDescriptor uses gpt-runner as the default planner surface when available", async () => {
     const descriptor = createDescriptorFixture({
       role: "planner",
       taskId: "planning-brief",
       doctorReport: {
         checks: [
           {
-            id: "cursor",
+            id: "gpt-runner",
             installed: true,
-            ok: false,
-            error: "not authenticated"
+            ok: true,
+            source: "C:/tools/codex.cmd"
           }
         ]
       }
     });
 
-    assert.equal(descriptor.runtime.id, "manual");
-    assert.equal(descriptor.runtime.mode, "manual");
+    assert.equal(descriptor.runtime.id, "gpt-runner");
+    assert.equal(descriptor.runtime.mode, "automated");
     assert.equal(descriptor.runtime.selectionStatus, "ready");
     assert.equal(descriptor.model.preferredModel, "gpt-5.4");
     assert.equal(descriptor.model.selectionMode, "default");
-    assert.match(descriptor.runtime.selectionReason, /manual surface by default/i);
+    assert.match(descriptor.runtime.selectionReason, /GPT Runner is ready/i);
     assert.equal(descriptor.paths.workspacePath, "C:/workspace/demo");
     assert.ok(descriptor.promptText.includes("- workspaceRoot: C:/workspace/demo"));
     assert.ok(descriptor.promptText.includes("# Workspace Root Path\nC:/workspace/demo"));
-    assert.match(descriptor.launcherScript, /Please handle this task manually/i);
-    assert.match(descriptor.launcherScript, /Workspace root:/i);
+    assert.match(descriptor.launcherScript, /\$prompt \| & codex -m 'gpt-5\.4' -a never exec -C \. -s workspace-write -/i);
   });
 
-  await runTest("manual planner or reviewer surfaces are skipped by dispatch execute", async () => {
+  await runTest("manual planner or reviewer surfaces are skipped by dispatch execute when explicitly forced", async () => {
     const descriptor = createDescriptorFixture({
       role: "reviewer",
+      runState: {
+        runtimeRouting: {
+          roleOverrides: {
+            reviewer: ["manual"]
+          }
+        }
+      },
       taskId: "review-spec-intake",
       doctorReport: {
         checks: [
           {
-            id: "cursor",
+            id: "gpt-runner",
             installed: true,
             ok: true,
-            source: "C:/tools/cursor.exe"
+            source: "C:/tools/codex.cmd"
           }
         ]
       }
@@ -263,6 +271,12 @@ async function main() {
       },
       doctorReport: {
         checks: [
+          {
+            id: "gpt-runner",
+            installed: true,
+            ok: true,
+            source: "C:/tools/codex.cmd"
+          },
           {
             id: "cursor",
             installed: true,
@@ -343,9 +357,18 @@ async function main() {
       promptPath: "C:/handoffs/planning.prompt.md",
       briefPath: "C:/handoffs/planning.brief.md",
       resultPath: "C:/handoffs/results/planning.result.json",
-      doctorReport: { checks: [] }
+      doctorReport: {
+        checks: [
+          {
+            id: "gpt-runner",
+            installed: true,
+            ok: true
+          }
+        ]
+      }
     });
 
+    assert.equal(descriptor.runtime.id, "gpt-runner");
     assert.equal(descriptor.model.preferredModel, "gpt-5.4-pro");
     assert.equal(descriptor.model.selectionMode, "escalated");
     assert.match(descriptor.promptText, /preferredModel: gpt-5\.4-pro/);
@@ -422,21 +445,22 @@ async function main() {
     });
   });
 
-  await runTest("routing docs stay aligned with manual-only planner and reviewer selection", async () => {
+  await runTest("routing docs stay aligned with automated gpt-runner planner and reviewer selection", async () => {
     const handoffsDoc = await readFile(new URL("../docs/handoffs.md", import.meta.url), "utf8");
     const architectureDoc = await readFile(new URL("../docs/architecture.md", import.meta.url), "utf8");
 
-    assert.match(handoffsDoc, /- `planner`: `manual`/);
-    assert.match(handoffsDoc, /- `reviewer`: `manual`/);
-    assert.doesNotMatch(handoffsDoc, /`manual`, then `cursor`/);
-    assert.doesNotMatch(handoffsDoc, /The first runtime with `ok: true` is selected/i);
-    assert.match(handoffsDoc, /Cursor remains available as an auxiliary human IDE or spot-check surface, but it is not auto-selected/i);
+    assert.match(handoffsDoc, /- `planner`: `gpt-runner`, then `manual`/);
+    assert.match(handoffsDoc, /- `reviewer`: `gpt-runner`, then `manual`/);
+    assert.match(handoffsDoc, /- `orchestrator`: `gpt-runner`, then `manual`/);
+    assert.match(handoffsDoc, /Codex CLI using the preferred GPT model/i);
+    assert.match(handoffsDoc, /Cursor remains available as an auxiliary human IDE or spot-check surface/i);
     assert.match(handoffsDoc, /runtimeRouting\.roleOverrides/);
 
-    assert.match(architectureDoc, /- planner: `manual`/);
-    assert.match(architectureDoc, /- reviewer: `manual`/);
-    assert.doesNotMatch(architectureDoc, /`manual`, then `cursor`/);
-    assert.match(architectureDoc, /Cursor remains an auxiliary human IDE \/ spot-check surface and is not auto-selected/i);
+    assert.match(architectureDoc, /- planner: `gpt-runner`, then `manual`/);
+    assert.match(architectureDoc, /- reviewer: `gpt-runner`, then `manual`/);
+    assert.match(architectureDoc, /- orchestrator: `gpt-runner`, then `manual`/);
+    assert.match(architectureDoc, /GPT runner drives default autonomous orchestration, planning, and review loops/i);
+    assert.match(architectureDoc, /Cursor remains an auxiliary human IDE \/ spot-check surface/i);
     assert.match(architectureDoc, /runtimeRouting\.roleOverrides/);
   });
 

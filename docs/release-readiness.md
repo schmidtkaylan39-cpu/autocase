@@ -93,7 +93,7 @@ Published release note:
 
 ## External Non-Blocking Warnings
 
-In the default GPT-5.4 + Codex route, OpenClaw is optional. The following OpenClaw audit items are therefore treated as non-blocking unless a team explicitly routes orchestration to OpenClaw:
+In the default autonomous GPT-5.4 + Codex route, OpenClaw is optional. The following OpenClaw audit items are therefore treated as non-blocking unless a team explicitly routes orchestration to OpenClaw:
 
 - `gateway.trusted_proxies_missing`
 - `gateway.nodes.deny_commands_ineffective`
@@ -104,12 +104,12 @@ Observed runtime note that may appear together with healthy probe:
 
 Why non-blocking for now:
 
-- current default workflow gates on Codex/local-ci readiness plus CLI behavior and artifact contracts, not full OpenClaw deployment hardening
+- current default workflow gates on gpt-runner/Codex/local-ci readiness plus CLI behavior and artifact contracts, not full OpenClaw deployment hardening
 - these warnings do not currently prevent local orchestration and dispatch workflows from completing
 
 ## Design Choices (Not Bugs)
 
-- planner/reviewer work is manual-first with `gpt-5.4` / `gpt-5.4-pro`; Cursor is retained only as an auxiliary human IDE / spot-check surface.
+- planner/reviewer/orchestrator work now defaults to `gpt-runner`, which executes `gpt-5.4` / `gpt-5.4-pro` through Codex CLI; Cursor is retained only as an auxiliary human IDE / spot-check surface.
 - `dispatch` reports runtime artifact status `blocked` as dispatch result `incomplete`; during run-state sync it is mapped to task status `blocked`.
 - `dispatch execute` claims auto-executable tasks as `in_progress` before launcher execution begins.
 - `doctor` validates runtime readiness and required script presence, not full task-completion capability of every runtime.

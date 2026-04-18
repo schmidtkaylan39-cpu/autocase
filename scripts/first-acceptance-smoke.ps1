@@ -138,9 +138,26 @@ Invoke-AcceptanceStep -Step "run" -Arguments @("run", $specPath, $runsRoot, $Run
 Invoke-AcceptanceStep -Step "handoff-planning" -Arguments @("handoff", $runStatePath) -WorkingDirectory $resolvedWorkspaceRoot
 Invoke-AcceptanceStep -Step "dispatch-planning-dry-run" -Arguments @("dispatch", $handoffIndexPath, "dry-run") -WorkingDirectory $resolvedWorkspaceRoot
 
+$planningHandoffIndex = Get-Content -LiteralPath $handoffIndexPath -Raw -Encoding utf8 | ConvertFrom-Json
 $planningDryRun = Get-Content -LiteralPath $dispatchResultsPath -Raw -Encoding utf8 | ConvertFrom-Json
-if ($planningDryRun.summary.wouldSkip -lt 1) {
-  throw "Expected planning dry-run to skip at least one manual task."
+$planningRuntimeIds = @($planningHandoffIndex.descriptors | ForEach-Object { $_.runtime.id })
+$planningHasAutomatedRuntime = $false
+
+foreach ($runtimeId in $planningRuntimeIds) {
+  if ($runtimeId -in @("gpt-runner", "codex", "local-ci", "openclaw")) {
+    $planningHasAutomatedRuntime = $true
+    break
+  }
+}
+
+if ($planningHasAutomatedRuntime) {
+  if ($planningDryRun.summary.wouldExecute -lt 1) {
+    throw "Expected planning dry-run to include at least one executable task."
+  }
+} else {
+  if ($planningDryRun.summary.wouldSkip -lt 1) {
+    throw "Expected planning dry-run to skip at least one manual task."
+  }
 }
 
 Invoke-AcceptanceStep -Step "planning-complete" -Arguments @("task", $runStatePath, "planning-brief", "completed", "acceptance planner complete") -WorkingDirectory $resolvedWorkspaceRoot
@@ -153,7 +170,7 @@ $implementationRuntimeIds = @($implementationHandoffIndex.descriptors | ForEach-
 $hasAutomatedRuntime = $false
 
 foreach ($runtimeId in $implementationRuntimeIds) {
-  if ($runtimeId -in @("codex", "local-ci", "openclaw")) {
+  if ($runtimeId -in @("gpt-runner", "codex", "local-ci", "openclaw")) {
     $hasAutomatedRuntime = $true
     break
   }
@@ -201,6 +218,8 @@ $summary = [ordered]@{
   planningDryRun = @{
     wouldSkip = $planningDryRun.summary.wouldSkip
     wouldExecute = $planningDryRun.summary.wouldExecute
+    runtimeIds = $planningRuntimeIds
+    automatedRuntimeAvailable = $planningHasAutomatedRuntime
   }
   implementationDryRun = @{
     wouldSkip = $implementationDryRun.summary.wouldSkip

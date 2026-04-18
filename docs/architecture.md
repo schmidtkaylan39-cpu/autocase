@@ -40,8 +40,8 @@ The CLI currently supports these stages:
 10. `tick`
    Refreshes the run state, releases expired retry windows back to `ready`, regenerates `report.md`, and rebuilds the current handoff index.
 11. `doctor`
-   Checks runtime readiness with a GPT-5.4 + Codex default profile:
-   required `codex` + `local-ci`, optional `openclaw` + `cursor`.
+   Checks runtime readiness with an autonomous GPT-5.4 + Codex default profile:
+   required `gpt-runner` + `codex` + `local-ci`, optional `openclaw` + `cursor`.
 12. `handoff`
    Creates prompt files, handoff descriptors, Markdown summaries, launcher scripts,
    and expected result artifact paths for every task that is currently `ready`.
@@ -76,10 +76,10 @@ outcomes derived from dispatch results.
 
 The execution plan and the default factory config use these high-level labels:
 
-- orchestrator: `GPT-5.4 + Codex (manual orchestration)`
-- planner: `GPT-5.4 / GPT-5.4 Pro`
+- orchestrator: `GPT Runner (gpt-5.4 / gpt-5.4-pro via Codex CLI)`
+- planner: `GPT Runner (gpt-5.4 / gpt-5.4-pro via Codex CLI)`
 - executor: `Codex`
-- reviewer: `GPT-5.4 / GPT-5.4 Pro`
+- reviewer: `GPT Runner (gpt-5.4 / gpt-5.4-pro via Codex CLI)`
 - verifier: `CI / automated test system`
 
 Those labels are descriptive. Actual runtime routing is decided later by
@@ -108,6 +108,9 @@ The runtime registry currently defines:
 - `openclaw`
   - mode: `automated`
   - roles: `orchestrator`
+- `gpt-runner`
+  - mode: `automated`
+  - roles: `planner`, `reviewer`, `orchestrator`
 - `cursor`
   - mode: `hybrid`
   - roles: `planner`, `reviewer`
@@ -123,16 +126,16 @@ The runtime registry currently defines:
 
 Runtime preference order is currently:
 
-- orchestrator: `manual`
-- planner: `manual`
-- reviewer: `manual`
+- orchestrator: `gpt-runner`, then `manual`
+- planner: `gpt-runner`, then `manual`
+- reviewer: `gpt-runner`, then `manual`
 - executor: `codex`, then `manual`
 - verifier: `local-ci`, then `manual`
 
 This now aligns the starter with its intended operating model:
 
-- GPT-5.4 + Codex drive default manual orchestration
-- GPT-5.4 / GPT-5.4 Pro drive planning and review work through manual-first handoffs
+- GPT runner drives default autonomous orchestration, planning, and review loops
+- GPT-5.4 / GPT-5.4 Pro are selected through model routing inside the GPT runner
 - Codex executes implementation work
 - local CI verifies
 - OpenClaw remains an optional orchestrator adapter for teams that explicitly opt it in
@@ -229,6 +232,14 @@ The launcher:
 - reads the prompt file
 - runs `openclaw agent --local --json --thinking medium --message $message`
 
+### GPT Runner
+
+The launcher:
+
+- changes to the workspace directory
+- reads the prompt file
+- pipes the prompt into Codex CLI using the preferred GPT model from the handoff descriptor
+
 ### Cursor
 
 Cursor remains available as an auxiliary human IDE or spot-check surface.
@@ -274,18 +285,21 @@ The launcher prints the prompt and brief paths and expects a human to continue.
 
 In `dry-run` mode:
 
-- `openclaw`, `codex`, and `local-ci` are reported as `would_execute`
+- `openclaw`, `gpt-runner`, `codex`, and `local-ci` are reported as `would_execute`
 - `cursor` and `manual` are reported as `would_skip`
 
 In `execute` mode:
 
-- `openclaw`, `codex`, and `local-ci` are auto-executed
+- `openclaw`, `gpt-runner`, `codex`, and `local-ci` are auto-executed
 - `cursor` and `manual` are marked as `skipped`
 
 Execution result states are currently:
 
 - `completed`
   Launcher exited successfully and the expected result artifact exists with a valid schema.
+- `continued`
+  Launcher exited successfully, a valid blocked result artifact included a valid `automationDecision`,
+  and dispatch applied that continuation back into the run-state.
 - `incomplete`
   Launcher exited successfully but no valid result artifact was produced.
   `dispatch` deletes any pre-existing result file before launch and also checks that the written artifact belongs to the expected run/task/handoff.
@@ -308,6 +322,7 @@ When `dispatch execute` finds a sibling `run-state.json`, it also:
 - maps `completed` dispatch results to task status `completed`
 - maps `failed` dispatch results to task status `failed`
 - maps `incomplete` dispatch results to task status `blocked`
+- applies `continued` dispatch results through the result artifact's `automationDecision`
 - rewrites `report.md` when `execution-plan.json` is present
 
 For manual or optional auxiliary-surface follow-up, the same result contract can now be applied with:
@@ -338,8 +353,8 @@ Automated runtimes also depend on the generated launcher shell being available f
 - `powershell.exe` on Windows
 - `bash` on Linux/macOS (or `AI_FACTORY_LAUNCHER_SHELL_COMMAND` when explicitly overridden)
 
-If that launcher shell is unavailable, doctor marks `openclaw`, `codex`, and `local-ci` as not ready so routing can fall back cleanly instead of failing only at dispatch time.
-In the default GPT-5.4 + Codex route, `codex` and `local-ci` are the required checks; `openclaw` remains optional.
+If that launcher shell is unavailable, doctor marks `openclaw`, `gpt-runner`, `codex`, and `local-ci` as not ready so routing can fall back cleanly instead of failing only at dispatch time.
+In the default autonomous GPT-5.4 + Codex route, `gpt-runner`, `codex`, and `local-ci` are the required checks; `openclaw` remains optional.
 
 If that report is missing, the loader returns an empty check list. Runtime
 normalization then treats all non-manual runtimes as not ready, so routing falls
@@ -367,4 +382,4 @@ Those gates are copied into verifier tasks and into generated local CI launchers
 
 The current codebase still has these important behavior gaps:
 
-- planner/reviewer work is still manual-first; this starter does not directly invoke a GPT-5.4 API
+- planner/reviewer/orchestrator automation now runs through Codex CLI as a GPT runner, so unattended execution still depends on Codex availability and authentication

@@ -21,7 +21,7 @@ import { writeJson } from "../src/lib/fs-utils.mjs";
 import { getLauncherMetadata } from "../src/lib/handoffs.mjs";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const knownRuntimeIds = ["cursor", "openclaw", "codex", "local-ci"];
+const knownRuntimeIds = ["cursor", "openclaw", "gpt-runner", "codex", "local-ci"];
 
 async function runTest(name, fn) {
   try {
@@ -40,6 +40,11 @@ function escapePowerShellSingleQuoted(value) {
 function toPowerShellLiteral(value) {
   if (Array.isArray(value)) {
     return `@(${value.map((item) => toPowerShellLiteral(item)).join(", ")})`;
+  }
+
+  if (value !== null && typeof value === "object") {
+    const entries = Object.entries(value).map(([key, item]) => `${key} = ${toPowerShellLiteral(item)}`);
+    return `@{ ${entries.join("; ")} }`;
   }
 
   if (typeof value === "string") {
@@ -596,7 +601,7 @@ async function main() {
     );
 
     assert.equal(handoffDescriptor.runtime.id, "manual");
-    assert.equal(handoffDescriptor.runtime.selectionStatus, "ready");
+    assert.equal(handoffDescriptor.runtime.selectionStatus, "fallback");
   });
 
   await runTest("manual or hybrid result artifact can be applied back into the run-state", async () => {
@@ -633,6 +638,84 @@ async function main() {
     assert.equal(implementationTask?.status, "ready");
     assert.match(report, /\[completed\] planning-brief ->/);
     assert.match(report, /\[ready\] implement-spec-intake ->/);
+  });
+
+  await runTest("review result artifacts can reopen implementation through automationDecision", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-apply-review-rework-"));
+    const runResult = await runProject(validSpecPath, tempDir, "apply-review-rework-run");
+
+    await updateRunTask(runResult.statePath, "planning-brief", "completed", "planner finished");
+    await updateRunTask(runResult.statePath, "implement-spec-intake", "completed", "executor finished");
+    const handoffResult = await createRunHandoffs(runResult.statePath);
+    const reviewDescriptor = handoffResult.descriptors.find((descriptor) => descriptor.taskId === "review-spec-intake");
+
+    if (!reviewDescriptor) {
+      throw new Error("Expected a review-spec-intake handoff descriptor.");
+    }
+
+    await writeJson(reviewDescriptor.resultPath, withArtifactIdentity({
+      status: "blocked",
+      summary: "review found a real bug and requests another Codex pass",
+      changedFiles: ["src/lib/dispatch.mjs"],
+      verification: ["manual review"],
+      notes: ["needs one more implementation round"],
+      automationDecision: {
+        action: "rework_feature",
+        targetTaskId: "implement-spec-intake",
+        reason: "review found a concrete regression"
+      }
+    }, {
+      runId: runResult.runId,
+      taskId: "review-spec-intake",
+      handoffId: reviewDescriptor.handoffId
+    }));
+
+    const result = await applyTaskResult(runResult.statePath, "review-spec-intake", reviewDescriptor.resultPath);
+    const runState = JSON.parse(await readFile(runResult.statePath, "utf8"));
+
+    assert.equal(result.task?.status, "pending");
+    assert.equal(result.appliedDecision?.action, "rework_feature");
+    assert.equal(runState.taskLedger.find((task) => task.id === "implement-spec-intake")?.status, "ready");
+    assert.equal(runState.taskLedger.find((task) => task.id === "review-spec-intake")?.status, "pending");
+    assert.equal(runState.taskLedger.find((task) => task.id === "verify-spec-intake")?.status, "pending");
+  });
+
+  await runTest("planner result artifacts can schedule an autonomous retry through automationDecision", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-apply-planner-retry-"));
+    const runResult = await runProject(validSpecPath, tempDir, "apply-planner-retry-run");
+    const handoffResult = await createRunHandoffs(runResult.statePath);
+    const planningDescriptor = handoffResult.descriptors.find((descriptor) => descriptor.taskId === "planning-brief");
+
+    if (!planningDescriptor) {
+      throw new Error("Expected a planning-brief handoff descriptor.");
+    }
+
+    await writeJson(planningDescriptor.resultPath, withArtifactIdentity({
+      status: "blocked",
+      summary: "planner hit a transient upstream issue and wants an automatic retry",
+      changedFiles: [],
+      verification: ["none"],
+      notes: ["retry after short cooldown"],
+      automationDecision: {
+        action: "retry_task",
+        reason: "temporary upstream instability",
+        delayMinutes: 5
+      }
+    }, {
+      runId: runResult.runId,
+      taskId: "planning-brief",
+      handoffId: planningDescriptor.handoffId
+    }));
+
+    const result = await applyTaskResult(runResult.statePath, "planning-brief", planningDescriptor.resultPath);
+    const runState = JSON.parse(await readFile(runResult.statePath, "utf8"));
+    const planningTask = runState.taskLedger.find((task) => task.id === "planning-brief");
+
+    assert.equal(result.task?.status, "waiting_retry");
+    assert.equal(result.appliedDecision?.action, "retry_task");
+    assert.equal(planningTask?.status, "waiting_retry");
+    assert.equal(planningTask?.lastRetryReason, "temporary upstream instability");
+    assert.ok(typeof planningTask?.nextRetryAt === "string");
   });
 
   await runTest("manual or hybrid result artifacts require an active handoff", async () => {
@@ -811,6 +894,74 @@ async function main() {
     await assert.rejects(
       () => applyTaskResult(runResult.statePath, "planning-brief", planningDescriptor.resultPath),
       /taskId mismatch/i
+    );
+  });
+
+  await runTest("applyTaskResult rejects invalid automationDecision shapes", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-invalid-automation-decision-"));
+    const runResult = await runProject(validSpecPath, tempDir, "invalid-automation-decision-run");
+    await updateRunTask(runResult.statePath, "planning-brief", "completed", "planner finished");
+    await updateRunTask(runResult.statePath, "implement-spec-intake", "completed", "executor finished");
+    const handoffResult = await createRunHandoffs(runResult.statePath);
+    const reviewDescriptor = handoffResult.descriptors.find((descriptor) => descriptor.taskId === "review-spec-intake");
+
+    if (!reviewDescriptor) {
+      throw new Error("Expected a review-spec-intake handoff descriptor.");
+    }
+
+    await writeJson(reviewDescriptor.resultPath, withArtifactIdentity({
+      status: "blocked",
+      summary: "invalid automation decision shape",
+      changedFiles: [],
+      verification: ["none"],
+      notes: ["schema rejection expected"],
+      automationDecision: {
+        action: "rework_feature",
+        reason: "bad field usage",
+        delayMinutes: 2
+      }
+    }, {
+      runId: runResult.runId,
+      taskId: "review-spec-intake",
+      handoffId: reviewDescriptor.handoffId
+    }));
+
+    await assert.rejects(
+      () => applyTaskResult(runResult.statePath, "review-spec-intake", reviewDescriptor.resultPath),
+      /delayMinutes is only valid for retry_task/i
+    );
+  });
+
+  await runTest("applyTaskResult rejects automationDecision actions that do not match the source task", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-invalid-automation-source-"));
+    const runResult = await runProject(validSpecPath, tempDir, "invalid-automation-source-run");
+    const handoffResult = await createRunHandoffs(runResult.statePath);
+    const planningDescriptor = handoffResult.descriptors.find((descriptor) => descriptor.taskId === "planning-brief");
+
+    if (!planningDescriptor) {
+      throw new Error("Expected a planning-brief handoff descriptor.");
+    }
+
+    await writeJson(planningDescriptor.resultPath, withArtifactIdentity({
+      status: "blocked",
+      summary: "planner should not be allowed to reopen feature implementation directly",
+      changedFiles: [],
+      verification: ["none"],
+      notes: ["semantic validation expected"],
+      automationDecision: {
+        action: "rework_feature",
+        targetTaskId: "implement-spec-intake",
+        reason: "invalid source-task action"
+      }
+    }, {
+      runId: runResult.runId,
+      taskId: "planning-brief",
+      handoffId: planningDescriptor.handoffId
+    }));
+
+    await assert.rejects(
+      () => applyTaskResult(runResult.statePath, "planning-brief", planningDescriptor.resultPath),
+      /cannot emit automationDecision action rework_feature/i
     );
   });
 

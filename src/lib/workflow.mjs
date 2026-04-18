@@ -57,10 +57,10 @@ export function buildExecutionPlan(spec) {
       summary: spec.summary
     },
     architecture: {
-      orchestrator: "GPT-5.4 + Codex (manual orchestration)",
-      planner: "GPT-5.4 / GPT-5.4 Pro",
+      orchestrator: "GPT Runner (gpt-5.4 / gpt-5.4-pro via Codex CLI)",
+      planner: "GPT Runner (gpt-5.4 / gpt-5.4-pro via Codex CLI)",
       executor: "Codex",
-      reviewer: "GPT-5.4 / GPT-5.4 Pro",
+      reviewer: "GPT Runner (gpt-5.4 / gpt-5.4-pro via Codex CLI)",
       verifier: "CI / automated test system"
     },
     phases: [

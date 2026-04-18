@@ -107,6 +107,14 @@ The exported metadata variant should stay bundle-safe:
 
 The canonical self-check flow now retains a per-command log under `reports/validation-evidence/*.log`, so current self-check results can usually be reviewed directly even when a command does not emit its own standalone report file.
 
+Result artifacts can also include an optional machine-readable `automationDecision` when an automated round wants the system to keep going without a human operator. The current starter recognizes these actions:
+
+- `retry_task`
+- `rework_feature`
+- `replan_feature`
+
+These decisions are now consumed by both direct result application and `dispatch execute`, so blocked reviewer or orchestrator rounds can automatically reopen implementation, planning, or timed retry paths instead of stopping at a prose-only suggestion.
+
 ## Recommended Phase Mapping
 
 The current workflow is best understood as:

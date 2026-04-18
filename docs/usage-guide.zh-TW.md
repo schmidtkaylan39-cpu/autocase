@@ -1,7 +1,7 @@
 # AI Factory Starter 使用說明（繁中）
 
 適用版本：`v0.1.2`  
-主要定位：`GPT-5.4 / GPT-5.4 Pro`（規劃與審查，manual-first）+ `Codex`（執行）+ `local-ci`（驗證）
+主要定位：`GPT-5.4 / GPT-5.4 Pro`（透過 GPT Runner 自動規劃 / 審查 / 協調）+ `Codex`（執行）+ `local-ci`（驗證）
 
 ---
 
@@ -139,8 +139,8 @@ npm run release:win -- --output-dir reports/release-readiness/windows-release-sm
 
 ## 6. Runtime / Model 路由原則
 
-- 預設主路徑：`GPT-5.4 + Codex`
-- planner/reviewer：manual-first（必要時可升級到 `gpt-5.4-pro`）
+- 預設主路徑：`Autonomous GPT-5.4 + Codex`
+- planner/reviewer/orchestrator：`gpt-runner`（必要時可升級到 `gpt-5.4-pro`）
 - executor：`codex`
 - verifier：`local-ci`
 - `Cursor`/`OpenClaw`：非預設主路徑，需明確 opt-in

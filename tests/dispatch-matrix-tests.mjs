@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -29,6 +29,11 @@ function escapePowerShellSingleQuoted(value) {
 function toPowerShellLiteral(value) {
   if (Array.isArray(value)) {
     return `@(${value.map((item) => toPowerShellLiteral(item)).join(", ")})`;
+  }
+
+  if (value !== null && typeof value === "object") {
+    const entries = Object.entries(value).map(([key, item]) => `${key} = ${toPowerShellLiteral(item)}`);
+    return `@{ ${entries.join("; ")} }`;
   }
 
   if (typeof value === "string") {
@@ -172,7 +177,7 @@ function modeForRuntime(runtimeId) {
 }
 
 async function writeFakeDoctorReport(filePath, overrides = {}) {
-  const runtimeIds = ["openclaw", "cursor", "codex", "local-ci"];
+  const runtimeIds = ["openclaw", "cursor", "gpt-runner", "codex", "local-ci"];
   const checks = runtimeIds.map((runtimeId) => ({
     id: runtimeId,
     installed: true,
@@ -206,6 +211,126 @@ async function createDispatchReadyRun(tempDir, runId, doctorOverrides = {}) {
     runDirectory: path.dirname(runResult.statePath),
     reportPath: path.join(path.dirname(runResult.statePath), "report.md")
   };
+}
+
+async function createReviewDispatchReadyRun(tempDir, runId, doctorOverrides = {}) {
+  const runResult = await runProject(validSpecPath, tempDir, runId);
+  const doctorReportPath = path.join(tempDir, `${runId}.doctor.json`);
+
+  await updateRunTask(runResult.statePath, "planning-brief", "completed", "planner finished");
+  await updateRunTask(runResult.statePath, "implement-spec-intake", "completed", "executor finished");
+  await writeFakeDoctorReport(doctorReportPath, doctorOverrides);
+
+  const handoffResult = await createRunHandoffs(runResult.statePath, undefined, doctorReportPath);
+  const baseDescriptor = handoffResult.descriptors.find((descriptor) => descriptor.taskId === "review-spec-intake");
+
+  if (!baseDescriptor) {
+    throw new Error("Expected a review-spec-intake handoff descriptor.");
+  }
+
+  return {
+    runResult,
+    handoffResult,
+    descriptor: {
+      ...baseDescriptor,
+      runtime: { ...baseDescriptor.runtime }
+    },
+    runDirectory: path.dirname(runResult.statePath),
+    reportPath: path.join(path.dirname(runResult.statePath), "report.md")
+  };
+}
+
+async function createPlannerDispatchReadyRun(tempDir, runId, doctorOverrides = {}) {
+  const runResult = await runProject(validSpecPath, tempDir, runId);
+  const doctorReportPath = path.join(tempDir, `${runId}.doctor.json`);
+
+  await writeFakeDoctorReport(doctorReportPath, doctorOverrides);
+
+  const handoffResult = await createRunHandoffs(runResult.statePath, undefined, doctorReportPath);
+  const baseDescriptor = handoffResult.descriptors.find((descriptor) => descriptor.taskId === "planning-brief");
+
+  if (!baseDescriptor) {
+    throw new Error("Expected a planning-brief handoff descriptor.");
+  }
+
+  return {
+    runResult,
+    handoffResult,
+    descriptor: {
+      ...baseDescriptor,
+      runtime: { ...baseDescriptor.runtime }
+    },
+    runDirectory: path.dirname(runResult.statePath),
+    reportPath: path.join(path.dirname(runResult.statePath), "report.md")
+  };
+}
+
+async function createFakeCodexBinary(binDir) {
+  await mkdir(binDir, { recursive: true });
+  const fakeNodeScriptPath = path.join(binDir, "fake-codex.mjs");
+
+  await writeFile(
+    fakeNodeScriptPath,
+    [
+      'import { mkdir, writeFile } from "node:fs/promises";',
+      'import path from "node:path";',
+      "",
+      'let promptText = "";',
+      "for await (const chunk of process.stdin) {",
+      "  promptText += chunk;",
+      "}",
+      "",
+      'const resultPath = promptText.match(/Write a JSON file to this exact path when you finish: (.+)$/m)?.[1]?.trim();',
+      'const runId = promptText.match(/^- runId: (.+)$/m)?.[1]?.trim();',
+      'const taskId = promptText.match(/^- taskId: (.+)$/m)?.[1]?.trim();',
+      'const handoffId = promptText.match(/^- handoffId: (.+)$/m)?.[1]?.trim();',
+      "",
+      "if (!resultPath || !runId || !taskId || !handoffId) {",
+      '  console.error("fake codex could not parse the prompt contract");',
+      "  process.exit(1);",
+      "}",
+      "",
+      "await mkdir(path.dirname(resultPath), { recursive: true });",
+      "await writeFile(",
+      "  resultPath,",
+      "  JSON.stringify(",
+      "    {",
+      "      runId,",
+      "      taskId,",
+      "      handoffId,",
+      '      status: "completed",',
+      '      summary: "fake gpt-runner completed the task",',
+      '      changedFiles: ["src/lib/handoffs.mjs"],',
+      '      verification: ["fake-codex contract test"],',
+      '      notes: ["simulated gpt-runner launcher execution"]',
+      "    },",
+      "    null,",
+      "    2",
+      "  ),",
+      '  "utf8"',
+      ");",
+    ].join("\n"),
+    "utf8"
+  );
+
+  if (process.platform === "win32") {
+    const fakeCommandPath = path.join(binDir, "codex.cmd");
+    await writeFile(
+      fakeCommandPath,
+      `@echo off\r\nnode "%~dp0fake-codex.mjs" %*\r\n`,
+      "utf8"
+    );
+    return fakeCommandPath;
+  }
+
+  const fakeCommandPath = path.join(binDir, "codex");
+  await writeFile(
+    fakeCommandPath,
+    `#!/usr/bin/env sh\nnode "$(dirname "$0")/fake-codex.mjs" "$@"\n`,
+    "utf8"
+  );
+  await chmod(fakeCommandPath, 0o755);
+  return fakeCommandPath;
 }
 
 async function limitDispatchToDescriptors(indexPath, runId, descriptors) {
@@ -330,6 +455,111 @@ async function main() {
     });
     assert.equal(task.status, "failed");
     assert.match(report, new RegExp(`\\[failed\\] ${descriptor.taskId} ->`));
+  });
+
+  await runTest("matrix: blocked reviewer artifacts can reopen implementation via automationDecision", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-matrix-review-rework-"));
+    const { runResult, handoffResult, descriptor, reportPath } = await createReviewDispatchReadyRun(
+      tempDir,
+      `review-rework-${Date.now()}`,
+      {
+        codex: { ok: true },
+        "gpt-runner": { ok: true }
+      }
+    );
+
+    descriptor.runtime = {
+      ...descriptor.runtime,
+      id: "gpt-runner",
+      label: "gpt-runner",
+      mode: "automated"
+    };
+
+    await limitDispatchToDescriptors(handoffResult.indexPath, handoffResult.runId, [descriptor]);
+    const resolvedLauncherScript = bindArtifactScriptIdentity(
+      buildResultArtifactScript("{{RESULT_PATH}}", {
+        status: "blocked",
+        summary: "review requested another implementation round",
+        changedFiles: ["src/lib/commands.mjs"],
+        verification: ["manual review"],
+        notes: ["rework feature automatically"],
+        automationDecision: {
+          action: "rework_feature",
+          targetTaskId: "implement-spec-intake",
+          reason: "review found a concrete bug"
+        }
+      }).replaceAll("{{RESULT_PATH}}", descriptor.resultPath),
+      descriptor
+    );
+    await writeFile(descriptor.launcherPath, resolvedLauncherScript, "utf8");
+
+    const dispatchResult = await dispatchHandoffs(handoffResult.indexPath, "execute");
+    const runState = JSON.parse(await readFile(runResult.statePath, "utf8"));
+    const report = await readFile(reportPath, "utf8");
+    const implementationTask = runState.taskLedger.find((item) => item.id === "implement-spec-intake");
+    const reviewTask = runState.taskLedger.find((item) => item.id === "review-spec-intake");
+    const verificationTask = runState.taskLedger.find((item) => item.id === "verify-spec-intake");
+    const result = dispatchResult.results[0];
+
+    assert.equal(result.status, "continued");
+    assert.equal(result.nextTaskStatus, "pending");
+    assert.equal(dispatchResult.summary.continued, 1);
+    assert.equal(implementationTask?.status, "ready");
+    assert.equal(reviewTask?.status, "pending");
+    assert.equal(verificationTask?.status, "pending");
+    assert.ok(
+      dispatchResult.runStateSync?.updatedTasks?.some(
+        (task) => task.taskId === "implement-spec-intake" && task.nextStatus === "ready"
+      )
+    );
+    assert.ok(
+      dispatchResult.runStateSync?.updatedTasks?.some(
+        (task) => task.taskId === "review-spec-intake" && task.nextStatus === "pending"
+      )
+    );
+    assert.match(report, /\[ready\] implement-spec-intake ->/);
+    assert.match(report, /\[pending\] review-spec-intake ->/);
+  });
+
+  await runTest("matrix: generated gpt-runner launcher can execute end-to-end through fake codex", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-matrix-gpt-runner-"));
+    const { runResult, handoffResult, descriptor, reportPath } = await createPlannerDispatchReadyRun(
+      tempDir,
+      `gpt-runner-${Date.now()}`,
+      {
+        "gpt-runner": { ok: true },
+        codex: { ok: true }
+      }
+    );
+    const fakeBinDir = path.join(tempDir, "fake-bin");
+    const previousPath = process.env.PATH;
+
+    await createFakeCodexBinary(fakeBinDir);
+    process.env.PATH = `${fakeBinDir}${path.delimiter}${previousPath ?? ""}`;
+
+    try {
+      await limitDispatchToDescriptors(handoffResult.indexPath, handoffResult.runId, [descriptor]);
+
+      const dispatchResult = await dispatchHandoffs(handoffResult.indexPath, "execute");
+      const runState = JSON.parse(await readFile(runResult.statePath, "utf8"));
+      const report = await readFile(reportPath, "utf8");
+      const planningTask = runState.taskLedger.find((item) => item.id === "planning-brief");
+      const implementationTask = runState.taskLedger.find((item) => item.id === "implement-spec-intake");
+      const result = dispatchResult.results[0];
+
+      assert.equal(descriptor.runtime.id, "gpt-runner");
+      assert.equal(result.status, "completed");
+      assert.equal(planningTask?.status, "completed");
+      assert.equal(implementationTask?.status, "ready");
+      assert.match(report, /\[completed\] planning-brief ->/);
+      assert.match(report, /\[ready\] implement-spec-intake ->/);
+    } finally {
+      if (previousPath === undefined) {
+        delete process.env.PATH;
+      } else {
+        process.env.PATH = previousPath;
+      }
+    }
   });
 
   await runTest("matrix: blocked artifact is valid contract but maps to blocked task via incomplete", async () => {

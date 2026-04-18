@@ -35,8 +35,7 @@ The intent is to make environment discovery, proposal alignment, round outputs, 
 
 This is the current intended role model and routing baseline:
 
-- `GPT-5.4 / GPT-5.4 Pro`: planner and reviewer surface (`manual`)
-- `GPT-5.4 + Codex`: manual orchestration baseline for delivery and risk-stop coordination
+- `GPT Runner`: automated planner / reviewer / orchestrator surface, executed through Codex CLI with `gpt-5.4` or `gpt-5.4-pro`
 - `Codex`: executor (`automated`)
 - `local-ci`: verifier (`automated`)
 - `manual`: explicit fallback for every role
@@ -83,21 +82,21 @@ Dependencies unlock through `refreshRunState()` based on upstream `completed` st
 
 Runtime selection is role-based and doctor-aware. Current preferences:
 
-- `orchestrator`: `manual`
-- `planner`: `manual`
-- `reviewer`: `manual`
+- `orchestrator`: `gpt-runner -> manual`
+- `planner`: `gpt-runner -> manual`
+- `reviewer`: `gpt-runner -> manual`
 - `executor`: `codex -> manual`
 - `verifier`: `local-ci -> manual`
 
 Important behavior:
 
 - `dispatch dry-run` reports `would_execute` or `would_skip`.
-- `dispatch execute` auto-executes only `openclaw`, `codex`, and `local-ci`.
+- `dispatch execute` auto-executes `openclaw`, `gpt-runner`, `codex`, and `local-ci`.
 - `openclaw` execution remains available, but it is not part of the default orchestrator route.
-- planning and review work is manual-first by design, with GPT-5.4 / GPT-5.4 Pro carried in the handoff metadata.
+- planning, review, and delivery coordination now default to the automated `gpt-runner` surface.
 - `cursor` is retained as an optional human-side IDE surface and is not part of automatic runtime routing unless `runtimeRouting.roleOverrides` opts it in.
 - runtime routing and model routing are separate:
-  - runtime routing chooses `manual` / `codex` / `local-ci` by default, with `openclaw` and `cursor` as opt-in routes
+  - runtime routing chooses `gpt-runner` / `codex` / `local-ci` by default, with `manual`, `openclaw`, and `cursor` as fallback or opt-in routes
   - model routing chooses `codex`, `gpt-5.4`, or `gpt-5.4-pro` inside the selected surface
 - `run` persists the workspace root into `run-state.json`, so later `handoff` and `tick` calls keep launcher paths stable even when they are invoked from another directory.
 - Result artifact contract requires:

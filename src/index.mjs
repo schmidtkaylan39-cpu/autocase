@@ -19,6 +19,7 @@ import {
   validateSpec
 } from "./lib/commands.mjs";
 import { dispatchHandoffs } from "./lib/dispatch.mjs";
+import { runAutonomousLoop } from "./lib/autonomous-run.mjs";
 import { runRuntimeDoctor } from "./lib/doctor.mjs";
 import { createReviewBundle } from "./lib/review-bundle.mjs";
 
@@ -45,6 +46,7 @@ Usage:
   ${packageMetadata.name} doctor [outputDir]
   ${packageMetadata.name} handoff <runStatePath> [outputDir] [doctorReportPath]
   ${packageMetadata.name} dispatch <handoffIndexPath> [dry-run|execute]
+  ${packageMetadata.name} autonomous <runStatePath> [doctorReportPath] [outputDir] [maxRounds]
   ${packageMetadata.name} --help
   ${packageMetadata.name} --version
 `);
@@ -268,6 +270,18 @@ async function runDispatch(handoffIndexPath, mode = "dry-run") {
   console.log(JSON.stringify(result.summary, null, 2));
 }
 
+async function runAutonomous(runStatePath, doctorReportPath, outputDir, maxRounds) {
+  const parsedMaxRounds = maxRounds === undefined ? undefined : Number.parseInt(maxRounds, 10);
+  const result = await runAutonomousLoop(runStatePath, {
+    doctorReportPath,
+    handoffOutputDir: outputDir,
+    maxRounds: Number.isFinite(parsedMaxRounds) ? parsedMaxRounds : undefined
+  });
+  console.log(`Autonomous summary JSON: ${result.summaryJsonPath}`);
+  console.log(`Autonomous summary Markdown: ${result.summaryMarkdownPath}`);
+  console.log(JSON.stringify(result.summary.runSummary, null, 2));
+}
+
 async function main() {
   const [command, ...args] = process.argv.slice(2);
   const [arg1, arg2, arg3, arg4] = args;
@@ -353,6 +367,12 @@ async function main() {
         throw new Error("Please provide a handoff index path.");
       }
       await runDispatch(arg1, arg2);
+      break;
+    case "autonomous":
+      if (!arg1) {
+        throw new Error("Please provide a run-state path.");
+      }
+      await runAutonomous(arg1, arg2, arg3, arg4);
       break;
     case "help":
     case "--help":

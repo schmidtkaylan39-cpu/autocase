@@ -4,8 +4,8 @@ export const defaultFactoryConfig = {
   version: 1,
   roles: {
     orchestrator: {
-      tool: "GPT-5.4 + Codex (manual orchestration)",
-      automation: "manual",
+      tool: "GPT Runner (gpt-5.4 / gpt-5.4-pro via Codex CLI)",
+      automation: "automated",
       responsibilities: [
         "release coordination",
         "dispatch oversight",
@@ -15,8 +15,8 @@ export const defaultFactoryConfig = {
       finalAuthority: false
     },
     planner: {
-      tool: "GPT-5.4 / GPT-5.4 Pro",
-      automation: "manual",
+      tool: "GPT Runner (gpt-5.4 / gpt-5.4-pro via Codex CLI)",
+      automation: "automated",
       responsibilities: ["spec breakdown", "risk clarification", "task sequencing"],
       finalAuthority: false
     },
@@ -27,8 +27,8 @@ export const defaultFactoryConfig = {
       finalAuthority: false
     },
     reviewer: {
-      tool: "GPT-5.4 / GPT-5.4 Pro",
-      automation: "manual",
+      tool: "GPT Runner (gpt-5.4 / gpt-5.4-pro via Codex CLI)",
+      automation: "automated",
       responsibilities: ["requirements review", "quality review", "risk review"],
       finalAuthority: false
     },
