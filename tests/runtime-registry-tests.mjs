@@ -113,11 +113,22 @@ async function main() {
       manual: { ok: true }
     };
 
-    assert.equal(pickRuntimeForRole("orchestrator", allReady).runtimeId, "openclaw");
+    const defaultOrchestratorSelection = pickRuntimeForRole("orchestrator", allReady);
+    assert.equal(defaultOrchestratorSelection.runtimeId, "manual");
+    assert.match(defaultOrchestratorSelection.reason, /manual surface by default/i);
     assert.equal(pickRuntimeForRole("planner", allReady).runtimeId, "manual");
     assert.equal(pickRuntimeForRole("reviewer", allReady).runtimeId, "manual");
     assert.equal(pickRuntimeForRole("executor", allReady).runtimeId, "codex");
     assert.equal(pickRuntimeForRole("verifier", allReady).runtimeId, "local-ci");
+
+    const orchestratorOverride = {
+      roleOverrides: {
+        orchestrator: ["openclaw", "manual"]
+      }
+    };
+    const overrideOrchestratorSelection = pickRuntimeForRole("orchestrator", allReady, orchestratorOverride);
+    assert.equal(overrideOrchestratorSelection.runtimeId, "openclaw");
+    assert.match(overrideOrchestratorSelection.reason, /explicitly enabled/i);
 
     const plannerChecks = {
       openclaw: { ok: true },

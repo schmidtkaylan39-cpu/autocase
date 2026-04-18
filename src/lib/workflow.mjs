@@ -57,7 +57,7 @@ export function buildExecutionPlan(spec) {
       summary: spec.summary
     },
     architecture: {
-      orchestrator: "OpenClaw",
+      orchestrator: "GPT-5.4 + Codex (manual orchestration)",
       planner: "GPT-5.4 / GPT-5.4 Pro",
       executor: "Codex",
       reviewer: "GPT-5.4 / GPT-5.4 Pro",

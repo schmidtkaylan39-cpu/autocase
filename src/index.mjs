@@ -5,10 +5,13 @@ import process from "node:process";
 
 import {
   applyTaskResult,
+  confirmIntake,
   createRunHandoffs,
+  intakeRequest,
   initProject,
   planProject,
   reportProjectRun,
+  reviseIntake,
   runProject,
   scheduleTaskRetry,
   tickProjectRun,
@@ -27,6 +30,9 @@ function printHelp() {
 
 Usage:
   ${packageMetadata.name} init [targetDir]
+  ${packageMetadata.name} intake <request> [workspaceDir]
+  ${packageMetadata.name} confirm [workspaceDir]
+  ${packageMetadata.name} revise [request] [workspaceDir]
   ${packageMetadata.name} validate <specPath>
   ${packageMetadata.name} plan <specPath> [outputDir]
   ${packageMetadata.name} run <specPath> [outputDir] [runId]
@@ -77,6 +83,30 @@ async function runValidate(specPath) {
   }
 
   console.log("Spec validation passed.");
+  console.log(JSON.stringify(result.summary, null, 2));
+}
+
+async function runIntake(userRequest, workspaceDir = ".") {
+  const result = await intakeRequest(userRequest, workspaceDir);
+  console.log(`Clarification workspace: ${result.workspaceRoot}`);
+  console.log(`Intake spec: ${result.artifactPaths.intakeSpecPath}`);
+  console.log(`Intake summary: ${result.artifactPaths.intakeSummaryPath}`);
+  console.log(JSON.stringify(result.summary, null, 2));
+}
+
+async function runConfirm(workspaceDir = ".") {
+  const result = await confirmIntake(workspaceDir);
+  console.log(`Clarification confirmed in: ${result.workspaceRoot}`);
+  console.log(`Intake spec: ${result.artifactPaths.intakeSpecPath}`);
+  console.log(`Intake summary: ${result.artifactPaths.intakeSummaryPath}`);
+  console.log(JSON.stringify(result.summary, null, 2));
+}
+
+async function runRevise(userRequest, workspaceDir = ".") {
+  const result = await reviseIntake(userRequest, workspaceDir);
+  console.log(`Clarification revised in: ${result.workspaceRoot}`);
+  console.log(`Intake spec: ${result.artifactPaths.intakeSpecPath}`);
+  console.log(`Intake summary: ${result.artifactPaths.intakeSummaryPath}`);
   console.log(JSON.stringify(result.summary, null, 2));
 }
 
@@ -245,6 +275,18 @@ async function main() {
   switch (command) {
     case "init":
       await runInit(arg1);
+      break;
+    case "intake":
+      if (!arg1) {
+        throw new Error("Please provide a user request.");
+      }
+      await runIntake(arg1, arg2);
+      break;
+    case "confirm":
+      await runConfirm(arg1);
+      break;
+    case "revise":
+      await runRevise(arg1, arg2);
       break;
     case "validate":
       if (!arg1) {

@@ -7,7 +7,11 @@ Snapshot date: 2026-04-16 (Asia/Shanghai).
 ## What Is Already Completed
 
 - CLI command surface is in place and wired end-to-end:
-  - `init`, `validate`, `plan`, `run`, `report`, `task`, `doctor`, `handoff`, `dispatch`
+  - `init`, `intake`, `confirm`, `revise`, `validate`, `plan`, `run`, `report`, `task`, `doctor`, `handoff`, `dispatch`
+- Clarification gate is now enforced ahead of planning and execution:
+  - workspace-level `artifacts/clarification/intake-spec.json`
+  - workspace-level `artifacts/clarification/intake-summary.md`
+  - fail-closed blocking on `plan`, `run`, `handoff`, `dispatch`, `task update`, `retry`, `tick`, and result application until confirmation
 - Run lifecycle artifacts are generated and maintained:
   - `execution-plan.json`, `run-state.json`, `report.md`, task briefs, handoff descriptors, launchers
 - Dispatch execute loopback is implemented:
@@ -24,7 +28,8 @@ Snapshot date: 2026-04-16 (Asia/Shanghai).
 - GitHub Actions CI uses Windows+Linux matrix in `.github/workflows/ci.yml`:
   - `quality-matrix`: `ubuntu-latest` and `windows-latest`
   - `example-smoke-matrix`: `ubuntu-latest` and `windows-latest`
-- Release soak is split into `.github/workflows/release-readiness.yml` on `windows-latest`:
+- Release readiness is split across `.github/workflows/release-readiness.yml`:
+  - `quick-readiness`: `ubuntu-latest` + `windows-latest` release gate with Windows packaging smoke
   - `burnin-soak`: high-duration repeated burn-in lane
   - `doctor-observability`: non-blocking runtime observability lane
 
@@ -42,6 +47,13 @@ npm test
 npm run test:integration
 npm run test:e2e
 npm run doctor
+```
+
+On a Windows release host, also run packaging smoke:
+
+```bash
+npm run backup:project -- --output-dir reports/release-readiness/backup-smoke
+npm run release:win -- --output-dir reports/release-readiness/windows-release-smoke
 ```
 
 Run example pipeline smoke:
@@ -63,12 +75,17 @@ Recommended release burn-in:
 Recommended lane interpretation:
 
 - Linux readiness: rely on CI matrix (`ubuntu-latest`) quality + example smoke jobs.
-- Windows readiness: rely on CI matrix (`windows-latest`) quality + example smoke jobs.
+- Windows readiness: rely on CI matrix (`windows-latest`) quality + example smoke jobs, plus the release-readiness backup smoke path and full `release:win` smoke path.
 - Windows soak confidence: rely on release-readiness `burnin-soak` for repeated long-run stability.
+
+Review bundle note:
+
+- the exported review bundle carries source plus validation evidence, not an already installed `node_modules` tree
+- external reviewers who want to rerun repo-level checks from `repo/` should run `npm ci` first
 
 ## External Non-Blocking Warnings
 
-The following OpenClaw audit items are currently treated as non-blocking in this starter:
+In the default GPT-5.4 + Codex route, OpenClaw is optional. The following OpenClaw audit items are therefore treated as non-blocking unless a team explicitly routes orchestration to OpenClaw:
 
 - `gateway.trusted_proxies_missing`
 - `gateway.nodes.deny_commands_ineffective`
@@ -79,7 +96,7 @@ Observed runtime note that may appear together with healthy probe:
 
 Why non-blocking for now:
 
-- current workflow gates on CLI behavior and artifact contracts, not full OpenClaw deployment hardening
+- current default workflow gates on Codex/local-ci readiness plus CLI behavior and artifact contracts, not full OpenClaw deployment hardening
 - these warnings do not currently prevent local orchestration and dispatch workflows from completing
 
 ## Design Choices (Not Bugs)

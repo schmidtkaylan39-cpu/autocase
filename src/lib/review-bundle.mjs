@@ -1,7 +1,6 @@
 import { execFile } from "node:child_process";
-import { access, cp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { access, cp, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { inflateRawSync } from "node:zlib";
 import { promisify } from "node:util";
 
 import { ensureDirectory, readJson, writeJson } from "./fs-utils.mjs";
@@ -10,6 +9,8 @@ import {
   getPowerShellInvocation,
   toPowerShellSingleQuotedLiteral
 } from "./powershell.mjs";
+import { createValidationRerunGuidance, deriveEvidenceStrength, deriveEvidenceSummary } from "./self-check.mjs";
+import { validateZipArchiveEntryNames } from "./zip-archive.mjs";
 
 const execFileAsync = promisify(execFile);
 const excludedDirectoryNames = new Set([".git", "node_modules", "review-bundles"]);
@@ -146,8 +147,14 @@ function buildValidationResultsArtifact(bundleName, evidenceSummary, generatedAt
     reportFiles.filter((reportPath) => suffixes.some((suffix) => reportPath.endsWith(suffix)));
   const buildResultRecord = (result) => ({
     ...result,
-    evidenceStrength:
-      Array.isArray(result.evidence) && result.evidence.length > 0 ? "artifact" : "record-only"
+    evidenceStrength: deriveEvidenceStrength(result.evidence),
+    evidenceSummary:
+      typeof result.evidenceSummary === "string" && result.evidenceSummary.trim().length > 0
+        ? result.evidenceSummary
+        : deriveEvidenceSummary(result.evidence, {
+            commandSpecificArtifactCount: Math.max(0, (result.evidence?.length ?? 0) - 1),
+            includesCommandLog: false
+          })
   });
 
   const results = [];
@@ -204,6 +211,7 @@ function buildValidationResultsArtifact(bundleName, evidenceSummary, generatedAt
     round: bundleName,
     generatedAt,
     cwd: "repo",
+    rerunGuidance: createValidationRerunGuidance("repo"),
     results,
     notes: [
       "This bundle includes machine-readable validation evidence only for checks with captured artifacts.",
@@ -256,6 +264,7 @@ function rewriteValidationResultsForBundle(validationResults, sourceDir) {
   return {
     ...validationResults,
     cwd: "repo",
+    rerunGuidance: createValidationRerunGuidance("repo"),
     results: validationResults.results.map((result) => {
       const evidence = Array.isArray(result?.evidence)
         ? result.evidence.map((evidencePath) => rewriteEvidencePathForBundle(evidencePath, sourceDir))
@@ -267,9 +276,14 @@ function rewriteValidationResultsForBundle(validationResults, sourceDir) {
         evidenceStrength:
           result?.evidenceStrength === "artifact" || result?.evidenceStrength === "record-only"
             ? result.evidenceStrength
-            : evidence.length > 0
-              ? "artifact"
-              : "record-only"
+            : deriveEvidenceStrength(evidence),
+        evidenceSummary:
+          typeof result?.evidenceSummary === "string" && result.evidenceSummary.trim().length > 0
+            ? result.evidenceSummary
+            : deriveEvidenceSummary(evidence, {
+                commandSpecificArtifactCount: Math.max(0, evidence.length - 1),
+                includesCommandLog: false
+              })
       };
     })
   };
@@ -412,8 +426,10 @@ function renderReviewBrief(manifest) {
     "- Are retry-window and hybrid-runtime flows robust under repeated failures or partially written artifacts?",
     "",
     "## Included Evidence",
-    "- `metadata/validation-results.json` mixes retained artifact pointers with structured rerun records; check each result's `evidenceStrength` field before treating it as directly inspectable evidence.",
-    "- In the current starter, only some commands include standalone evidence files in the bundle; the remaining commands are status-and-timing records unless a round captured extra artifacts.",
+    "- `metadata/validation-results.json` now carries `rerunGuidance`, `evidenceStrength`, and `evidenceSummary` so reviewers can see both the rerun prerequisites and the retained evidence strength for each result.",
+    "- When a canonical `reports/validation-results.json` is available, self-check results retain per-command logs under `repo/reports/validation-evidence/`, and some commands also include extra command-specific artifacts.",
+    "- If a bundle is built without canonical self-check evidence, fallback metadata can still contain `record-only` entries; check `evidenceStrength` before assuming every result is directly inspectable.",
+    "- The bundle is a source snapshot plus retained evidence; if you want to rerun commands such as `npm test` or `npm run validate:workflows`, install devDependencies first with `npm ci` from `repo/`.",
     ...doctorLines,
     ...(evidence.qualityBurnin
       ? [
@@ -537,8 +553,10 @@ function renderReviewPrompt() {
     "",
     "Validation evidence note:",
     "",
-    "- Treat `metadata/validation-results.json` as mixed-strength evidence; use each result's `evidenceStrength` field to distinguish `artifact` from `record-only` entries.",
-    "- Some commands include retained bundle artifacts via `evidence`; others are structured rerun records with status and timing only.",
+    "- Treat `metadata/validation-results.json` as self-describing validation metadata: use `rerunGuidance`, `evidenceStrength`, and `evidenceSummary` before judging how directly inspectable the retained evidence is.",
+    "- Canonical self-check bundles now retain a per-command log under `repo/reports/validation-evidence/`, and some commands also carry extra command-specific artifacts in `evidence`.",
+    "- Fallback bundles built without canonical self-check metadata can still contain `record-only` entries.",
+    "- The bundle is not a preinstalled runtime image; if you want to rerun repo-level validations from `repo/`, run `npm ci` first so devDependencies are available.",
     "",
     "Then review the codebase under `repo/`.",
     "",
@@ -607,91 +625,6 @@ async function writeGitArtifacts(metadataDirectory, gitMetadata) {
     `${gitMetadata.remotes || "(no remotes configured)"}\n`,
     "utf8"
   );
-}
-
-function parseZipEntries(zipBuffer) {
-  const endOfCentralDirectorySignature = 0x06054b50;
-  const centralDirectorySignature = 0x02014b50;
-  const localFileHeaderSignature = 0x04034b50;
-
-  let endOfCentralDirectoryOffset = -1;
-
-  for (let offset = zipBuffer.length - 22; offset >= 0; offset -= 1) {
-    if (zipBuffer.readUInt32LE(offset) === endOfCentralDirectorySignature) {
-      endOfCentralDirectoryOffset = offset;
-      break;
-    }
-  }
-
-  if (endOfCentralDirectoryOffset < 0) {
-    throw new Error("Invalid ZIP archive: missing end of central directory record.");
-  }
-
-  const centralDirectorySize = zipBuffer.readUInt32LE(endOfCentralDirectoryOffset + 12);
-  const centralDirectoryOffset = zipBuffer.readUInt32LE(endOfCentralDirectoryOffset + 16);
-  const entries = [];
-  let cursor = centralDirectoryOffset;
-  const end = centralDirectoryOffset + centralDirectorySize;
-
-  while (cursor < end) {
-    if (zipBuffer.readUInt32LE(cursor) !== centralDirectorySignature) {
-      throw new Error("Invalid ZIP central directory entry.");
-    }
-
-    const compressionMethod = zipBuffer.readUInt16LE(cursor + 10);
-    const compressedSize = zipBuffer.readUInt32LE(cursor + 20);
-    const fileNameLength = zipBuffer.readUInt16LE(cursor + 28);
-    const extraFieldLength = zipBuffer.readUInt16LE(cursor + 30);
-    const commentLength = zipBuffer.readUInt16LE(cursor + 32);
-    const localHeaderOffset = zipBuffer.readUInt32LE(cursor + 42);
-    const nameStart = cursor + 46;
-    const nameEnd = nameStart + fileNameLength;
-
-    entries.push({
-      name: zipBuffer.toString("utf8", nameStart, nameEnd),
-      compressionMethod,
-      compressedSize,
-      localHeaderOffset
-    });
-
-    cursor = nameEnd + extraFieldLength + commentLength;
-  }
-
-  return entries.map((entry) => {
-    if (zipBuffer.readUInt32LE(entry.localHeaderOffset) !== localFileHeaderSignature) {
-      throw new Error("Invalid ZIP local file header.");
-    }
-
-    const fileNameLength = zipBuffer.readUInt16LE(entry.localHeaderOffset + 26);
-    const extraFieldLength = zipBuffer.readUInt16LE(entry.localHeaderOffset + 28);
-    const contentStart = entry.localHeaderOffset + 30 + fileNameLength + extraFieldLength;
-    const compressedContent = zipBuffer.subarray(contentStart, contentStart + entry.compressedSize);
-    let contentBuffer;
-
-    if (entry.compressionMethod === 8) {
-      contentBuffer = inflateRawSync(compressedContent);
-    } else if (entry.compressionMethod === 0) {
-      contentBuffer = compressedContent;
-    } else {
-      throw new Error(`Unsupported ZIP compression method: ${entry.compressionMethod}`);
-    }
-
-    return {
-      name: entry.name,
-      contentBuffer
-    };
-  });
-}
-
-async function validateZipArchiveEntryNames(archivePath) {
-  const zipEntries = parseZipEntries(await readFile(archivePath));
-  const invalidEntry = zipEntries.find((entry) => entry.name.includes("\\"));
-
-  if (invalidEntry) {
-    throw new Error(`ZIP archive contains backslash path separators: ${invalidEntry.name}`);
-  }
-
-  return zipEntries;
 }
 
 async function detectArchiveFormat() {

@@ -79,12 +79,14 @@ The runnable or machine-readable evidence for whether the round actually passed.
 
 Recommended fields:
 
+- rerunGuidance
 - command
 - status
 - startedAt
 - finishedAt
 - durationMs
 - evidenceStrength
+- evidenceSummary
 - evidence
 
 Starter template:
@@ -99,8 +101,11 @@ The exported metadata variant should stay bundle-safe:
 
 - use bundle-relative evidence paths such as `repo/reports/runtime-doctor.json`
 - avoid leaking host-specific working directories; use a bundle-local value such as `repo` instead
+- make rerun prerequisites explicit, for example whether `npm ci` is required before rerunning repo-level validations
 - describe whether each result is backed by retained bundle artifacts (`artifact`) or only by structured execution metadata (`record-only`)
-- expect some commands to remain status-and-timing-only when they do not retain standalone artifacts
+- describe what kind of retained artifact is present, for example a self-check command log versus an additional command-specific report
+
+The canonical self-check flow now retains a per-command log under `reports/validation-evidence/*.log`, so current self-check results can usually be reviewed directly even when a command does not emit its own standalone report file.
 
 ## Recommended Phase Mapping
 
@@ -119,4 +124,4 @@ models or humans handle different phases.
 
 ## Current Status In This Starter
 
-This repository now documents the artifact contract, includes starter templates, and exports a machine-readable `metadata/validation-results.json` in review bundles. A canonical `reports/validation-results.json` can now be produced by the self-check flow, but the contract is still only partially enforced by CLI behavior today.
+This repository now documents the artifact contract, includes starter templates, and exports a machine-readable `metadata/validation-results.json` in review bundles. A canonical `reports/validation-results.json` can now be produced by the self-check flow, and that flow now retains per-command logs under `reports/validation-evidence/`, but the contract is still only partially enforced by CLI behavior today.

@@ -5,6 +5,16 @@ import { fileURLToPath } from "node:url";
 
 import { ensureDirectory, readJson, writeJson } from "./fs-utils.mjs";
 import { buildHandoffDescriptor, getLauncherMetadata, renderHandoffMarkdown } from "./handoffs.mjs";
+import { clarifyIntakeRequest } from "./intake-clarifier.mjs";
+import {
+  createBlockedConfirmationSpec,
+  createConfirmedIntakeSpec,
+  createRunStateIntakeContext,
+  ensureIntakePlanningReady,
+  ensureRunStateIntakePlanningReady,
+  loadIntakeArtifacts,
+  writeIntakeArtifacts
+} from "./intake-state.mjs";
 import { mergeFactoryConfig, roleDirectoryFromConfig, defaultFactoryConfig } from "./roles.mjs";
 import {
   createArtifactPaths,
@@ -68,6 +78,19 @@ function resolveWorkspaceRelativePath(workspaceRoot, targetPath) {
 function resolveRunRelativePath(runDirectory, targetPath, fallbackPath) {
   const effectivePath = targetPath ?? fallbackPath;
   return path.isAbsolute(effectivePath) ? path.resolve(effectivePath) : path.resolve(runDirectory, effectivePath);
+}
+
+function summarizeIntake(spec) {
+  return {
+    requestId: spec.requestId,
+    clarificationStatus: spec.clarificationStatus,
+    confirmedByUser: spec.confirmedByUser,
+    openQuestionCount: Array.isArray(spec.openQuestions) ? spec.openQuestions.length : 0,
+    approvalRequired: spec.approvalRequired,
+    canFullyAutomate: spec.automationAssessment?.canFullyAutomate ?? false,
+    estimatedAutomatablePercent: spec.automationAssessment?.estimatedAutomatablePercent ?? 0,
+    recommendedNextStep: spec.recommendedNextStep
+  };
 }
 
 function clearActiveHandoffFields(task) {
@@ -220,8 +243,99 @@ export async function validateSpec(specPath) {
   };
 }
 
+export async function intakeRequest(
+  userRequest,
+  workspaceDir = ".",
+  configPath = "config/factory.config.json"
+) {
+  const workspaceRoot = path.resolve(workspaceDir);
+  const { config } = await loadFactoryConfig(configPath, workspaceRoot);
+  const spec = clarifyIntakeRequest(userRequest);
+  const artifactPaths = await writeIntakeArtifacts(workspaceRoot, spec, config);
+
+  return {
+    workspaceRoot,
+    artifactPaths,
+    spec,
+    summary: summarizeIntake(spec)
+  };
+}
+
+export async function confirmIntake(workspaceDir = ".", configPath = "config/factory.config.json") {
+  const workspaceRoot = path.resolve(workspaceDir);
+  const { config } = await loadFactoryConfig(configPath, workspaceRoot);
+  const intake = await loadIntakeArtifacts(workspaceRoot, config);
+
+  if (!intake.exists || !intake.spec) {
+    throw new Error(`No clarification artifact was found under ${workspaceRoot}. Run intake first.`);
+  }
+
+  let preview;
+
+  try {
+    preview = createConfirmedIntakeSpec(intake.spec);
+  } catch (error) {
+    const blockedSpec = createBlockedConfirmationSpec(intake.spec);
+    const artifactPaths = await writeIntakeArtifacts(workspaceRoot, blockedSpec, config);
+    const reasonText = error instanceof Error ? error.message : String(error);
+
+    throw new Error(
+      [
+        "Cannot confirm intake yet.",
+        `- ${reasonText}`,
+        `- intakeSpecPath: ${artifactPaths.intakeSpecPath}`,
+        `- intakeSummaryPath: ${artifactPaths.intakeSummaryPath}`
+      ].join("\n"),
+      {
+        cause: error
+      }
+    );
+  }
+
+  const artifactPaths = await writeIntakeArtifacts(workspaceRoot, preview, config);
+
+  return {
+    workspaceRoot,
+    artifactPaths,
+    spec: preview,
+    summary: summarizeIntake(preview)
+  };
+}
+
+export async function reviseIntake(
+  updatedRequest,
+  workspaceDir = ".",
+  configPath = "config/factory.config.json"
+) {
+  const workspaceRoot = path.resolve(workspaceDir);
+  const { config } = await loadFactoryConfig(configPath, workspaceRoot);
+  const intake = await loadIntakeArtifacts(workspaceRoot, config);
+  const nextRequest = typeof updatedRequest === "string" && updatedRequest.trim().length > 0
+    ? updatedRequest
+    : intake.spec?.originalRequest;
+
+  if (typeof nextRequest !== "string" || nextRequest.trim().length === 0) {
+    throw new Error("Please provide a revised request or run intake first.");
+  }
+
+  const spec = clarifyIntakeRequest(nextRequest, {
+    requestId: intake.spec?.requestId
+  });
+  const artifactPaths = await writeIntakeArtifacts(workspaceRoot, spec, config);
+
+  return {
+    workspaceRoot,
+    artifactPaths,
+    spec,
+    summary: summarizeIntake(spec)
+  };
+}
+
 export async function planProject(specPath, outputDir = "runs") {
   const resolvedSpecPath = path.resolve(specPath);
+  const workspaceRoot = inferWorkspaceRootFromSpecPath(resolvedSpecPath);
+  const { config } = await loadFactoryConfig("config/factory.config.json", workspaceRoot);
+  await ensureIntakePlanningReady(workspaceRoot, config, "planning");
   const spec = await readJson(resolvedSpecPath);
   const validation = validateProjectSpec(spec);
 
@@ -259,6 +373,8 @@ export async function runProject(
   const resolvedSpecPath = path.resolve(specPath);
   const workspaceRoot = inferWorkspaceRootFromSpecPath(resolvedSpecPath);
   const resolvedOutputDir = resolveWorkspaceRelativePath(workspaceRoot, outputDir);
+  const { config, resolvedConfigPath } = await loadFactoryConfig(configPath, workspaceRoot);
+  await ensureIntakePlanningReady(workspaceRoot, config, "run creation");
   const spec = await readJson(resolvedSpecPath);
   const validation = validateProjectSpec(spec);
 
@@ -269,9 +385,11 @@ export async function runProject(
     };
   }
 
-  const { config, resolvedConfigPath } = await loadFactoryConfig(configPath, workspaceRoot);
   const plan = buildExecutionPlan(spec);
-  const runState = createRunState(spec, plan, config, requestedRunId, workspaceRoot);
+  const intake = await loadIntakeArtifacts(workspaceRoot, config);
+  const intakeContext =
+    intake.exists && intake.spec ? createRunStateIntakeContext(intake.spec, intake.artifactPaths, workspaceRoot) : null;
+  const runState = createRunState(spec, plan, config, requestedRunId, workspaceRoot, intakeContext);
   const artifactPaths = createArtifactPaths(resolvedOutputDir, config, runState.runId);
 
   await ensureDirectory(artifactPaths.runDirectory);
@@ -322,6 +440,8 @@ export async function reportProjectRun(runStatePath) {
 export async function updateRunTask(runStatePath, taskId, nextStatus, note = "") {
   const resolvedRunStatePath = path.resolve(runStatePath);
   const existingRunState = await readJson(resolvedRunStatePath);
+  const workspaceRoot = inferWorkspaceRootFromRunState(existingRunState, resolvedRunStatePath);
+  await ensureRunStateIntakePlanningReady(existingRunState, workspaceRoot, null, "task update");
   const nextRunState = updateTaskInRunState(existingRunState, taskId, nextStatus, note);
   const runDirectory = path.dirname(resolvedRunStatePath);
   const plan = await readJson(path.join(runDirectory, "execution-plan.json"));
@@ -349,6 +469,7 @@ export async function scheduleTaskRetry(
   const runDirectory = path.dirname(resolvedRunStatePath);
   const existingRunState = await readJson(resolvedRunStatePath);
   const workspaceRoot = inferWorkspaceRootFromRunState(existingRunState, resolvedRunStatePath);
+  await ensureRunStateIntakePlanningReady(existingRunState, workspaceRoot, null, "retry scheduling");
   const { config } = await loadFactoryConfig(configPath, workspaceRoot);
   const retryConfig = config.retryPolicy.hybridSurface ?? {
     maxAttempts: 3,
@@ -436,6 +557,7 @@ export async function tickProjectRun(
   const resolvedRunStatePath = path.resolve(runStatePath);
   const previousRunState = await readJson(resolvedRunStatePath);
   const workspaceRoot = inferWorkspaceRootFromRunState(previousRunState, resolvedRunStatePath);
+  await ensureRunStateIntakePlanningReady(previousRunState, workspaceRoot, null, "tick");
   const refreshedRunState = refreshRunState(previousRunState);
   const runDirectory = path.dirname(resolvedRunStatePath);
   const plan = await readJson(path.join(runDirectory, "execution-plan.json"));
@@ -500,6 +622,8 @@ export async function applyTaskResult(runStatePath, taskId, resultPath) {
   const resolvedResultPath = path.resolve(resultPath);
   const runDirectory = path.dirname(resolvedRunStatePath);
   const existingRunState = await readJson(resolvedRunStatePath);
+  const workspaceRoot = inferWorkspaceRootFromRunState(existingRunState, resolvedRunStatePath);
+  await ensureRunStateIntakePlanningReady(existingRunState, workspaceRoot, null, "result application");
   const targetTask = existingRunState.taskLedger.find((task) => task.id === taskId);
 
   if (!targetTask) {
@@ -576,6 +700,7 @@ export async function createRunHandoffs(
   const resolvedOutputDir = resolveRunRelativePath(runDirectory, outputDir, path.join(runDirectory, "handoffs"));
   const runState = refreshRunState(await readJson(resolvedRunStatePath));
   const workspaceRoot = inferWorkspaceRootFromRunState(runState, resolvedRunStatePath);
+  await ensureRunStateIntakePlanningReady(runState, workspaceRoot, null, "handoff generation");
   const plan = await readJson(path.join(runDirectory, "execution-plan.json"));
   const spec = await readJson(path.join(runDirectory, "spec.snapshot.json"));
   const { report: doctorReport } = await loadDoctorReport(doctorReportPath, workspaceRoot);

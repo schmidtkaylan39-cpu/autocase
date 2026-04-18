@@ -12,6 +12,7 @@ It reflects current behavior, not future intent.
 ## Run creation
 
 `runProject()` creates a run from a validated project spec and factory config.
+If the workspace already has clarification artifacts, `runProject()` also requires the intake gate to be confirmed before the run can be created.
 
 Path resolution is workspace-relative:
 
@@ -31,6 +32,7 @@ Artifacts written into the run directory include:
 - `task-briefs/*.md`
 
 `run-state.json` also stores the workspace root captured at run creation so later launcher generation can keep targeting the same project directory.
+When confirmation artifacts exist, `run-state.json` also snapshots the intake gate summary and the clarification artifact paths used at run creation time.
 
 ## Run status values
 

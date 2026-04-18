@@ -16,6 +16,12 @@ The doctor runs four checks in sequence:
 3. Codex
 4. Local CI
 
+Doctor now tags checks using the default readiness profile:
+
+- profile id: `gpt54-codex`
+- required runtimes: `codex`, `local-ci`
+- optional runtimes: `openclaw`, `cursor`
+
 Each check records whether the runtime is installed, whether it is considered ready,
 which command path was resolved, and any extra details or diagnostics.
 
@@ -137,6 +143,7 @@ Important limitation:
 The JSON report contains:
 
 - `generatedAt`
+- `defaultReadinessProfile`
 - `checks`
 
 Each check may contain:
@@ -152,10 +159,12 @@ Each check may contain:
 - `error`
 - `details`
 - `diagnostics`
+- `requiredByDefaultRoute`
+- `readinessClass` (`required` or `optional`)
 
 The Markdown report renders:
 
-- a top summary list of `READY` or `NOT READY`
+- a top summary list of `REQUIRED|OPTIONAL` plus `READY|NOT READY`
 - a details section for every runtime
 - raw OpenClaw gateway and security audit sections when present
 
@@ -168,6 +177,7 @@ That report is normalized by `src/lib/runtime-registry.mjs`:
 - missing runtime entries become `ok: false`
 - `manual` is always treated as available
 - planner/reviewer work currently routes to `manual`; Cursor is tracked only as an optional human-side surface
+- orchestrator work now defaults to `manual` in the GPT-5.4 + Codex route, with OpenClaw remaining opt-in
 
 Runtime selection then uses the first ready runtime in the role preference list.
 If no automated or hybrid runtime is ready, the task falls back to `manual`.
@@ -179,7 +189,7 @@ health audit.
 
 It does not guarantee:
 
-- that OpenClaw can complete a real task
+- that OpenClaw can complete a real task when a team chooses to opt it in
 - that Cursor can run background work
 - that Codex can finish an end-to-end execution flow
 - that local CI scripts actually pass

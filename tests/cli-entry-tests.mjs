@@ -37,6 +37,9 @@ async function main() {
     const help = await runCli(["--help"]);
 
     assert.match(help.stdout, new RegExp(`${packageJson.name} v${packageJson.version}`));
+    assert.match(help.stdout, new RegExp(`${packageJson.name} intake <request>`));
+    assert.match(help.stdout, new RegExp(`${packageJson.name} confirm \\[workspaceDir\\]`));
+    assert.match(help.stdout, new RegExp(`${packageJson.name} revise \\[request\\] \\[workspaceDir\\]`));
     assert.match(help.stdout, new RegExp(`${packageJson.name} dispatch <handoffIndexPath>`));
     assert.match(help.stdout, new RegExp(`${packageJson.name} review-bundle \\[outputDir\\]`));
   });
@@ -109,6 +112,21 @@ async function main() {
     assert.ok(outputEntries.includes("cli-no-archive"));
     assert.ok(!outputEntries.includes("--no-archive"));
     await stat(path.join(outputDir, "cli-no-archive", "metadata", "bundle-manifest.json"));
+  });
+
+  await runTest("cli intake creates clarification artifacts and prints the next step", async () => {
+    const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "ai-factory-cli-intake-"));
+    const result = await runCli(["intake", "幫我把報表自動化", workspaceRoot]);
+    const intakeSpecPath = path.join(workspaceRoot, "artifacts", "clarification", "intake-spec.json");
+    const intakeSummaryPath = path.join(workspaceRoot, "artifacts", "clarification", "intake-summary.md");
+
+    assert.match(result.stdout, /Clarification workspace:/);
+    assert.match(result.stdout, /clarificationStatus/);
+    await stat(intakeSpecPath);
+    await stat(intakeSummaryPath);
+
+    const intakeSpec = JSON.parse(await readFile(intakeSpecPath, "utf8"));
+    assert.equal(intakeSpec.confirmedByUser, false);
   });
 
   console.log("CLI entry tests passed.");

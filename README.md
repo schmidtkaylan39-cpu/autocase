@@ -31,11 +31,12 @@ The intent is to make environment discovery, proposal alignment, round outputs, 
 
 This is the current intended role model and routing baseline:
 
-- `OpenClaw`: orchestrator (`automated`)
 - `GPT-5.4 / GPT-5.4 Pro`: planner and reviewer surface (`manual`)
+- `GPT-5.4 + Codex`: manual orchestration baseline for delivery and risk-stop coordination
 - `Codex`: executor (`automated`)
 - `local-ci`: verifier (`automated`)
 - `manual`: explicit fallback for every role
+- `OpenClaw`: optional orchestrator adapter, outside the default route
 - `Cursor`: optional human IDE / spot-check surface, outside the automatic runtime route by default
 
 The defaults above are reflected in `src/lib/roles.mjs` and runtime routing is resolved by `src/lib/runtime-registry.mjs`.
@@ -45,18 +46,24 @@ If a team wants Cursor as an emergency planner/reviewer surface, it must be enab
 
 The workflow is intentionally file-first and auditable:
 
-1. `validate`
+1. `intake`
+   Parses a natural-language request into `artifacts/clarification/intake-spec.json` and `artifacts/clarification/intake-summary.md`.
+2. `confirm` / `revise`
+   Confirms the clarified intake or sends it back through clarification before any planning work is allowed.
+3. `validate`
    Validates a project spec against schema and stop rules.
-2. `plan`
+4. `plan`
    Produces `execution-plan.json` and `execution-plan.md`.
-3. `run`
+5. `run`
    Creates a run workspace with:
-   `run-state.json`, `report.md`, `task-briefs/*`, `roles.json`, `spec.snapshot.json`.
-4. `handoff`
+   `run-state.json`, `report.md`, `task-briefs/*`, `roles.json`, `spec.snapshot.json`, plus the confirmed intake snapshot when present.
+6. `handoff`
    Generates runnable handoff packages for `ready` tasks:
    `*.prompt.md`, `*.handoff.json`, `*.handoff.md`, `*.launch.<ps1|sh>`, plus expected `results/<taskId>.<handoffId>.result.json`.
-5. `dispatch` (`dry-run` or `execute`)
+7. `dispatch` (`dry-run` or `execute`)
    Runs auto-executable launchers, validates result artifact contract, writes dispatch reports, and in `execute` mode syncs outcomes back into run artifacts.
+
+Planning, run creation, handoff generation, and dispatch now fail closed whenever a workspace-level clarification artifact exists but is not yet confirmed.
 
 Core run ledger:
 
@@ -72,7 +79,7 @@ Dependencies unlock through `refreshRunState()` based on upstream `completed` st
 
 Runtime selection is role-based and doctor-aware. Current preferences:
 
-- `orchestrator`: `openclaw -> manual`
+- `orchestrator`: `manual`
 - `planner`: `manual`
 - `reviewer`: `manual`
 - `executor`: `codex -> manual`
@@ -82,10 +89,11 @@ Important behavior:
 
 - `dispatch dry-run` reports `would_execute` or `would_skip`.
 - `dispatch execute` auto-executes only `openclaw`, `codex`, and `local-ci`.
+- `openclaw` execution remains available, but it is not part of the default orchestrator route.
 - planning and review work is manual-first by design, with GPT-5.4 / GPT-5.4 Pro carried in the handoff metadata.
 - `cursor` is retained as an optional human-side IDE surface and is not part of automatic runtime routing unless `runtimeRouting.roleOverrides` opts it in.
 - runtime routing and model routing are separate:
-  - runtime routing chooses `openclaw` / `manual` / `codex` / `local-ci`
+  - runtime routing chooses `manual` / `codex` / `local-ci` by default, with `openclaw` and `cursor` as opt-in routes
   - model routing chooses `codex`, `gpt-5.4`, or `gpt-5.4-pro` inside the selected surface
 - `run` persists the workspace root into `run-state.json`, so later `handoff` and `tick` calls keep launcher paths stable even when they are invoked from another directory.
 - Result artifact contract requires:
@@ -101,7 +109,7 @@ The starter now snapshots a `modelPolicy` into `run-state.json` and applies it a
 
 Default model policy:
 
-- `orchestrator` -> `openclaw`
+- `orchestrator` -> `gpt-5.4`
 - `planner` -> `gpt-5.4`
 - `reviewer` -> `gpt-5.4`
 - `executor` -> `codex`
@@ -192,7 +200,9 @@ If you want the bundle to include a canonical machine-readable validation record
 npm run selfcheck
 ```
 
-before generating the review bundle. This writes `reports/validation-results.json`; the bundle retains that canonical file under `repo/reports/validation-results.json` and also emits a bundle-safe export at `metadata/validation-results.json`.
+before generating the review bundle. This writes `reports/validation-results.json` and retained command logs under `reports/validation-evidence/`; the bundle retains the canonical file under `repo/reports/validation-results.json` and also emits a bundle-safe export at `metadata/validation-results.json`.
+
+The review bundle is a source snapshot plus retained evidence, not a preinstalled runtime image. If an external reviewer wants to rerun validations from `repo/`, they should run `npm ci` first so devDependencies are available.
 
 ## Release Verification (Delivery Baseline)
 
@@ -223,6 +233,8 @@ Or capture the same release-gate run in one machine-readable pass:
 npm run selfcheck
 ```
 
+`npm run selfcheck` now also keeps per-command logs in `reports/validation-evidence/` so the validation artifact is not limited to pass/fail metadata alone.
+
 For release-candidate burn-in (3 consecutive rounds):
 
 ```bash
@@ -235,9 +247,9 @@ npm run burnin
 
 CI matrix and soak role split:
 
-- `CI / quality-matrix (ubuntu-latest, windows-latest)`: build, lint, typecheck, test, e2e.
-- `CI / quality-matrix (ubuntu-latest, windows-latest)`: workflow validation, build, lint, typecheck, test, e2e.
+- `CI / quality-matrix (ubuntu-latest, windows-latest)`: workflow validation, build, package smoke, lint, typecheck, test, e2e.
 - `CI / example-smoke-matrix (ubuntu-latest, windows-latest)`: validate/plan/run/report/handoff/dispatch example flow.
+- `Release Readiness / quick-readiness (ubuntu-latest, windows-latest)`: cross-platform release gate, with Windows-only `backup:project` and `release:win` smoke.
 - `Release Readiness / burnin-soak (windows-latest)`: repeated full burn-in + example pipeline soak for release confidence.
 - `Release Readiness / doctor-observability (windows-latest, non-blocking)`: runtime telemetry and external dependency visibility.
 
@@ -249,6 +261,36 @@ Recommended release evidence to keep with the candidate:
 - `runs/<run-id>/run-state.json`
 - `runs/<run-id>/report.md`
 
+On a Windows release host, also run real packaging smoke before promotion:
+
+```bash
+npm run backup:project -- --output-dir reports/release-readiness/backup-smoke
+npm run release:win -- --output-dir reports/release-readiness/windows-release-smoke
+```
+
+Windows EXE release build:
+
+```bash
+npm run release:win
+```
+
+This creates:
+
+- a `git bundle` backup
+- a tracked-source ZIP snapshot
+- the npm package tarball
+- an architecture-aware Windows release folder such as `ai-factory-starter-win-x64-<commit>` containing `ai-factory-starter.exe` plus its packaged `app/` files
+- a ZIP archive of that Windows release folder
+
+`release-manifest.json` records the resolved Windows target label (`win-x64`, `win-arm64`, or `win-x86`) alongside the release directory and archive names.
+The generated source ZIP and release ZIP are also validated so their archived entry paths stay portable (`/` separators, not `\`).
+
+If you only want backup artifacts without building the `.exe`, run:
+
+```bash
+npm run backup:project
+```
+
 Collaboration hygiene:
 
 - line endings are normalized via `.gitattributes` / `.editorconfig` for Windows + Linux collaboration
@@ -259,6 +301,8 @@ Collaboration hygiene:
 ```bash
 mkdir demo-workspace
 npm run init -- demo-workspace
+node src/index.mjs intake "Turn local sales.json into a markdown summary report; do not send email or call external APIs." demo-workspace
+node src/index.mjs confirm demo-workspace
 node src/index.mjs validate demo-workspace/specs/project-spec.json
 node src/index.mjs run demo-workspace/specs/project-spec.json demo-workspace/runs demo-run
 node src/index.mjs report demo-workspace/runs/demo-run/run-state.json
@@ -299,18 +343,21 @@ node src/index.mjs dispatch runs/example-run/handoffs/index.json execute
 
 ```bash
 node src/index.mjs init [targetDir]
+node src/index.mjs intake <request> [workspaceDir]
+node src/index.mjs confirm [workspaceDir]
+node src/index.mjs revise [request] [workspaceDir]
 node src/index.mjs validate <specPath>
 node src/index.mjs plan <specPath> [outputDir]
-  node src/index.mjs run <specPath> [outputDir] [runId]
-  node src/index.mjs report <runStatePath>
-  node src/index.mjs task <runStatePath> <taskId> <status> [note]
-  node src/index.mjs result <runStatePath> <taskId> <resultPath>
-  node src/index.mjs retry <runStatePath> <taskId> [reason] [delayMinutes]
-  node src/index.mjs tick <runStatePath> [doctorReportPath] [outputDir]
-  node src/index.mjs review-bundle [outputDir] [bundleName] [--no-archive]
-  node src/index.mjs doctor [outputDir]
-  node src/index.mjs handoff <runStatePath> [outputDir] [doctorReportPath]
-  node src/index.mjs dispatch <handoffIndexPath> [dry-run|execute]
+node src/index.mjs run <specPath> [outputDir] [runId]
+node src/index.mjs report <runStatePath>
+node src/index.mjs task <runStatePath> <taskId> <status> [note]
+node src/index.mjs result <runStatePath> <taskId> <resultPath>
+node src/index.mjs retry <runStatePath> <taskId> [reason] [delayMinutes]
+node src/index.mjs tick <runStatePath> [doctorReportPath] [outputDir]
+node src/index.mjs review-bundle [outputDir] [bundleName] [--no-archive]
+node src/index.mjs doctor [outputDir]
+node src/index.mjs handoff <runStatePath> [outputDir] [doctorReportPath]
+node src/index.mjs dispatch <handoffIndexPath> [dry-run|execute]
 ```
 
 ## Repository Layout
@@ -333,7 +380,8 @@ node src/index.mjs plan <specPath> [outputDir]
 
 Checks include:
 
-- OpenClaw command presence, gateway reachability, and service/runtime signals
+- required-by-default checks for Codex and local-ci readiness
+- optional OpenClaw command presence, gateway reachability, and service/runtime signals
 - optional Cursor CLI availability for human-side IDE / spot-check use
 - Codex CLI plus auth readiness (`codex login status`)
 - local-ci verifier script completeness:

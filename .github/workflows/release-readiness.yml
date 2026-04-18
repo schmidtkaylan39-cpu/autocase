@@ -86,6 +86,23 @@ jobs:
       - name: Example dispatch dry-run
         run: npm run dispatch:example
 
+      - name: Windows backup smoke
+        if: matrix.os == 'windows-latest'
+        run: npm run backup:project -- --output-dir reports/release-readiness/backup-smoke
+
+      - name: Windows EXE release smoke
+        if: matrix.os == 'windows-latest'
+        run: npm run release:win -- --output-dir reports/release-readiness/windows-release-smoke
+
+      - name: Upload Windows release smoke artifacts
+        if: ${{ failure() && matrix.os == 'windows-latest' }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: quick-readiness-windows-release-smoke
+          path: reports/release-readiness
+          if-no-files-found: warn
+          retention-days: 7
+
   burnin-soak:
     name: Burn-in Soak (Node 22, Windows)
     runs-on: windows-latest

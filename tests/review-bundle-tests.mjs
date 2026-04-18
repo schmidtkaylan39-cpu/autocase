@@ -115,6 +115,12 @@ function isAbsoluteBundlePath(candidatePath) {
 
 function assertValidationResultsUseBundleSafePaths(validationResults) {
   assert.equal(validationResults.cwd, "repo");
+  assert.deepEqual(validationResults.rerunGuidance, {
+    requiresDependencyInstall: true,
+    installCommand: "npm ci",
+    workingDirectory: "repo",
+    note: "Install devDependencies before rerunning repo-level validation commands."
+  });
 
   for (const result of validationResults.results) {
     const expectedEvidenceStrength =
@@ -124,6 +130,8 @@ function assertValidationResultsUseBundleSafePaths(validationResults) {
       expectedEvidenceStrength,
       `Unexpected evidenceStrength for ${result.command}`
     );
+    assert.equal(typeof result.evidenceSummary, "string");
+    assert.ok(result.evidenceSummary.trim().length > 0);
 
     for (const evidencePath of Array.isArray(result.evidence) ? result.evidence : []) {
       assert.equal(isAbsoluteBundlePath(evidencePath), false, `Evidence path must be bundle-relative: ${evidencePath}`);
@@ -135,19 +143,27 @@ function assertValidationResultsUseBundleSafePaths(validationResults) {
 function assertExternalReviewerMetadataText(reviewBrief, reviewPrompt) {
   assert.match(
     reviewBrief,
-    /metadata\/validation-results\.json.*mixes retained artifact pointers with structured rerun records; check each result's `evidenceStrength` field/i
+    /metadata\/validation-results\.json.*carries `rerunGuidance`, `evidenceStrength`, and `evidenceSummary`/i
   );
   assert.match(
     reviewBrief,
-    /only some commands include standalone evidence files in the bundle; the remaining commands are status-and-timing records/i
+    /self-check results retain per-command logs under `repo\/reports\/validation-evidence\/`/i
   );
   assert.match(
     reviewPrompt,
-    /Treat `metadata\/validation-results\.json` as mixed-strength evidence; use each result's `evidenceStrength` field to distinguish `artifact` from `record-only` entries\./
+    /Treat `metadata\/validation-results\.json` as self-describing validation metadata: use `rerunGuidance`, `evidenceStrength`, and `evidenceSummary`/i
   );
   assert.match(
     reviewPrompt,
-    /Some commands include retained bundle artifacts via `evidence`; others are structured rerun records with status and timing only\./
+    /Canonical self-check bundles now retain a per-command log under `repo\/reports\/validation-evidence\/`/i
+  );
+  assert.match(
+    reviewBrief,
+    /if you want to rerun commands such as `npm test` or `npm run validate:workflows`, install devDependencies first with `npm ci` from `repo\/`/i
+  );
+  assert.match(
+    reviewPrompt,
+    /if you want to rerun repo-level validations from `repo\/`, run `npm ci` first so devDependencies are available/i
   );
 }
 
@@ -180,6 +196,7 @@ async function main() {
     await mkdir(path.join(sourceDir, "docs"), { recursive: true });
     await mkdir(path.join(sourceDir, "prompts"), { recursive: true });
     await mkdir(path.join(sourceDir, "reports"), { recursive: true });
+    await mkdir(path.join(sourceDir, "artifacts", "clarification"), { recursive: true });
     await mkdir(path.join(sourceDir, "runs", "demo-run"), { recursive: true });
     await mkdir(path.join(sourceDir, "templates"), { recursive: true });
     await mkdir(path.join(sourceDir, ".git"), { recursive: true });
@@ -193,6 +210,45 @@ async function main() {
     await writeFile(path.join(sourceDir, "AGENTS.md"), "# Fixture Agents\n", "utf8");
     await writeFile(path.join(sourceDir, "README.md"), "# Fixture\n", "utf8");
     await writeFile(path.join(sourceDir, "src", "index.mjs"), "export const demo = true;\n", "utf8");
+    await writeJson(path.join(sourceDir, "artifacts", "clarification", "intake-spec.json"), {
+      requestId: "fixture-request",
+      title: "Fixture clarification",
+      originalRequest: "Help me automate this report",
+      clarifiedGoal: "Clarify the report automation scope before planning.",
+      successCriteria: [
+        {
+          text: "A clear success definition is recorded before planning starts.",
+          status: "defined"
+        }
+      ],
+      nonGoals: ["Do not execute changes before confirmation."],
+      inScope: ["Clarification artifacts"],
+      outOfScope: ["Execution work"],
+      requiredInputs: [],
+      requiredAccountsAndPermissions: [],
+      externalDependencies: [],
+      constraints: [],
+      risks: [],
+      automationAssessment: {
+        canFullyAutomate: false,
+        automationLevel: "partial",
+        estimatedAutomatablePercent: 25,
+        humanStepsRequired: ["Confirm the clarified goal."],
+        blockers: [],
+        rationale: ["Human confirmation is required before planning."]
+      },
+      openQuestions: [],
+      clarificationStatus: "confirmed",
+      recommendedNextStep: "planning-ready",
+      approvalRequired: false,
+      confirmedByUser: true,
+      lastUpdatedAt: "2026-04-16T00:00:00.000Z"
+    });
+    await writeFile(
+      path.join(sourceDir, "artifacts", "clarification", "intake-summary.md"),
+      "# Intake Summary\n",
+      "utf8"
+    );
     await writeFile(path.join(sourceDir, "docs", "notes.md"), "notes\n", "utf8");
     await writeFile(path.join(sourceDir, "docs", "artifact-contract.md"), "# Artifact Contract\n", "utf8");
     await writeFile(path.join(sourceDir, "docs", "handoffs.md"), "# Handoffs\n", "utf8");
@@ -240,9 +296,18 @@ async function main() {
       }
     });
     await writeFile(path.join(sourceDir, "reports", "test-output.log"), "tests passed\n", "utf8");
+    await mkdir(path.join(sourceDir, "reports", "validation-evidence"), { recursive: true });
+    await writeFile(path.join(sourceDir, "reports", "validation-evidence", "build.log"), "build ok\n", "utf8");
+    await writeFile(path.join(sourceDir, "reports", "validation-evidence", "test.log"), "test ok\n", "utf8");
     const canonicalValidationResults = {
       generatedAt: "2026-04-16T01:23:45.000Z",
       cwd: sourceDir,
+      rerunGuidance: {
+        requiresDependencyInstall: true,
+        installCommand: "npm ci",
+        workingDirectory: sourceDir,
+        note: "Install devDependencies before rerunning repo-level validation commands."
+      },
       results: [
         {
           command: "npm run build",
@@ -250,8 +315,9 @@ async function main() {
           startedAt: "2026-04-16T01:00:00.000Z",
           finishedAt: "2026-04-16T01:00:02.000Z",
           durationMs: 2000,
-          evidenceStrength: "record-only",
-          evidence: []
+          evidenceStrength: "artifact",
+          evidenceSummary: "Includes a retained self-check command log.",
+          evidence: ["reports/validation-evidence/build.log"]
         },
         {
           command: "npm test",
@@ -260,18 +326,28 @@ async function main() {
           finishedAt: "2026-04-16T01:00:13.000Z",
           durationMs: 10000,
           evidenceStrength: "artifact",
-          evidence: ["reports/test-output.log"]
+          evidenceSummary: "Includes a retained self-check command log plus command-specific artifacts.",
+          evidence: ["reports/validation-evidence/test.log", "reports/test-output.log"]
         }
       ]
     };
     const bundledValidationResults = {
       ...canonicalValidationResults,
       cwd: "repo",
+      rerunGuidance: {
+        requiresDependencyInstall: true,
+        installCommand: "npm ci",
+        workingDirectory: "repo",
+        note: "Install devDependencies before rerunning repo-level validation commands."
+      },
       results: [
-        canonicalValidationResults.results[0],
+        {
+          ...canonicalValidationResults.results[0],
+          evidence: ["repo/reports/validation-evidence/build.log"]
+        },
         {
           ...canonicalValidationResults.results[1],
-          evidence: ["repo/reports/test-output.log"]
+          evidence: ["repo/reports/validation-evidence/test.log", "repo/reports/test-output.log"]
         }
       ]
     };
@@ -308,6 +384,8 @@ async function main() {
     await stat(path.join(result.bundleSourceDirectory, "AGENTS.md"));
     await stat(path.join(result.bundleSourceDirectory, "README.md"));
     await stat(path.join(result.bundleSourceDirectory, "src", "index.mjs"));
+    await stat(path.join(result.bundleSourceDirectory, "artifacts", "clarification", "intake-spec.json"));
+    await stat(path.join(result.bundleSourceDirectory, "artifacts", "clarification", "intake-summary.md"));
     await stat(path.join(result.bundleSourceDirectory, "reports", "runtime-doctor.json"));
     await stat(path.join(result.bundleSourceDirectory, "runs", "demo-run", "run-state.json"));
     await stat(path.join(result.bundleSourceDirectory, "docs", "artifact-contract.md"));
@@ -397,7 +475,11 @@ async function main() {
     assert.deepEqual(canonicalValidationResultsInBundle, canonicalValidationResults);
     await assertBundleEvidencePathsExist(result.bundleDirectory, validationResults);
     assert.match(sourceFileList, /metadata\/validation-results\.json/);
+    assert.match(sourceFileList, /repo\/artifacts\/clarification\/intake-spec\.json/);
+    assert.match(sourceFileList, /repo\/artifacts\/clarification\/intake-summary\.md/);
     assert.match(sourceFileList, /repo\/reports\/validation-results\.json/);
+    assert.match(sourceFileList, /repo\/reports\/validation-evidence\/build\.log/);
+    assert.match(sourceFileList, /repo\/reports\/validation-evidence\/test\.log/);
     assert.match(sourceFileList, /repo\/reports\/test-output\.log/);
     assert.match(sourceFileList, /repo\/README\.md/);
     assert.match(sourceFileList, /repo\/src\/index\.mjs/);
@@ -425,6 +507,12 @@ async function main() {
     await writeJson(path.join(sourceDir, "reports", "validation-results.json"), {
       generatedAt: "2026-04-16T02:00:00.000Z",
       cwd: sourceDir,
+      rerunGuidance: {
+        requiresDependencyInstall: true,
+        installCommand: "npm ci",
+        workingDirectory: sourceDir,
+        note: "Install devDependencies before rerunning repo-level validation commands."
+      },
       results: [
         {
           command: "npm test",
@@ -433,10 +521,13 @@ async function main() {
           finishedAt: "2026-04-16T02:00:01.000Z",
           durationMs: 1000,
           evidenceStrength: "artifact",
-          evidence: ["reports/archive-proof.log"]
+          evidenceSummary: "Includes a retained self-check command log plus command-specific artifacts.",
+          evidence: ["reports/validation-evidence/test.log", "reports/archive-proof.log"]
         }
       ]
     });
+    await mkdir(path.join(sourceDir, "reports", "validation-evidence"), { recursive: true });
+    await writeFile(path.join(sourceDir, "reports", "validation-evidence", "test.log"), "archive test ok\n", "utf8");
 
     const result = await createReviewBundle({
       sourceDir,
@@ -479,7 +570,10 @@ async function main() {
       const archivedValidationResults = JSON.parse(validationResultsEntry.text);
       assert.ok(Array.isArray(archivedValidationResults.results));
       assertValidationResultsUseBundleSafePaths(archivedValidationResults);
-      assert.deepEqual(archivedValidationResults.results[0]?.evidence, ["repo/reports/archive-proof.log"]);
+      assert.deepEqual(archivedValidationResults.results[0]?.evidence, [
+        "repo/reports/validation-evidence/test.log",
+        "repo/reports/archive-proof.log"
+      ]);
       assertArchiveEvidencePathsExist(zipEntries, bundleRootName, archivedValidationResults);
     }
   });
@@ -500,6 +594,12 @@ async function main() {
     await writeJson(path.join(sourceDir, "reports", "validation-results.json"), {
       generatedAt: "2026-04-16T03:00:00.000Z",
       cwd: sourceDir,
+      rerunGuidance: {
+        requiresDependencyInstall: true,
+        installCommand: "npm ci",
+        workingDirectory: sourceDir,
+        note: "Install devDependencies before rerunning repo-level validation commands."
+      },
       results: [
         {
           command: "npm run doctor",
@@ -508,6 +608,7 @@ async function main() {
           finishedAt: "2026-04-16T03:00:01.000Z",
           durationMs: 1000,
           evidenceStrength: "record-only",
+          evidenceSummary: "No retained artifacts were captured; use status and timing metadata only.",
           evidence: []
         }
       ]

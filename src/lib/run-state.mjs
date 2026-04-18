@@ -105,7 +105,14 @@ function createDeliveryTask(plan) {
   };
 }
 
-export function createRunState(spec, plan, config, requestedRunId, workspacePath = process.cwd()) {
+export function createRunState(
+  spec,
+  plan,
+  config,
+  requestedRunId,
+  workspacePath = process.cwd(),
+  intake = null
+) {
   const createdAt = new Date().toISOString();
   const runId = requestedRunId || `${slugify(spec.projectName)}-${compactTimestamp(createdAt)}`;
   const implementationTasks = spec.coreFeatures.map((feature) =>
@@ -150,6 +157,7 @@ export function createRunState(spec, plan, config, requestedRunId, workspacePath
     runtimeRouting: config.runtimeRouting,
     modelPolicy: config.modelPolicy,
     mandatoryGates: config.mandatoryGates,
+    intake,
     stopConditions: spec.riskStopRules,
     definitionOfDone: spec.definitionOfDone,
     taskLedger,
@@ -407,6 +415,19 @@ export function renderTaskBrief(spec, runState, task) {
 
 export function renderRunReport(runState, plan) {
   const summary = summarizeRunState(runState);
+  const intakeSection = runState.intake
+    ? [
+        "",
+        "## Intake Gate",
+        `- Request ID: ${runState.intake.requestId}`,
+        `- Title: ${runState.intake.title}`,
+        `- Clarification status: ${runState.intake.clarificationStatus}`,
+        `- Confirmed by user: ${runState.intake.confirmedByUser ? "yes" : "no"}`,
+        `- Recommended next step: ${runState.intake.recommendedNextStep}`,
+        `- Intake spec: ${runState.intake.artifactPaths?.intakeSpecPath ?? "unknown"}`,
+        `- Intake summary: ${runState.intake.artifactPaths?.intakeSummaryPath ?? "unknown"}`
+      ]
+    : [];
 
   return [
     `# ${runState.projectName} Run Report`,
@@ -426,6 +447,7 @@ export function renderRunReport(runState, plan) {
     ...Object.entries(runState.roles).map(
       ([roleId, settings]) => `- ${roleId}: ${settings.tool} (${settings.automation})`
     ),
+    ...intakeSection,
     "",
     "## Task Ledger",
     ...runState.taskLedger.map((task) => `- [${task.status}] ${task.id} -> ${task.title}`),

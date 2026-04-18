@@ -18,29 +18,38 @@ The goal is to make environment discovery, completion criteria, round outputs, a
 
 The CLI currently supports these stages:
 
-1. `validate`
+1. `intake`
+   Converts a natural-language request into clarification artifacts under `artifacts/clarification/`.
+2. `confirm`
+   Marks a clarification artifact as confirmed and therefore planning-ready.
+3. `revise`
+   Re-runs clarification on the current or revised request and can move a blocked clarification back into an active state.
+4. `validate`
    Checks whether a project spec matches the expected schema.
-2. `plan`
+5. `plan`
    Builds `execution-plan.json` and `execution-plan.md`.
-3. `run`
+6. `run`
    Creates a run directory, snapshots the spec, writes a plan, writes role metadata,
-   writes `run-state.json`, writes `report.md`, and creates task briefs.
-4. `task`
+   writes `run-state.json`, writes `report.md`, creates task briefs, and snapshots the confirmed intake context when present.
+7. `task`
    Updates one task status in `run-state.json` and refreshes downstream task readiness.
-5. `result`
+8. `result`
    Validates a result artifact for a hybrid or manual task and applies it back into `run-state.json`.
-6. `retry`
+9. `retry`
    Schedules a timed retry window for transient manual/hybrid follow-up failures such as rate limits or timeouts.
-7. `tick`
+10. `tick`
    Refreshes the run state, releases expired retry windows back to `ready`, regenerates `report.md`, and rebuilds the current handoff index.
-8. `doctor`
-   Checks runtime readiness for OpenClaw, optional Cursor surface availability, Codex, and local CI.
-9. `handoff`
+11. `doctor`
+   Checks runtime readiness with a GPT-5.4 + Codex default profile:
+   required `codex` + `local-ci`, optional `openclaw` + `cursor`.
+12. `handoff`
    Creates prompt files, handoff descriptors, Markdown summaries, launcher scripts,
    and expected result artifact paths for every task that is currently `ready`.
-10. `dispatch`
+13. `dispatch`
    Runs launcher scripts in `dry-run` or `execute` mode, validates result artifacts,
    writes dispatch reports, and syncs supported outcomes into `run-state.json`.
+
+When a workspace has clarification artifacts, `plan`, `run`, `handoff`, and `dispatch` all fail closed until the intake is confirmed.
 
 ## Task Model
 
@@ -67,7 +76,7 @@ outcomes derived from dispatch results.
 
 The execution plan and the default factory config use these high-level labels:
 
-- orchestrator: `OpenClaw`
+- orchestrator: `GPT-5.4 + Codex (manual orchestration)`
 - planner: `GPT-5.4 / GPT-5.4 Pro`
 - executor: `Codex`
 - reviewer: `GPT-5.4 / GPT-5.4 Pro`
@@ -114,7 +123,7 @@ The runtime registry currently defines:
 
 Runtime preference order is currently:
 
-- orchestrator: `openclaw`, then `manual`
+- orchestrator: `manual`
 - planner: `manual`
 - reviewer: `manual`
 - executor: `codex`, then `manual`
@@ -122,10 +131,11 @@ Runtime preference order is currently:
 
 This now aligns the starter with its intended operating model:
 
-- OpenClaw orchestrates
+- GPT-5.4 + Codex drive default manual orchestration
 - GPT-5.4 / GPT-5.4 Pro drive planning and review work through manual-first handoffs
 - Codex executes implementation work
 - local CI verifies
+- OpenClaw remains an optional orchestrator adapter for teams that explicitly opt it in
 - Cursor remains an auxiliary human IDE / spot-check surface and is not auto-selected by the default planner/reviewer route
 
 If a team wants Cursor as an explicit planner/reviewer fallback, it must opt in through `runtimeRouting.roleOverrides`, for example:
@@ -147,7 +157,7 @@ If a team wants Cursor as an explicit planner/reviewer fallback, it must opt in 
 
 Default mapping:
 
-- orchestrator -> `openclaw`
+- orchestrator -> `gpt-5.4`
 - planner -> `gpt-5.4`
 - reviewer -> `gpt-5.4`
 - executor -> `codex`
@@ -329,6 +339,7 @@ Automated runtimes also depend on the generated launcher shell being available f
 - `bash` on Linux/macOS (or `AI_FACTORY_LAUNCHER_SHELL_COMMAND` when explicitly overridden)
 
 If that launcher shell is unavailable, doctor marks `openclaw`, `codex`, and `local-ci` as not ready so routing can fall back cleanly instead of failing only at dispatch time.
+In the default GPT-5.4 + Codex route, `codex` and `local-ci` are the required checks; `openclaw` remains optional.
 
 If that report is missing, the loader returns an empty check list. Runtime
 normalization then treats all non-manual runtimes as not ready, so routing falls
