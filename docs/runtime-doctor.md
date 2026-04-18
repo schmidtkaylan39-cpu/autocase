@@ -208,3 +208,11 @@ It does not guarantee:
 - that Codex can finish an end-to-end execution flow
 - that local CI scripts actually pass
 - that verifier result artifacts will be written
+
+## Incident SOP Reference
+
+When runtime checks are healthy but requests still fail due to external routing errors (for example repeated `502 Bad Gateway` from upstream gateway hosts), follow:
+
+- `docs/external-gateway-incident-sop.md`
+
+That SOP defines concurrency reduction, bounded retry/backoff, fallback-to-mainline behavior, and evidence capture requirements.

@@ -397,3 +397,7 @@ Checks include:
 - Codex CLI plus auth readiness (`codex login status`)
 - local-ci verifier script completeness:
   `build`, `lint`, `typecheck`, `test`, `test:integration`, `test:e2e`
+
+Operational incident handling:
+
+- external gateway incident SOP (`502` handling and fallback): `docs/external-gateway-incident-sop.md`
