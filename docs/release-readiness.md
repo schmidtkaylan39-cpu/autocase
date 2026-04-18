@@ -49,6 +49,8 @@ npm run test:e2e
 npm run doctor
 ```
 
+`npm run validate:workflows` is also a semantic guard for `.github/workflows/release-readiness.yml` and fails if Windows `backup:project` or `release:win` smoke commands are missing (or not Windows-scoped).
+
 On a Windows release host, also run packaging smoke:
 
 ```bash

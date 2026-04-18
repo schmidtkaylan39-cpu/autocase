@@ -227,6 +227,8 @@ npm run test:e2e
 npm run doctor
 ```
 
+`npm run validate:workflows` now also enforces that `.github/workflows/release-readiness.yml` still carries Windows-only `backup:project` and `release:win` smoke coverage.
+
 Or capture the same release-gate run in one machine-readable pass:
 
 ```bash

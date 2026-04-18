@@ -141,6 +141,11 @@ function assertValidationResultsUseBundleSafePaths(validationResults) {
 }
 
 function assertExternalReviewerMetadataText(reviewBrief, reviewPrompt) {
+  assert.match(reviewBrief, /## Rerun Prerequisite/i);
+  assert.match(
+    reviewBrief,
+    /If you want to rerun repo-level validations from `repo\/`, run `npm ci` first so devDependencies are available\./i
+  );
   assert.match(
     reviewBrief,
     /metadata\/validation-results\.json.*carries `rerunGuidance`, `evidenceStrength`, and `evidenceSummary`/i

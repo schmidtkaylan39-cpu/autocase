@@ -6,6 +6,8 @@ import YAML from "yaml";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const workflowsDirectory = path.join(projectRoot, ".github", "workflows");
+const releaseReadinessWorkflowFiles = new Set(["release-readiness.yml", "release-readiness.yaml"]);
+const requiredWindowsSmokeScripts = ["backup:project", "release:win"];
 
 function isPlainObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -20,7 +22,95 @@ function summarizeYamlError(error) {
   return error instanceof Error ? error.message : String(error);
 }
 
-function validateWorkflowShape(fileName, workflow) {
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function runsOnTargetsWindows(runsOn) {
+  if (typeof runsOn === "string") {
+    return runsOn.toLowerCase().includes("windows");
+  }
+
+  if (Array.isArray(runsOn)) {
+    return runsOn.some((candidate) => typeof candidate === "string" && candidate.toLowerCase().includes("windows"));
+  }
+
+  return false;
+}
+
+function stepTargetsWindows(step) {
+  if (!isPlainObject(step) || typeof step.if !== "string") {
+    return false;
+  }
+
+  const expression = step.if.toLowerCase();
+
+  return expression.includes("windows-latest") || expression.includes("runner.os") && expression.includes("windows");
+}
+
+function stepRunsScript(step, scriptName) {
+  if (!isPlainObject(step) || typeof step.run !== "string") {
+    return false;
+  }
+
+  const commandPattern = new RegExp(`\\bnpm\\s+run\\s+${escapeRegExp(scriptName)}\\b`, "i");
+  return commandPattern.test(step.run);
+}
+
+function describeStep(step) {
+  if (isPlainObject(step) && typeof step.name === "string" && step.name.trim().length > 0) {
+    return step.name.trim();
+  }
+
+  return "(unnamed step)";
+}
+
+export function validateReleaseReadinessWindowsSmoke(fileName, workflow) {
+  const foundScripts = new Set();
+
+  for (const [jobId, job] of Object.entries(workflow.jobs)) {
+    if (!isPlainObject(job) || !Array.isArray(job.steps)) {
+      continue;
+    }
+
+    const jobTargetsWindows = runsOnTargetsWindows(job["runs-on"]);
+
+    for (const step of job.steps) {
+      for (const scriptName of requiredWindowsSmokeScripts) {
+        if (!stepRunsScript(step, scriptName)) {
+          continue;
+        }
+
+        if (!jobTargetsWindows && !stepTargetsWindows(step)) {
+          throw new Error(
+            `${fileName}: step "${describeStep(step)}" in job "${jobId}" runs "npm run ${scriptName}" without a Windows-only guard.`
+          );
+        }
+
+        foundScripts.add(scriptName);
+      }
+    }
+  }
+
+  const missingScripts = requiredWindowsSmokeScripts.filter((scriptName) => !foundScripts.has(scriptName));
+
+  if (missingScripts.length > 0) {
+    const missingCommands = missingScripts.map((scriptName) => `"npm run ${scriptName}"`).join(", ");
+    throw new Error(
+      `${fileName}: missing required Windows release smoke command(s): ${missingCommands}.`
+    );
+  }
+}
+
+export function validateWorkflowSemantics(fileName, workflow) {
+  if (!releaseReadinessWorkflowFiles.has(fileName)) {
+    return;
+  }
+
+  validateReleaseReadinessWindowsSmoke(fileName, workflow);
+}
+
+export function validateWorkflowShape(fileName, workflow) {
   if (!isPlainObject(workflow)) {
     throw new Error(`${fileName}: workflow root must be a YAML mapping.`);
   }
@@ -64,6 +154,7 @@ async function validateWorkflowFile(filePath) {
 
   const workflow = document.toJS();
   validateWorkflowShape(fileName, workflow);
+  validateWorkflowSemantics(fileName, workflow);
 
   return {
     fileName,
@@ -99,7 +190,9 @@ async function main() {
   console.log(`Validated ${results.length} workflow files.`);
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.stack : String(error));
-  process.exitCode = 1;
-});
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.stack : String(error));
+    process.exitCode = 1;
+  });
+}
