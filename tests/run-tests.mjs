@@ -965,6 +965,42 @@ async function main() {
     );
   });
 
+  await runTest("applyTaskResult accepts completed artifacts with advisory continue automationDecision", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-advisory-complete-"));
+    const runResult = await runProject(validSpecPath, tempDir, "advisory-complete-run");
+    const handoffResult = await createRunHandoffs(runResult.statePath);
+    const planningDescriptor = handoffResult.descriptors.find((descriptor) => descriptor.taskId === "planning-brief");
+
+    if (!planningDescriptor) {
+      throw new Error("Expected a planning-brief handoff descriptor.");
+    }
+
+    await writeJson(planningDescriptor.resultPath, withArtifactIdentity({
+      status: "completed",
+      summary: "planner completed and advisory routing can be ignored safely",
+      changedFiles: ["runs/advisory-complete-run/report.md"],
+      verification: ["planner brief reviewed"],
+      notes: ["completed artifacts may include harmless advisory continuation metadata"],
+      automationDecision: {
+        action: "continue",
+        targetTaskId: "implement-spec-intake",
+        reason: "implementation is the natural next step"
+      }
+    }, {
+      runId: runResult.runId,
+      taskId: "planning-brief",
+      handoffId: planningDescriptor.handoffId
+    }));
+
+    const result = await applyTaskResult(runResult.statePath, "planning-brief", planningDescriptor.resultPath);
+    const refreshedRunState = JSON.parse(await readFile(runResult.statePath, "utf8"));
+
+    assert.equal(result.task?.status, "completed");
+    assert.equal(result.appliedDecision?.advisory, true);
+    assert.equal(refreshedRunState.taskLedger.find((task) => task.id === "planning-brief")?.status, "completed");
+    assert.equal(refreshedRunState.taskLedger.find((task) => task.id === "implement-spec-intake")?.status, "ready");
+  });
+
   await runTest("hybrid retry schedules a waiting window and records retry metadata", async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-retry-"));
     const runResult = await runProject(validSpecPath, tempDir, "retry-run");

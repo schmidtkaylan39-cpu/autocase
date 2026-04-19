@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdtemp, readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -16,6 +17,10 @@ async function runTest(name, fn) {
     console.error(`FAIL ${name}`);
     throw error;
   }
+}
+
+function hashTextSha256(value) {
+  return createHash("sha256").update(String(value), "utf8").digest("hex");
 }
 
 function createDescriptorFixture({
@@ -206,10 +211,48 @@ async function main() {
       assert.equal(descriptor.runtime.selectionStatus, "ready");
       assert.equal(descriptor.model.preferredModel, "gpt-5.4");
       assert.equal(descriptor.model.selectionMode, "default");
+      assert.deepEqual(descriptor.model.deterministicSettings, {
+        fixedModelId: "gpt-5.4",
+        temperature: 0,
+        maxTokens: 12000,
+        topP: 1
+      });
       assert.match(descriptor.runtime.selectionReason, /GPT Runner is ready/i);
       assert.equal(descriptor.paths.workspacePath, "C:/workspace/demo");
       assert.ok(descriptor.promptText.includes("- workspaceRoot: C:/workspace/demo"));
+      assert.ok(descriptor.promptText.includes("# Deterministic Controls"));
+      assert.ok(descriptor.promptText.includes("- fixedModelId: gpt-5.4"));
+      assert.ok(descriptor.promptText.includes("- temperature: 0"));
+      assert.ok(descriptor.promptText.includes("- maxTokens: 12000"));
+      assert.ok(descriptor.promptText.includes("- topP: 1"));
+      assert.ok(descriptor.promptText.includes("# Execution Guardrails"));
+      assert.ok(descriptor.promptText.includes("- retryBudget: 1"));
+      assert.ok(descriptor.promptText.includes("- circuitBreakerLimit: 1"));
       assert.ok(descriptor.promptText.includes("# Workspace Root Path\nC:/workspace/demo"));
+      assert.equal(descriptor.prompt.hashAlgorithm, "sha256");
+      assert.equal(descriptor.prompt.hash, hashTextSha256(`${descriptor.promptText}\n`));
+      assert.equal(descriptor.prompt.encoding, "utf8");
+      assert.equal(descriptor.execution.timeoutMs, 300000);
+      assert.equal(descriptor.execution.retryBudget, 1);
+      assert.equal(descriptor.execution.circuitBreakerLimit, 1);
+      assert.match(descriptor.execution.idempotencyKey, /^[a-f0-9]{64}$/);
+      assert.equal(descriptor.launcher.metadata.fixedModelId, "gpt-5.4");
+      assert.equal(descriptor.launcher.metadata.fixedModel, "gpt-5.4");
+      assert.equal(descriptor.launcher.metadata.temperature, 0);
+      assert.equal(descriptor.launcher.metadata.maxTokens, 12000);
+      assert.equal(descriptor.launcher.metadata.maxOutputTokens, 12000);
+      assert.equal(descriptor.launcher.metadata.topP, 1);
+      assert.equal(descriptor.launcher.metadata.promptHash, descriptor.prompt.hash);
+      assert.equal(descriptor.launcher.metadata.promptEncoding, "utf8");
+      assert.equal(descriptor.launcher.metadata.idempotencyKey, descriptor.execution.idempotencyKey);
+      assert.match(descriptor.launcherScript, /Deterministic model id:/);
+      assert.match(descriptor.launcherScript, /Deterministic temperature:/);
+      assert.match(descriptor.launcherScript, /Deterministic maxTokens:/);
+      assert.match(descriptor.launcherScript, /Deterministic topP:/);
+      assert.match(descriptor.launcherScript, /Prompt hash:/);
+      assert.ok(descriptor.launcherScript.includes(descriptor.model.deterministicSettings.fixedModelId));
+      assert.ok(descriptor.launcherScript.includes(String(descriptor.model.deterministicSettings.maxTokens)));
+      assert.ok(descriptor.launcherScript.includes(descriptor.prompt.hash));
     }
 
     assert.equal(windowsDescriptor.launcher.language, "powershell");
@@ -252,6 +295,7 @@ async function main() {
     assert.equal(descriptor.runtime.mode, "manual");
     assert.equal(descriptor.runtime.selectionStatus, "ready");
     assert.equal(descriptor.model.preferredModel, "gpt-5.4");
+    assert.equal(descriptor.model.deterministicSettings.fixedModelId, "gpt-5.4");
 
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-runtime-routing-"));
     const handoffDir = path.join(tempDir, "handoffs");
@@ -394,7 +438,15 @@ async function main() {
     assert.equal(descriptor.runtime.id, "gpt-runner");
     assert.equal(descriptor.model.preferredModel, "gpt-5.4-pro");
     assert.equal(descriptor.model.selectionMode, "escalated");
+    assert.deepEqual(descriptor.model.deterministicSettings, {
+      fixedModelId: "gpt-5.4-pro",
+      temperature: 0,
+      maxTokens: 12000,
+      topP: 1
+    });
     assert.match(descriptor.promptText, /preferredModel: gpt-5\.4-pro/);
+    assert.match(descriptor.launcherScript, /Deterministic model id:/);
+    assert.ok(descriptor.launcherScript.includes("gpt-5.4-pro"));
   });
 
   await runTest("launcher scripts use literal paths and preserve special characters", async () => {
@@ -436,7 +488,28 @@ async function main() {
 
     assert.equal(descriptor.runtime.id, "codex");
     assert.equal(descriptor.model.preferredModel, "codex");
+    assert.deepEqual(descriptor.model.deterministicSettings, {
+      fixedModelId: "codex",
+      temperature: 0,
+      maxTokens: 12000,
+      topP: 1
+    });
+    assert.equal(descriptor.execution.retryBudget, 3);
+    assert.equal(descriptor.execution.circuitBreakerLimit, 3);
+    assert.equal(descriptor.launcher.metadata.fixedModelId, "codex");
+    assert.equal(descriptor.launcher.metadata.fixedModel, "codex");
+    assert.equal(descriptor.launcher.metadata.temperature, 0);
+    assert.equal(descriptor.launcher.metadata.maxTokens, 12000);
+    assert.equal(descriptor.launcher.metadata.maxOutputTokens, 12000);
+    assert.equal(descriptor.launcher.metadata.topP, 1);
     assert.match(descriptor.launcherScript, /Preferred model: /);
+    assert.match(descriptor.launcherScript, /Deterministic model id:/);
+    assert.match(descriptor.launcherScript, /Deterministic maxTokens:/);
+    assert.match(descriptor.launcherScript, /Deterministic topP:/);
+    assert.match(descriptor.launcherScript, /Prompt hash:/);
+    assert.ok(descriptor.launcherScript.includes("codex"));
+    assert.ok(descriptor.launcherScript.includes("12000"));
+    assert.ok(descriptor.launcherScript.includes(descriptor.prompt.hash));
 
     if (process.platform === "win32") {
       assert.equal(descriptor.launcher.language, "powershell");
@@ -489,8 +562,27 @@ async function main() {
     assert.equal(linuxDescriptor.runtime.id, "local-ci");
     assert.equal(windowsDescriptor.launcher.language, "powershell");
     assert.equal(linuxDescriptor.launcher.language, "bash");
+    assert.equal(windowsDescriptor.execution.timeoutMs, 900000);
+    assert.equal(linuxDescriptor.execution.timeoutMs, 900000);
+    assert.equal(windowsDescriptor.execution.retryBudget, 2);
+    assert.equal(linuxDescriptor.execution.retryBudget, 2);
+    assert.equal(windowsDescriptor.execution.circuitBreakerLimit, 2);
+    assert.equal(linuxDescriptor.execution.circuitBreakerLimit, 2);
+    assert.equal(windowsDescriptor.launcher.metadata.timeoutMs, 900000);
+    assert.equal(linuxDescriptor.launcher.metadata.timeoutMs, 900000);
+    assert.equal(windowsDescriptor.model.deterministicSettings.fixedModelId, "local-ci");
+    assert.equal(linuxDescriptor.model.deterministicSettings.fixedModelId, "local-ci");
+    assert.equal(windowsDescriptor.launcher.metadata.fixedModelId, "local-ci");
+    assert.equal(windowsDescriptor.launcher.metadata.fixedModel, "local-ci");
+    assert.ok(!("temperature" in windowsDescriptor.launcher.metadata));
+    assert.ok(!("maxTokens" in windowsDescriptor.launcher.metadata));
+    assert.ok(!("maxOutputTokens" in windowsDescriptor.launcher.metadata));
+    assert.ok(!("topP" in windowsDescriptor.launcher.metadata));
+    assert.equal(windowsDescriptor.launcher.metadata.promptEncoding, "utf8");
 
     assert.match(windowsDescriptor.launcherScript, /Set-Location -LiteralPath 'C:\/workspace\/demo'/);
+    assert.match(windowsDescriptor.launcherScript, /Deterministic model id:/);
+    assert.ok(windowsDescriptor.launcherScript.includes("local-ci"));
     assert.match(windowsDescriptor.launcherScript, /\bnpm run build\b/);
     assert.match(windowsDescriptor.launcherScript, /\bnpm run lint\b/);
     assert.match(windowsDescriptor.launcherScript, /\bnpm run typecheck\b/);
@@ -502,6 +594,8 @@ async function main() {
     );
 
     assert.match(linuxDescriptor.launcherScript, /cd 'C:\/workspace\/demo'/);
+    assert.match(linuxDescriptor.launcherScript, /Deterministic model id:/);
+    assert.ok(linuxDescriptor.launcherScript.includes("local-ci"));
     assert.match(linuxDescriptor.launcherScript, /\bnpm run build\b/);
     assert.match(linuxDescriptor.launcherScript, /\bnpm run lint\b/);
     assert.match(linuxDescriptor.launcherScript, /\bnpm run typecheck\b/);
@@ -553,8 +647,11 @@ async function main() {
     assert.equal(linuxDescriptor.runtime.mode, "manual");
     assert.equal(windowsDescriptor.launcher.language, "powershell");
     assert.equal(linuxDescriptor.launcher.language, "bash");
+    assert.equal(windowsDescriptor.launcher.metadata.fixedModelId, "gpt-5.4");
 
     assert.match(windowsDescriptor.launcherScript, /Write-Host 'Please handle this task manually\.'/);
+    assert.match(windowsDescriptor.launcherScript, /Deterministic model id:/);
+    assert.ok(windowsDescriptor.launcherScript.includes("gpt-5.4"));
     assert.match(windowsDescriptor.launcherScript, /Write-Host \('Workspace root: ' \+ 'C:[\\/]workspace[\\/]demo'\)/);
     assert.match(
       windowsDescriptor.launcherScript,
@@ -562,6 +659,8 @@ async function main() {
     );
 
     assert.match(linuxDescriptor.launcherScript, /echo 'Please handle this task manually\.'/);
+    assert.match(linuxDescriptor.launcherScript, /Deterministic model id:/);
+    assert.ok(linuxDescriptor.launcherScript.includes("gpt-5.4"));
     assert.match(
       linuxDescriptor.launcherScript,
       /printf 'Workspace root: %s\\n' 'C:[\\/]workspace[\\/]demo'/

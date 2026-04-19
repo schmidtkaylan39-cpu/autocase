@@ -1,11 +1,15 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import { mkdtemp, mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
 import { inflateRawSync } from "node:zlib";
 
 import { writeJson } from "../src/lib/fs-utils.mjs";
 import { createReviewBundle } from "../src/lib/review-bundle.mjs";
+
+const execFileAsync = promisify(execFile);
 
 async function runTest(name, fn) {
   try {
@@ -14,6 +18,19 @@ async function runTest(name, fn) {
   } catch (error) {
     console.error(`FAIL ${name}`);
     throw error;
+  }
+}
+
+async function runOptionalCommand(command, args, cwd) {
+  try {
+    await execFileAsync(command, args, {
+      cwd,
+      encoding: "utf8",
+      windowsHide: true
+    });
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -215,6 +232,7 @@ async function assertBundleReferentialIntegrity({
   const sourceFileSet = toSourceFileSet(sourceFileListText);
   const reportFiles = Array.isArray(manifest.evidence?.reportFiles) ? manifest.evidence.reportFiles : [];
   const reportFileSet = new Set(reportFiles);
+  const bundledReportFiles = [...sourceFileSet].filter((filePath) => filePath.startsWith("repo/reports/")).sort();
   const runs = Array.isArray(manifest.evidence?.runs) ? manifest.evidence.runs : [];
 
   for (const [key, value] of Object.entries(manifest.paths ?? {})) {
@@ -251,6 +269,8 @@ async function assertBundleReferentialIntegrity({
       `manifest.evidence.reportFiles must not reference filtered release-readiness artifacts: ${reportPath}`
     );
   }
+
+  assert.deepEqual([...reportFileSet].sort(), bundledReportFiles);
 
   for (const run of runs) {
     const reportPath = run?.reportPath;
@@ -306,6 +326,7 @@ function assertArchivedBundleReferentialIntegrity({
   const zipEntryNames = new Set(zipEntries.map((entry) => entry.name));
   const reportFiles = Array.isArray(manifest.evidence?.reportFiles) ? manifest.evidence.reportFiles : [];
   const reportFileSet = new Set(reportFiles);
+  const bundledReportFiles = [...sourceFileSet].filter((filePath) => filePath.startsWith("repo/reports/")).sort();
   const runs = Array.isArray(manifest.evidence?.runs) ? manifest.evidence.runs : [];
 
   const assertArchivedEntry = (relativePath, label) => {
@@ -353,6 +374,8 @@ function assertArchivedBundleReferentialIntegrity({
       `manifest.evidence.reportFiles must not reference filtered release-readiness artifacts: ${reportPath}`
     );
   }
+
+  assert.deepEqual([...reportFileSet].sort(), bundledReportFiles);
 
   for (const run of runs) {
     const reportPath = run?.reportPath;
@@ -793,6 +816,149 @@ async function main() {
     assert.doesNotMatch(sourceFileList, /reports\/acceptance\/formal-demo\/release\//);
     assert.doesNotMatch(sourceFileList, /reports\/acceptance\/formal-demo\/workspace\//);
     assert.equal(result.archivePath, null);
+  });
+
+  await runTest("review bundle fails closed when a run report reference is missing", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "ai-factory-review-bundle-missing-run-"));
+    const sourceDir = path.join(tempRoot, "source");
+    const outputDir = path.join(tempRoot, "output");
+
+    await mkdir(path.join(sourceDir, "src"), { recursive: true });
+    await mkdir(path.join(sourceDir, "runs", "demo-run"), { recursive: true });
+    await writeJson(path.join(sourceDir, "package.json"), {
+      name: "bundle-missing-run-report-fixture",
+      version: "0.0.1"
+    });
+    await writeFile(path.join(sourceDir, "README.md"), "# Missing Run Report Fixture\n", "utf8");
+    await writeFile(path.join(sourceDir, "src", "index.mjs"), "export const missingRunReport = true;\n", "utf8");
+    await writeJson(path.join(sourceDir, "runs", "demo-run", "run-state.json"), {
+      runId: "demo-run",
+      projectName: "Fixture Project",
+      status: "in_progress",
+      taskLedger: [{ id: "implement-one", status: "ready" }]
+    });
+
+    await assert.rejects(
+      () =>
+        createReviewBundle({
+          sourceDir,
+          outputDir,
+          bundleName: "fixture-missing-run-report",
+          archive: false
+        }),
+      /manifest\.evidence\.runs\[\]\.reportPath references a missing bundle entry: repo\/runs\/demo-run\/report\.md/
+    );
+    await assert.rejects(() => stat(path.join(outputDir, "fixture-missing-run-report")));
+  });
+
+  await runTest("review bundle fails closed when validation results reference a missing report file", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "ai-factory-review-bundle-missing-evidence-"));
+    const sourceDir = path.join(tempRoot, "source");
+    const outputDir = path.join(tempRoot, "output");
+
+    await mkdir(path.join(sourceDir, "src"), { recursive: true });
+    await mkdir(path.join(sourceDir, "reports", "validation-evidence"), { recursive: true });
+    await writeJson(path.join(sourceDir, "package.json"), {
+      name: "bundle-missing-validation-reference-fixture",
+      version: "0.0.2"
+    });
+    await writeFile(path.join(sourceDir, "README.md"), "# Missing Validation Reference Fixture\n", "utf8");
+    await writeFile(
+      path.join(sourceDir, "src", "index.mjs"),
+      "export const missingValidationReference = true;\n",
+      "utf8"
+    );
+    await writeFile(path.join(sourceDir, "reports", "validation-evidence", "test.log"), "test ok\n", "utf8");
+    await writeJson(path.join(sourceDir, "reports", "validation-results.json"), {
+      generatedAt: "2026-04-16T04:00:00.000Z",
+      cwd: sourceDir,
+      rerunGuidance: {
+        requiresDependencyInstall: true,
+        installCommand: "npm ci",
+        workingDirectory: sourceDir,
+        note: "Install devDependencies before rerunning repo-level validation commands."
+      },
+      results: [
+        {
+          command: "npm test",
+          status: "passed",
+          startedAt: "2026-04-16T04:00:00.000Z",
+          finishedAt: "2026-04-16T04:00:01.000Z",
+          durationMs: 1000,
+          evidenceStrength: "artifact",
+          evidenceSummary: "Includes retained artifacts referenced in evidence.",
+          evidence: ["reports/validation-evidence/test.log", "reports/missing-proof.log"]
+        }
+      ]
+    });
+
+    await assert.rejects(
+      () =>
+        createReviewBundle({
+          sourceDir,
+          outputDir,
+          bundleName: "fixture-missing-validation-reference",
+          archive: false
+        }),
+      /validation-results evidence references a missing bundle entry: repo\/reports\/missing-proof\.log/
+    );
+    await assert.rejects(() => stat(path.join(outputDir, "fixture-missing-validation-reference")));
+  });
+
+  await runTest("review bundle rejects dirty worktrees by default and allows explicit dirty snapshots", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "ai-factory-review-bundle-dirty-"));
+    const sourceDir = path.join(tempRoot, "source");
+    const outputDir = path.join(tempRoot, "output");
+
+    await mkdir(path.join(sourceDir, "src"), { recursive: true });
+    await writeJson(path.join(sourceDir, "package.json"), {
+      name: "bundle-dirty-worktree-fixture",
+      version: "0.0.3"
+    });
+    await writeFile(path.join(sourceDir, "README.md"), "# Dirty Worktree Fixture\n", "utf8");
+    await writeFile(path.join(sourceDir, "src", "index.mjs"), "export const dirtyFixture = true;\n", "utf8");
+
+    const gitAvailable = await runOptionalCommand("git", ["--version"], sourceDir);
+    const gitInitialized = gitAvailable && (await runOptionalCommand("git", ["init"], sourceDir));
+
+    if (!gitInitialized) {
+      return;
+    }
+
+    await writeFile(path.join(sourceDir, "dirty-note.txt"), "dirty snapshot fixture\n", "utf8");
+
+    await assert.rejects(
+      () =>
+        createReviewBundle({
+          sourceDir,
+          outputDir,
+          bundleName: "fixture-dirty-default",
+          archive: false
+        }),
+      /dirty worktree snapshot/i
+    );
+    await assert.rejects(() => stat(path.join(outputDir, "fixture-dirty-default")));
+
+    const result = await createReviewBundle({
+      sourceDir,
+      outputDir,
+      bundleName: "fixture-dirty-allowed",
+      archive: false,
+      allowDirty: true
+    });
+
+    const manifest = JSON.parse(await readFile(result.manifestPath, "utf8"));
+    const reviewBrief = await readFile(result.reviewBriefPath, "utf8");
+    const patchNotes = await readFile(result.patchNotesPath, "utf8");
+
+    assert.equal(manifest.git?.clean, false);
+    assert.equal(manifest.provenance?.dirtySnapshot, true);
+    assert.equal(manifest.provenance?.dirtySnapshotAllowed, true);
+    assert.match(manifest.provenance?.note ?? "", /dirty worktree snapshot/i);
+    assert.match(reviewBrief, /## Dirty Snapshot Warning/);
+    assert.match(reviewBrief, /dirty worktree snapshot/i);
+    assert.match(patchNotes, /## Dirty Snapshot Warning/);
+    assert.match(patchNotes, /dirty worktree/i);
   });
 
   await runTest("review bundle archive succeeds for Windows-style paths with spaces and symbols", async () => {

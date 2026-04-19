@@ -45,6 +45,118 @@ const rolePreferences = {
   verifier: ["local-ci", "manual"]
 };
 
+const defaultTimeoutMsByRuntime = {
+  openclaw: 300000,
+  "gpt-runner": 300000,
+  cursor: 300000,
+  codex: 300000,
+  "local-ci": 900000,
+  manual: 0
+};
+
+const defaultRetryBudgetByRole = {
+  planner: 1,
+  reviewer: 2,
+  executor: 3,
+  verifier: 2,
+  orchestrator: 1
+};
+
+const defaultMaxOutputTokensByRole = {
+  planner: 6000,
+  reviewer: 6000,
+  executor: 8000,
+  orchestrator: 6000
+};
+
+function normalizePositiveInteger(value, fallbackValue) {
+  const numericValue = Number(value);
+  return Number.isInteger(numericValue) && numericValue > 0 ? numericValue : fallbackValue;
+}
+
+function supportsDeterministicLauncherControls(runtimeId) {
+  return ["openclaw", "gpt-runner", "cursor", "codex"].includes(runtimeId);
+}
+
+function resolveRetryBudget(task, runState) {
+  const role = task?.role;
+  const retryPolicy = runState?.retryPolicy ?? {};
+
+  if (role === "executor") {
+    return normalizePositiveInteger(
+      task?.retriesBeforeReplan,
+      normalizePositiveInteger(retryPolicy.implementation, defaultRetryBudgetByRole.executor)
+    );
+  }
+
+  if (role === "reviewer") {
+    return normalizePositiveInteger(retryPolicy.review, defaultRetryBudgetByRole.reviewer);
+  }
+
+  if (role === "verifier") {
+    return normalizePositiveInteger(retryPolicy.verification, defaultRetryBudgetByRole.verifier);
+  }
+
+  if (role === "planner" || role === "orchestrator") {
+    return normalizePositiveInteger(retryPolicy.replanning, defaultRetryBudgetByRole[role]);
+  }
+
+  return normalizePositiveInteger(defaultRetryBudgetByRole[role], 1);
+}
+
+/**
+ * @param {{
+ *   runtimeId?: string | null,
+ *   task?: { role?: string | null, retriesBeforeReplan?: number | null } | null,
+ *   runState?: {
+ *     retryPolicy?: {
+ *       implementation?: number | null,
+ *       review?: number | null,
+ *       verification?: number | null,
+ *       replanning?: number | null
+ *     } | null,
+ *     escalation?: { maxConsecutiveFailures?: number | null } | null
+ *   } | null,
+ *   modelSelection?: { preferredModel?: string | null } | null
+ * }} [options]
+ */
+export function getRuntimeExecutionProfile({
+  runtimeId,
+  task,
+  runState,
+  modelSelection = null
+} = {}) {
+  const role = task?.role ?? null;
+  const retryBudget = resolveRetryBudget(task, runState);
+  const configuredFailureLimit = normalizePositiveInteger(
+    runState?.escalation?.maxConsecutiveFailures,
+    retryBudget
+  );
+  const deterministicControls = supportsDeterministicLauncherControls(runtimeId)
+    ? {
+        fixedModel: modelSelection?.preferredModel ?? null,
+        temperature: 0,
+        maxOutputTokens: normalizePositiveInteger(
+          defaultMaxOutputTokensByRole[role],
+          6000
+        )
+      }
+    : {};
+
+  return {
+    runtimeId,
+    launcherMetadata: deterministicControls,
+    execution: {
+      timeoutMs: normalizePositiveInteger(
+        defaultTimeoutMsByRuntime[runtimeId],
+        300000
+      ),
+      retryBudget,
+      circuitBreakerLimit: Math.max(1, Math.min(retryBudget, configuredFailureLimit))
+    }
+  };
+}
+
 function getAllowedRoleRuntimeIds(role) {
   return Object.entries(runtimeDefinitions)
     .filter(([, runtime]) => runtime.roles.includes(role))

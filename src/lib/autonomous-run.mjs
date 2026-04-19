@@ -3,12 +3,16 @@ import { access, readFile, rm, stat, writeFile } from "node:fs/promises";
 
 import { tickProjectRun } from "./commands.mjs";
 import { dispatchHandoffs } from "./dispatch.mjs";
-import { readJson, writeJson } from "./fs-utils.mjs";
+import { ensureDirectory, readJson, writeJson } from "./fs-utils.mjs";
 import { runRuntimeDoctor } from "./doctor.mjs";
 import { renderRunReport, refreshRunState, summarizeRunState } from "./run-state.mjs";
 
 function safeArray(value) {
   return Array.isArray(value) ? value : [];
+}
+
+function isNonEmptyString(value) {
+  return typeof value === "string" && value.trim().length > 0;
 }
 
 const autonomousLockSuffix = ".autonomous.lock";
@@ -546,13 +550,14 @@ async function writeRunReport(runDirectory, runState) {
 }
 
 function buildSummaryMarkdown(summary) {
-  return [
+  const lines = [
     "# Autonomous Run Summary",
     "",
     `- Run ID: ${summary.runId}`,
     `- Final status: ${summary.finalStatus}`,
     `- Rounds attempted: ${summary.rounds.length}`,
     `- Doctor report: ${summary.doctorReportPath}`,
+    `- Failure-feedback artifacts: ${summary.failureFeedback?.count ?? 0}`,
     "",
     "## Rounds",
     ...summary.rounds.map((round) => {
@@ -574,14 +579,251 @@ function buildSummaryMarkdown(summary) {
 
       return bits.join(", ");
     })
-  ].join("\n");
+  ];
+
+  if ((summary.failureFeedback?.count ?? 0) > 0) {
+    lines.push(
+      "",
+      "## Failure Feedback",
+      `- index: ${summary.failureFeedback.indexPath ?? "n/a"}`,
+      `- generated test cases: ${summary.failureFeedback.generatedTestCasesPath ?? "n/a"}`
+    );
+  }
+
+  return lines.join("\n");
+}
+
+function slugifyLabel(value, fallback = "entry") {
+  if (!isNonEmptyString(value)) {
+    return fallback;
+  }
+
+  const slug = String(value)
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+  return slug.length > 0 ? slug : fallback;
+}
+
+function classifyFailureCategory(reason = "") {
+  const text = String(reason).toLowerCase();
+
+  if (/rate limit|too many requests|429/.test(text)) {
+    return "rate_limit";
+  }
+
+  if (/timeout|timed out|etimedout/.test(text)) {
+    return "timeout";
+  }
+
+  if (/missing|not found|enoent|npm ci|dependency/.test(text)) {
+    return "missing_dependency";
+  }
+
+  if (/502|bad gateway|network|dns|connection|runtime is not available|shell is not available/.test(text)) {
+    return "environment_mismatch";
+  }
+
+  if (/artifact|schema|invalid json|prompt hash mismatch|idempotency key mismatch/.test(text)) {
+    return "artifact_invalid";
+  }
+
+  if (/verification|test failed|lint|typecheck|build failed/.test(text)) {
+    return "verification_failed";
+  }
+
+  if (/logic|state transition|stale|dependency/.test(text)) {
+    return "logic_bug";
+  }
+
+  return "unknown";
+}
+
+function isRetryableCategory(category) {
+  return ["rate_limit", "timeout", "environment_mismatch", "missing_dependency"].includes(category);
+}
+
+function deriveLikelyCause(category, reason) {
+  if (category === "rate_limit") {
+    return "Upstream service throttled the request.";
+  }
+
+  if (category === "timeout") {
+    return "Runtime execution exceeded the configured step timeout.";
+  }
+
+  if (category === "missing_dependency") {
+    return "Required local dependency or runtime binary was unavailable.";
+  }
+
+  if (category === "environment_mismatch") {
+    return "Runtime/network environment was unstable or unavailable.";
+  }
+
+  if (category === "artifact_invalid") {
+    return "Generated artifact did not satisfy the expected contract.";
+  }
+
+  if (category === "verification_failed") {
+    return "Verification gates reported a failing result.";
+  }
+
+  if (category === "logic_bug") {
+    return "State machine behavior or transition assumptions were violated.";
+  }
+
+  return isNonEmptyString(reason)
+    ? "Unable to classify automatically; inspect evidence for precise cause."
+    : "No diagnostic message was captured.";
+}
+
+function deriveNextBestAction(category) {
+  if (category === "rate_limit") {
+    return "Retry with backoff and keep deterministic prompt/hash inputs unchanged.";
+  }
+
+  if (category === "timeout") {
+    return "Inspect runtime logs, then increase timeout budget only if required by evidence.";
+  }
+
+  if (category === "missing_dependency") {
+    return "Install missing dependencies (for example run npm ci) and rerun the failed task.";
+  }
+
+  if (category === "environment_mismatch") {
+    return "Stabilize runtime/network availability and retry the failed handoff.";
+  }
+
+  if (category === "artifact_invalid") {
+    return "Fix artifact contract compliance and rerun the same task with identical inputs.";
+  }
+
+  if (category === "verification_failed") {
+    return "Address failing checks and rerun the verifier stage.";
+  }
+
+  if (category === "logic_bug") {
+    return "Capture a minimal repro and add a targeted regression test before retrying.";
+  }
+
+  return "Review evidence and choose the smallest safe retry or recovery step.";
+}
+
+function createFailureFeedbackEntry({
+  runId,
+  round,
+  taskId,
+  status,
+  reason,
+  evidence
+}) {
+  const category = classifyFailureCategory(reason);
+
+  return {
+    runId,
+    taskId: taskId ?? "unknown-task",
+    round,
+    category,
+    summary: isNonEmptyString(reason)
+      ? reason
+      : `Autonomous dispatch produced status=${status} without a detailed error message.`,
+    evidence: safeArray(evidence).filter(isNonEmptyString),
+    likelyCause: deriveLikelyCause(category, reason),
+    nextBestAction: deriveNextBestAction(category),
+    retryable: isRetryableCategory(category),
+    status: status ?? "failed"
+  };
+}
+
+function buildFailureLearningCase(entry, artifactPath) {
+  return {
+    id: `ff-${slugifyLabel(entry.runId, "run")}-r${entry.round}-${slugifyLabel(entry.taskId, "task")}`,
+    sourceFeedbackPath: artifactPath,
+    scenario: entry.summary,
+    category: entry.category,
+    expectedBehavior: entry.nextBestAction,
+    retryable: entry.retryable
+  };
+}
+
+async function persistFailureFeedbackArtifacts(runDirectory, entries) {
+  const normalizedEntries = safeArray(entries);
+
+  if (normalizedEntries.length === 0) {
+    return {
+      count: 0,
+      directory: null,
+      indexPath: null,
+      generatedTestCasesPath: null
+    };
+  }
+
+  const feedbackDirectory = path.join(runDirectory, "artifacts", "failure-feedback");
+  await ensureDirectory(feedbackDirectory);
+  const writtenArtifacts = [];
+
+  for (const [index, entry] of normalizedEntries.entries()) {
+    const fileName = [
+      String(index + 1).padStart(3, "0"),
+      `round-${entry.round ?? "0"}`,
+      slugifyLabel(entry.taskId, "task"),
+      slugifyLabel(entry.category, "unknown")
+    ].join("-") + ".json";
+    const artifactPath = path.join(feedbackDirectory, fileName);
+
+    await writeJson(artifactPath, entry);
+    writtenArtifacts.push({
+      path: artifactPath,
+      ...entry
+    });
+  }
+
+  const indexPath = path.join(feedbackDirectory, "failure-feedback-index.json");
+  const generatedTestCasesPath = path.join(feedbackDirectory, "generated-test-cases.json");
+  const generatedAt = new Date().toISOString();
+  const indexArtifact = {
+    generatedAt,
+    runDirectory,
+    count: writtenArtifacts.length,
+    entries: writtenArtifacts
+  };
+  const generatedTestCases = {
+    generatedAt,
+    sourceIndexPath: indexPath,
+    cases: writtenArtifacts.map((entry) => buildFailureLearningCase(entry, entry.path))
+  };
+
+  await writeJson(indexPath, indexArtifact);
+  await writeJson(generatedTestCasesPath, generatedTestCases);
+
+  return {
+    count: writtenArtifacts.length,
+    directory: feedbackDirectory,
+    indexPath,
+    generatedTestCasesPath
+  };
 }
 
 /**
  * @typedef {object} AutonomousOperations
  * @property {(outputDir?: string, workspaceRoot?: string) => Promise<{ jsonPath: string }>} [runRuntimeDoctor]
  * @property {(runStatePath: string, doctorReportPath?: string, outputDir?: string) => Promise<{ handoffIndexPath: string, readyTaskCount: number }>} [tickProjectRun]
- * @property {(handoffIndexPath: string, mode?: string) => Promise<{ summary: { executed?: number, completed?: number, continued?: number, incomplete?: number, failed?: number, skipped?: number } }>} [dispatchHandoffs]
+ * @property {(handoffIndexPath: string, mode?: string) => Promise<{
+ *   summary: { executed?: number, completed?: number, continued?: number, incomplete?: number, failed?: number, skipped?: number },
+ *   results?: Array<{
+ *     taskId?: string,
+ *     status?: string,
+ *     runtime?: string,
+ *     error?: string,
+ *     note?: string,
+ *     launcherPath?: string,
+ *     resultPath?: string
+ *   }>,
+ *   resultJsonPath?: string,
+ *   resultMarkdownPath?: string
+ * }>} [dispatchHandoffs]
  */
 
 /**
@@ -638,6 +880,7 @@ export async function runAutonomousLoop(
       ? path.resolve(handoffOutputDir)
       : path.join(runDirectory, "handoffs-autonomous");
     const rounds = [];
+    const failureFeedbackEntries = [];
     let stopReason = null;
 
     for (let round = 1; round <= maxRounds; round += 1) {
@@ -701,6 +944,34 @@ export async function runAutonomousLoop(
 
       const dispatchResult = await dispatchOperation(tickResult.handoffIndexPath, "execute");
       roundRecord.dispatchSummary = dispatchResult.summary;
+      const dispatchResults = safeArray(dispatchResult.results);
+
+      for (const result of dispatchResults) {
+        if (!["failed", "incomplete", "continued"].includes(result?.status)) {
+          continue;
+        }
+
+        const reason = [result?.error, result?.note]
+          .filter(isNonEmptyString)
+          .join(" | ");
+
+        failureFeedbackEntries.push(
+          createFailureFeedbackEntry({
+            runId: currentRunState.runId,
+            round,
+            taskId: result?.taskId ?? null,
+            status: result?.status ?? null,
+            reason,
+            evidence: [
+              tickResult.handoffIndexPath,
+              dispatchResult.resultJsonPath ?? null,
+              dispatchResult.resultMarkdownPath ?? null,
+              result?.launcherPath ?? null,
+              result?.resultPath ?? null
+            ]
+          })
+        );
+      }
 
       if ((dispatchResult.summary?.executed ?? 0) === 0) {
         stopReason =
@@ -731,6 +1002,8 @@ export async function runAutonomousLoop(
       stopReason: stopReason ?? (finalRunState.status === "completed" ? "run completed" : "maximum rounds reached"),
       runSummary: summarizeRunState(finalRunState)
     };
+    const failureFeedback = await persistFailureFeedbackArtifacts(runDirectory, failureFeedbackEntries);
+    summary.failureFeedback = failureFeedback;
     const summaryJsonPath = path.join(runDirectory, "autonomous-summary.json");
     const summaryMarkdownPath = path.join(runDirectory, "autonomous-summary.md");
 

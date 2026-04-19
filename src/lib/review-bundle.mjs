@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { access, cp, readdir, rm, writeFile } from "node:fs/promises";
+import { access, cp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 
@@ -45,7 +45,7 @@ function shouldExcludeRelativePath(relativePath) {
     }
 
     const lastSegment = lowerSegments[lowerSegments.length - 1];
-    const isLikelyFile = lastSegment.includes(".");
+    const isLikelyFile = /\.[a-z]{1,8}$/i.test(lastSegment);
 
     if (isLikelyFile && !acceptanceSummaryFileNames.has(lastSegment)) {
       return true;
@@ -75,6 +75,36 @@ async function fileExists(targetPath) {
   } catch {
     return false;
   }
+}
+
+function invariant(condition, message) {
+  if (!condition) {
+    throw new Error(message);
+  }
+}
+
+function isParentTraversalPath(referencePath) {
+  const normalizedPath = safePathLabel(path.normalize(referencePath));
+  return normalizedPath === ".." || normalizedPath.startsWith("../");
+}
+
+function formatReferenceList(referencePaths) {
+  if (referencePaths.length === 0) {
+    return "(none)";
+  }
+
+  const visiblePaths = referencePaths.slice(0, 5).join(", ");
+  return referencePaths.length > 5
+    ? `${visiblePaths} (+${referencePaths.length - 5} more)`
+    : visiblePaths;
+}
+
+function parseSourceFileList(sourceFileListText) {
+  return sourceFileListText
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .sort();
 }
 
 async function readOptionalJson(filePath) {
@@ -128,6 +158,27 @@ async function collectGitMetadata(sourceDir) {
     remotes: remotes || "",
     recentCommits: recentCommits || ""
   };
+}
+
+function isDirtyWorktree(gitMetadata) {
+  return Boolean(gitMetadata) && gitMetadata.clean === false;
+}
+
+function summarizeDirtyWorktree(statusShort) {
+  const dirtyLines =
+    typeof statusShort === "string"
+      ? statusShort
+          .split(/\r?\n/)
+          .map((line) => line.trim())
+          .filter(Boolean)
+      : [];
+
+  if (dirtyLines.length === 0) {
+    return "(git status --short unavailable)";
+  }
+
+  const preview = dirtyLines.slice(0, 5).join(" | ");
+  return dirtyLines.length > 5 ? `${preview} (+${dirtyLines.length - 5} more)` : preview;
 }
 
 async function listRelativeFiles(rootDirectory, currentDirectory = rootDirectory) {
@@ -331,6 +382,203 @@ function rewriteValidationResultsForBundle(validationResults, sourceDir) {
   };
 }
 
+function collectValidationEvidencePaths(validationResults) {
+  const evidencePaths = [];
+
+  for (const result of validationResults.results) {
+    for (const evidencePath of Array.isArray(result?.evidence) ? result.evidence : []) {
+      evidencePaths.push(evidencePath);
+    }
+  }
+
+  return evidencePaths;
+}
+
+function assertBundleRelativeReference(referencePath, label) {
+  invariant(
+    typeof referencePath === "string" && referencePath.trim().length > 0,
+    `${label} must be a non-empty string.`
+  );
+  invariant(!isAbsoluteFilePath(referencePath), `${label} must be bundle-relative: ${referencePath}`);
+  invariant(!isParentTraversalPath(referencePath), `${label} must stay inside the bundle: ${referencePath}`);
+}
+
+async function assertBundleEntryExists({
+  bundleDirectory,
+  referencePath,
+  label,
+  sourceFileSet = null,
+  expectedType = "file"
+}) {
+  assertBundleRelativeReference(referencePath, label);
+  const entryStats = await stat(path.join(bundleDirectory, referencePath)).catch(() => null);
+
+  invariant(entryStats, `${label} references a missing bundle entry: ${referencePath}`);
+
+  if (expectedType === "directory") {
+    invariant(entryStats.isDirectory(), `${label} must reference a directory: ${referencePath}`);
+    return;
+  }
+
+  invariant(entryStats.isFile(), `${label} must reference a file: ${referencePath}`);
+
+  if (sourceFileSet) {
+    invariant(
+      sourceFileSet.has(referencePath),
+      `${label} must be listed in metadata/source-file-list.txt: ${referencePath}`
+    );
+  }
+}
+
+function findMissingSetEntries(expectedEntries, actualEntriesSet) {
+  return expectedEntries.filter((entry) => !actualEntriesSet.has(entry));
+}
+
+async function validateReviewBundleIntegrity({
+  bundleDirectory,
+  manifest,
+  validationResults
+}) {
+  invariant(
+    manifest && typeof manifest === "object" && !Array.isArray(manifest),
+    "Bundle manifest must be an object."
+  );
+  invariant(
+    validationResults && typeof validationResults === "object" && Array.isArray(validationResults.results),
+    "Validation results must include a results array."
+  );
+
+  const sourceFileListPath = manifest.inventory?.sourceFileListPath;
+  await assertBundleEntryExists({
+    bundleDirectory,
+    referencePath: sourceFileListPath,
+    label: "manifest.inventory.sourceFileListPath"
+  });
+
+  const sourceFileListText = await readFile(path.join(bundleDirectory, sourceFileListPath), "utf8");
+  const sourceFileEntries = parseSourceFileList(sourceFileListText);
+  const actualBundleFiles = await listRelativeFiles(bundleDirectory);
+  const sourceFileSet = new Set(sourceFileEntries);
+  const actualBundleFileSet = new Set(actualBundleFiles);
+
+  invariant(
+    sourceFileSet.size === sourceFileEntries.length,
+    "metadata/source-file-list.txt must not contain duplicate entries."
+  );
+
+  const missingFromSourceFileList = findMissingSetEntries(actualBundleFiles, sourceFileSet);
+  const unexpectedSourceFileEntries = findMissingSetEntries(sourceFileEntries, actualBundleFileSet);
+
+  invariant(
+    missingFromSourceFileList.length === 0 && unexpectedSourceFileEntries.length === 0,
+    `metadata/source-file-list.txt must exactly match the bundled files. Missing: ${formatReferenceList(
+      missingFromSourceFileList
+    )}. Unexpected: ${formatReferenceList(unexpectedSourceFileEntries)}.`
+  );
+  invariant(
+    manifest.inventory?.fileCount === actualBundleFiles.length,
+    `manifest.inventory.fileCount must match the bundled file count (${actualBundleFiles.length}).`
+  );
+
+  for (const [key, value] of Object.entries(manifest.paths ?? {})) {
+    if (typeof value !== "string") {
+      continue;
+    }
+
+    await assertBundleEntryExists({
+      bundleDirectory,
+      referencePath: value,
+      label: `manifest.paths.${key}`,
+      sourceFileSet,
+      expectedType: key === "repoRoot" ? "directory" : "file"
+    });
+  }
+
+  const reportFiles = Array.isArray(manifest.evidence?.reportFiles) ? manifest.evidence.reportFiles : [];
+  const reportFileSet = new Set(reportFiles);
+  const actualReportFiles = actualBundleFiles.filter((filePath) => filePath.startsWith("repo/reports/"));
+  const actualReportFileSet = new Set(actualReportFiles);
+
+  invariant(
+    reportFileSet.size === reportFiles.length,
+    "manifest.evidence.reportFiles must not contain duplicate entries."
+  );
+
+  for (const reportPath of reportFiles) {
+    await assertBundleEntryExists({
+      bundleDirectory,
+      referencePath: reportPath,
+      label: "manifest.evidence.reportFiles[]",
+      sourceFileSet
+    });
+  }
+
+  const missingReportFiles = findMissingSetEntries(actualReportFiles, reportFileSet);
+  const unexpectedReportFiles = findMissingSetEntries(reportFiles, actualReportFileSet);
+
+  invariant(
+    missingReportFiles.length === 0 && unexpectedReportFiles.length === 0,
+    `manifest.evidence.reportFiles must exactly match bundled repo/reports files. Missing: ${formatReferenceList(
+      missingReportFiles
+    )}. Unexpected: ${formatReferenceList(unexpectedReportFiles)}.`
+  );
+
+  for (const run of Array.isArray(manifest.evidence?.runs) ? manifest.evidence.runs : []) {
+    invariant(
+      typeof run?.reportPath === "string",
+      "manifest.evidence.runs[].reportPath must be a string."
+    );
+    invariant(
+      typeof run?.runStatePath === "string",
+      "manifest.evidence.runs[].runStatePath must be a string."
+    );
+    invariant(
+      /^repo\/runs\/[^/]+\/report\.md$/.test(run.reportPath),
+      `manifest.evidence.runs[].reportPath must point to repo/runs/<run-id>/report.md: ${run.reportPath}`
+    );
+    invariant(
+      /^repo\/runs\/[^/]+\/run-state\.json$/.test(run.runStatePath),
+      `manifest.evidence.runs[].runStatePath must point to repo/runs/<run-id>/run-state.json: ${run.runStatePath}`
+    );
+
+    await assertBundleEntryExists({
+      bundleDirectory,
+      referencePath: run.reportPath,
+      label: "manifest.evidence.runs[].reportPath",
+      sourceFileSet
+    });
+    await assertBundleEntryExists({
+      bundleDirectory,
+      referencePath: run.runStatePath,
+      label: "manifest.evidence.runs[].runStatePath",
+      sourceFileSet
+    });
+  }
+
+  for (const result of validationResults.results) {
+    invariant(
+      Array.isArray(result?.evidence),
+      `validation-results entry for ${result?.command ?? "unknown command"} must use an evidence array.`
+    );
+  }
+
+  for (const evidencePath of collectValidationEvidencePaths(validationResults)) {
+    await assertBundleEntryExists({
+      bundleDirectory,
+      referencePath: evidencePath,
+      label: "validation-results evidence",
+      sourceFileSet
+    });
+
+    if (evidencePath.startsWith("repo/reports/")) {
+      invariant(
+        reportFileSet.has(evidencePath),
+        `validation-results evidence under repo/reports must appear in manifest.evidence.reportFiles: ${evidencePath}`
+      );
+    }
+  }
+}
+
 async function collectRunsMetadata(sourceDir) {
   const runsDirectory = path.join(sourceDir, "runs");
 
@@ -425,6 +673,16 @@ function renderReviewBrief(manifest) {
   const git = manifest.git;
   const evidence = manifest.evidence;
   const archiveLabel = manifest.archive?.path ?? "directory only";
+  const dirtySnapshot = manifest.provenance?.dirtySnapshot === true;
+  const dirtySnapshotLines = dirtySnapshot
+    ? [
+        "",
+        "## Dirty Snapshot Warning",
+        "- This bundle was generated from a dirty worktree snapshot that includes uncommitted changes beyond the stated commit.",
+        `- Dirty entries preview: ${summarizeDirtyWorktree(git?.statusShort ?? "")}`,
+        "- Treat commit provenance as advisory only for this bundle. Use clean-worktree bundles for release promotion audits."
+      ]
+    : [];
   const runLines =
     evidence.runs.length > 0
       ? evidence.runs.map(
@@ -449,6 +707,7 @@ function renderReviewBrief(manifest) {
     `- Branch: ${git?.branch ?? "unknown"}`,
     `- Commit: ${git?.head ?? "unknown"}`,
     `- Clean worktree at bundle time: ${git ? (git.clean ? "yes" : "no") : "unknown"}`,
+    ...dirtySnapshotLines,
     "",
     "## Rerun Prerequisite",
     "- This bundle is a source snapshot plus retained evidence, not a preinstalled runtime image.",
@@ -531,6 +790,16 @@ function renderReviewBrief(manifest) {
 }
 
 function renderPatchNotes(manifest) {
+  const dirtySnapshot = manifest.provenance?.dirtySnapshot === true;
+  const dirtySnapshotLines = dirtySnapshot
+    ? [
+        "",
+        "## Dirty Snapshot Warning",
+        "- This bundle was intentionally generated from a dirty worktree (`--allow-dirty`).",
+        `- Dirty entries preview: ${summarizeDirtyWorktree(manifest.git?.statusShort ?? "")}`,
+        "- Provenance caution: bundle contents are not guaranteed to match the commit exactly."
+      ]
+    : [];
   const recentCommits =
     typeof manifest.git?.recentCommits === "string" && manifest.git.recentCommits.trim().length > 0
       ? manifest.git.recentCommits.trim().split(/\r?\n/).map((line) => `- ${line}`)
@@ -546,12 +815,14 @@ function renderPatchNotes(manifest) {
     `- Bundle: ${manifest.bundleName}`,
     `- Generated at: ${manifest.generatedAt}`,
     `- Commit: ${manifest.git?.shortHead ?? manifest.git?.head ?? "unknown"}`,
+    ...(dirtySnapshot ? ["- Snapshot provenance: dirty worktree (explicitly allowed)"] : []),
     "",
     "## Included Review Context",
     "- This bundle is intended for follow-up bug review and patch validation.",
     "- Use the bundle manifest and review brief as the canonical inventory of included evidence.",
     "- Significant rounds should be interpreted through the documented artifact contract: findings, patch-notes, codex-prompt, review-bundle, and validation-results.",
     "- Cross-platform launcher behavior is expected to be `.ps1` on Windows and `.sh` on non-Windows runtimes.",
+    ...dirtySnapshotLines,
     "",
     "## Recent Commits",
     ...recentCommits,
@@ -808,19 +1079,29 @@ async function createArchive(bundleDirectory, destinationBasePath, preferredForm
   };
 }
 
+async function cleanupBundleArtifacts(bundleDirectory, archivePath = null) {
+  await rm(bundleDirectory, { recursive: true, force: true });
+
+  if (typeof archivePath === "string" && archivePath.length > 0) {
+    await rm(archivePath, { force: true });
+  }
+}
+
 /**
  * @param {{
  *   sourceDir?: string,
  *   outputDir?: string,
  *   bundleName?: string,
- *   archive?: boolean
+ *   archive?: boolean,
+ *   allowDirty?: boolean
  * }} [options]
  */
 export async function createReviewBundle({
   sourceDir = process.cwd(),
   outputDir = "review-bundles",
   bundleName = undefined,
-  archive = true
+  archive = true,
+  allowDirty = false
 } = {}) {
   const resolvedSourceDir = path.resolve(sourceDir);
   const resolvedOutputDir = path.isAbsolute(outputDir)
@@ -834,171 +1115,205 @@ export async function createReviewBundle({
     resolvedOutputDir === resolvedSourceDir || resolvedOutputDir.startsWith(`${resolvedSourceDir}${path.sep}`)
       ? resolvedOutputDir
       : null;
+  let archiveResult = {
+    archivePath: null,
+    archiveFormat: "directory"
+  };
 
   if (await fileExists(bundleDirectory)) {
     await rm(bundleDirectory, { recursive: true, force: true });
   }
 
-  await ensureDirectory(metadataDirectory);
-  await ensureDirectory(bundleSourceDirectory);
+  try {
+    await ensureDirectory(metadataDirectory);
+    await ensureDirectory(bundleSourceDirectory);
 
-  const sourceEntries = await readdir(resolvedSourceDir, {
-    withFileTypes: true
-  });
-
-  for (const entry of sourceEntries) {
-    const sourceEntryPath = path.join(resolvedSourceDir, entry.name);
-
-    if (shouldExcludeEntry(sourceEntryPath, resolvedSourceDir, outputRootInSourceTree)) {
-      continue;
-    }
-
-    await cp(sourceEntryPath, path.join(bundleSourceDirectory, entry.name), {
-      recursive: true,
-      filter: (fromPath) =>
-        !shouldExcludeEntry(fromPath, resolvedSourceDir, outputRootInSourceTree)
+    const sourceEntries = await readdir(resolvedSourceDir, {
+      withFileTypes: true
     });
-  }
 
-  const [packageJson, gitMetadata, evidenceSummary] = await Promise.all([
-    readOptionalJson(path.join(resolvedSourceDir, "package.json")),
-    collectGitMetadata(resolvedSourceDir),
-    collectEvidenceSummary(resolvedSourceDir)
-  ]);
-  const manifestPath = path.join(metadataDirectory, "bundle-manifest.json");
-  const reviewBriefPath = path.join(metadataDirectory, "external-ai-review-brief.md");
-  const reviewPromptPath = path.join(metadataDirectory, "external-ai-review-prompt.md");
-  const patchNotesPath = path.join(metadataDirectory, "patch-notes.md");
-  const validationResultsPath = path.join(metadataDirectory, "validation-results.json");
-  const sourceFileListPath = path.join(metadataDirectory, "source-file-list.txt");
-  const topLevelEntries = await readdir(bundleSourceDirectory);
+    for (const entry of sourceEntries) {
+      const sourceEntryPath = path.join(resolvedSourceDir, entry.name);
 
-  await writeGitArtifacts(metadataDirectory, gitMetadata);
-  await writeFile(reviewPromptPath, `${renderReviewPrompt()}\n`, "utf8");
-  const canonicalValidationResults = await readOptionalJson(
-    path.join(resolvedSourceDir, "reports", "validation-results.json")
-  );
-  const validationResults = isCanonicalValidationResultsArtifact(canonicalValidationResults)
-    ? rewriteValidationResultsForBundle(canonicalValidationResults, resolvedSourceDir)
-    : buildValidationResultsArtifact(effectiveBundleName, evidenceSummary);
-  await writeJson(validationResultsPath, validationResults);
+      if (shouldExcludeEntry(sourceEntryPath, resolvedSourceDir, outputRootInSourceTree)) {
+        continue;
+      }
 
-  const baseManifest = {
-    generatedAt: new Date().toISOString(),
-    bundleName: effectiveBundleName,
-    package: {
-      name: packageJson?.name ?? null,
-      version: packageJson?.version ?? null
-    },
-    git: gitMetadata,
-    evidence: evidenceSummary,
-    paths: {
-      repoRoot: "repo",
-      manifestPath: "metadata/bundle-manifest.json",
-      reviewBriefPath: "metadata/external-ai-review-brief.md",
-      reviewPromptPath: "metadata/external-ai-review-prompt.md",
-      validationResultsPath: "metadata/validation-results.json",
-      patchNotesPath: "metadata/patch-notes.md",
-      gitStatusPath: gitMetadata ? "metadata/git-status.txt" : null,
-      gitLogPath: gitMetadata ? "metadata/git-log.txt" : null,
-      gitRemotesPath: gitMetadata ? "metadata/git-remotes.txt" : null
+      await cp(sourceEntryPath, path.join(bundleSourceDirectory, entry.name), {
+        recursive: true,
+        filter: (fromPath) =>
+          !shouldExcludeEntry(fromPath, resolvedSourceDir, outputRootInSourceTree)
+      });
     }
-  };
 
-  const writeBundleMetadata = async (manifest) => {
-    await writeJson(manifestPath, manifest);
-    await writeFile(reviewBriefPath, `${renderReviewBrief(manifest)}\n`, "utf8");
-    await writeFile(patchNotesPath, `${renderPatchNotes(manifest)}\n`, "utf8");
-  };
+    const [packageJson, gitMetadata, evidenceSummary] = await Promise.all([
+      readOptionalJson(path.join(resolvedSourceDir, "package.json")),
+      collectGitMetadata(resolvedSourceDir),
+      collectEvidenceSummary(resolvedSourceDir)
+    ]);
+    const dirtySnapshot = isDirtyWorktree(gitMetadata);
 
-  await writeBundleMetadata({
-    ...baseManifest,
-    inventory: {
-      fileCount: 0,
-      topLevelEntries,
-      sourceFileListPath: "metadata/source-file-list.txt"
-    },
-    archive: {
-      format: "directory",
-      path: null
+    if (dirtySnapshot && !allowDirty) {
+      throw new Error(
+        [
+          "Refusing to generate review-bundle from a dirty worktree snapshot.",
+          "- recovery: commit/stash/discard changes, then rerun review-bundle",
+          "- override: rerun with --allow-dirty to intentionally export a dirty snapshot",
+          `- dirtyEntries: ${summarizeDirtyWorktree(gitMetadata?.statusShort ?? "")}`
+        ].join("\n")
+      );
     }
-  });
-  await writeFile(sourceFileListPath, "", "utf8");
 
-  const copiedFiles = await listRelativeFiles(bundleDirectory);
-  await writeFile(sourceFileListPath, `${copiedFiles.join("\n")}\n`, "utf8");
+    const provenanceNote = !gitMetadata
+      ? "Git metadata was unavailable when the bundle was generated; commit provenance could not be confirmed."
+      : dirtySnapshot
+        ? "Generated from a dirty worktree snapshot because --allow-dirty was set; bundle contents may include uncommitted changes beyond HEAD."
+        : "Generated from a clean worktree snapshot.";
+    const manifestPath = path.join(metadataDirectory, "bundle-manifest.json");
+    const reviewBriefPath = path.join(metadataDirectory, "external-ai-review-brief.md");
+    const reviewPromptPath = path.join(metadataDirectory, "external-ai-review-prompt.md");
+    const patchNotesPath = path.join(metadataDirectory, "patch-notes.md");
+    const validationResultsPath = path.join(metadataDirectory, "validation-results.json");
+    const sourceFileListPath = path.join(metadataDirectory, "source-file-list.txt");
+    const topLevelEntries = await readdir(bundleSourceDirectory);
 
-  const buildManifest = (archiveInfo) => ({
-    ...baseManifest,
-    inventory: {
-      fileCount: copiedFiles.length,
-      topLevelEntries,
-      sourceFileListPath: "metadata/source-file-list.txt"
-    },
-    archive: archiveInfo
-  });
+    await writeGitArtifacts(metadataDirectory, gitMetadata);
+    await writeFile(reviewPromptPath, `${renderReviewPrompt()}\n`, "utf8");
+    const canonicalValidationResults = await readOptionalJson(
+      path.join(resolvedSourceDir, "reports", "validation-results.json")
+    );
+    const validationResults = isCanonicalValidationResultsArtifact(canonicalValidationResults)
+      ? rewriteValidationResultsForBundle(canonicalValidationResults, resolvedSourceDir)
+      : buildValidationResultsArtifact(effectiveBundleName, evidenceSummary);
+    await writeJson(validationResultsPath, validationResults);
 
-  let archiveResult = {
-    archivePath: null,
-    archiveFormat: "directory"
-  };
-  let plannedArchiveFormat = "directory";
+    const baseManifest = {
+      generatedAt: new Date().toISOString(),
+      bundleName: effectiveBundleName,
+      package: {
+        name: packageJson?.name ?? null,
+        version: packageJson?.version ?? null
+      },
+      git: gitMetadata,
+      provenance: {
+        dirtySnapshot,
+        dirtySnapshotAllowed: dirtySnapshot ? allowDirty : false,
+        note: provenanceNote
+      },
+      evidence: evidenceSummary,
+      paths: {
+        repoRoot: "repo",
+        manifestPath: "metadata/bundle-manifest.json",
+        reviewBriefPath: "metadata/external-ai-review-brief.md",
+        reviewPromptPath: "metadata/external-ai-review-prompt.md",
+        validationResultsPath: "metadata/validation-results.json",
+        patchNotesPath: "metadata/patch-notes.md",
+        gitStatusPath: gitMetadata ? "metadata/git-status.txt" : null,
+        gitLogPath: gitMetadata ? "metadata/git-log.txt" : null,
+        gitRemotesPath: gitMetadata ? "metadata/git-remotes.txt" : null
+      }
+    };
 
-  if (archive) {
-    plannedArchiveFormat = await detectArchiveFormat();
-    archiveResult =
-      plannedArchiveFormat === "directory"
-        ? {
-            archivePath: null,
-            archiveFormat: "directory"
-          }
-        : {
-            archivePath: `${bundleDirectory}.${plannedArchiveFormat === "zip" ? "zip" : "tar.gz"}`,
-            archiveFormat: plannedArchiveFormat
-          };
-  }
+    const writeBundleMetadata = async (manifest) => {
+      await writeJson(manifestPath, manifest);
+      await writeFile(reviewBriefPath, `${renderReviewBrief(manifest)}\n`, "utf8");
+      await writeFile(patchNotesPath, `${renderPatchNotes(manifest)}\n`, "utf8");
+    };
 
-  let finalManifest = buildManifest(
-    archiveResult.archiveFormat === "directory"
-      ? {
-          format: "directory",
-          path: null
-        }
-      : {
-          format: archiveResult.archiveFormat,
-          path: safePathLabel(path.relative(bundleDirectory, archiveResult.archivePath))
-        }
-  );
-
-  await writeBundleMetadata(finalManifest);
-
-  if (archive && archiveResult.archiveFormat !== "directory") {
-    try {
-      archiveResult = await createArchive(bundleDirectory, bundleDirectory, plannedArchiveFormat);
-    } catch {
-      archiveResult = {
-        archivePath: null,
-        archiveFormat: "directory"
-      };
-      finalManifest = buildManifest({
+    await writeBundleMetadata({
+      ...baseManifest,
+      inventory: {
+        fileCount: 0,
+        topLevelEntries,
+        sourceFileListPath: "metadata/source-file-list.txt"
+      },
+      archive: {
         format: "directory",
         path: null
-      });
-      await writeBundleMetadata(finalManifest);
-    }
-  }
+      }
+    });
+    await writeFile(sourceFileListPath, "", "utf8");
 
-  return {
-    bundleDirectory,
-    bundleSourceDirectory,
-    metadataDirectory,
-    manifestPath,
-    reviewBriefPath,
-    reviewPromptPath,
-    patchNotesPath,
-    validationResultsPath,
-    archivePath: archiveResult.archivePath,
-    archiveFormat: archiveResult.archiveFormat,
-    fileCount: copiedFiles.length
-  };
+    const copiedFiles = await listRelativeFiles(bundleDirectory);
+    await writeFile(sourceFileListPath, `${copiedFiles.join("\n")}\n`, "utf8");
+
+    const buildManifest = (archiveInfo) => ({
+      ...baseManifest,
+      inventory: {
+        fileCount: copiedFiles.length,
+        topLevelEntries,
+        sourceFileListPath: "metadata/source-file-list.txt"
+      },
+      archive: archiveInfo
+    });
+
+    let plannedArchiveFormat = "directory";
+
+    if (archive) {
+      plannedArchiveFormat = await detectArchiveFormat();
+      archiveResult =
+        plannedArchiveFormat === "directory"
+          ? {
+              archivePath: null,
+              archiveFormat: "directory"
+            }
+          : {
+              archivePath: `${bundleDirectory}.${plannedArchiveFormat === "zip" ? "zip" : "tar.gz"}`,
+              archiveFormat: plannedArchiveFormat
+            };
+    }
+
+    let finalManifest = buildManifest(
+      archiveResult.archiveFormat === "directory"
+        ? {
+            format: "directory",
+            path: null
+          }
+        : {
+            format: archiveResult.archiveFormat,
+            path: safePathLabel(path.relative(bundleDirectory, archiveResult.archivePath))
+          }
+    );
+
+    await writeBundleMetadata(finalManifest);
+    await validateReviewBundleIntegrity({
+      bundleDirectory,
+      manifest: finalManifest,
+      validationResults
+    });
+
+    if (archive && archiveResult.archiveFormat !== "directory") {
+      try {
+        archiveResult = await createArchive(bundleDirectory, bundleDirectory, plannedArchiveFormat);
+      } catch {
+        archiveResult = {
+          archivePath: null,
+          archiveFormat: "directory"
+        };
+        finalManifest = buildManifest({
+          format: "directory",
+          path: null
+        });
+        await writeBundleMetadata(finalManifest);
+      }
+    }
+
+    return {
+      bundleDirectory,
+      bundleSourceDirectory,
+      metadataDirectory,
+      manifestPath,
+      reviewBriefPath,
+      reviewPromptPath,
+      patchNotesPath,
+      validationResultsPath,
+      archivePath: archiveResult.archivePath,
+      archiveFormat: archiveResult.archiveFormat,
+      fileCount: copiedFiles.length,
+      dirtySnapshot
+    };
+  } catch (error) {
+    await cleanupBundleArtifacts(bundleDirectory, archiveResult.archivePath);
+    throw error;
+  }
 }

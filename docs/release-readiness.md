@@ -20,7 +20,11 @@ Snapshot date: 2026-04-18 (Asia/Shanghai).
   - `run-state.json` sync (`completed`/`failed`/`blocked`, plus `continued` when a valid automation decision is applied)
   - `report.md` regeneration when run artifacts are present
 - Tests cover dispatch execute outcomes (missing artifact, invalid artifact, valid artifact, automated continuation decisions, generated `gpt-runner` launchers, and generated `local-ci` verifier launchers) and verify run-state/report sync.
-- E2E smoke now exercises the real `autonomous` CLI route in an isolated workspace with a fake Codex surface and fixture local-ci scripts, instead of the older manual planner dry-run flow.
+- E2E smoke now exercises the real `autonomous` CLI route in an isolated workspace with a fake Codex surface and fixture local-ci scripts, including deterministic fault drills:
+  - baseline roundtrip
+  - timeout recovery
+  - injected `502 Bad Gateway` recovery
+  - interruption recovery from stale in-progress execution locks
 - Packaged CLI installability is covered by `npm run pack:check`, which validates tarball contents and executes the installed binary.
 - Packaged Windows acceptance smoke script now supports a self-contained autonomous EXE pass with fixture Codex and fixture local-ci scripts.
 - Local CI verifier contract is standardized on six required scripts:
@@ -51,7 +55,7 @@ npm run doctor
 ```
 
 `npm run validate:workflows` is also a semantic guard for `.github/workflows/release-readiness.yml` and fails if Windows `backup:project` or `release:win` smoke commands are missing (or not Windows-scoped).
-`npm run test:e2e` is the autonomous CLI canary and should stay green whenever `autonomous` handoff/tick/dispatch behavior changes.
+`npm run test:e2e` is the autonomous CLI canary and should stay green whenever `autonomous` handoff/tick/dispatch behavior changes. It now runs baseline plus timeout/502/interruption fault-injection scenarios.
 
 On a Windows release host, also run packaging smoke:
 
@@ -59,6 +63,14 @@ On a Windows release host, also run packaging smoke:
 npm run backup:project -- --output-dir reports/release-readiness/backup-smoke
 npm run release:win -- --output-dir reports/release-readiness/windows-release-smoke
 ```
+
+Recommended staged canary with SLO guardrails and a rollback hook:
+
+```bash
+npm run rollout:progressive -- --run-command "npm run test:e2e" --phase canary:5:2 --phase ramp:20:3 --phase full:100:3 --min-success-rate 0.95 --max-failure-count 0 --max-consecutive-failures 1 --rollback-command "<host-specific rollback command>" --summary-file reports/release-readiness/progressive-rollout-summary.json
+```
+
+Replace `<host-specific rollback command>` with the environment-specific promotion revert or traffic rollback command before using this gate for a live release.
 
 Run example pipeline smoke:
 
@@ -86,6 +98,7 @@ Review bundle note:
 
 - the exported review bundle carries source plus validation evidence, not an already installed `node_modules` tree
 - external reviewers who want to rerun repo-level checks from `repo/` should run `npm ci` first
+- `review-bundle` now fails closed on dirty worktrees by default; use `--allow-dirty` only when you intentionally need a dirty snapshot
 - publish rounds should retain a lightweight in-repo release evidence artifact at `docs/releases/vX.Y.Z.evidence.json`
 
 Published release note:

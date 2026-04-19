@@ -164,6 +164,23 @@ function buildMarkerResultArtifactScript(resultPath, artifact, markerDirectory) 
   return `${markerLines.join("\n")}\n${buildResultArtifactScript(resultPath, artifact)}`;
 }
 
+function buildMarkerOnlyScript(markerDirectory) {
+  if (process.platform === "win32") {
+    return [
+      `$markerDirectory = '${escapePowerShellSingleQuoted(markerDirectory)}'`,
+      "New-Item -ItemType Directory -Force -Path $markerDirectory | Out-Null",
+      "$markerPath = Join-Path $markerDirectory 'launcher-ran.txt'",
+      "Set-Content -Path $markerPath -Value 'ran' -Encoding utf8"
+    ].join("\n");
+  }
+
+  return [
+    `markerDirectory='${escapeShellSingleQuoted(markerDirectory)}'`,
+    'mkdir -p "$markerDirectory"',
+    'printf "ran\n" > "$markerDirectory/launcher-ran.txt"'
+  ].join("\n");
+}
+
 function modeForRuntime(runtimeId) {
   if (runtimeId === "cursor") {
     return "hybrid";
@@ -188,6 +205,37 @@ async function writeFakeDoctorReport(filePath, overrides = {}) {
   await writeJson(filePath, { checks });
 }
 
+async function expandHandoffDescriptor(descriptor) {
+  if (!descriptor?.handoffJsonPath) {
+    return descriptor;
+  }
+
+  const persistedDescriptor = JSON.parse(await readFile(descriptor.handoffJsonPath, "utf8"));
+
+  return {
+    ...persistedDescriptor,
+    ...descriptor,
+    runtime: {
+      ...(persistedDescriptor.runtime ?? {}),
+      ...(descriptor.runtime ?? {})
+    },
+    launcher: {
+      ...(persistedDescriptor.launcher ?? {}),
+      ...(descriptor.launcher ?? {})
+    },
+    prompt: descriptor.prompt ?? persistedDescriptor.prompt,
+    execution: descriptor.execution ?? persistedDescriptor.execution,
+    promptPath:
+      descriptor.promptPath ??
+      persistedDescriptor.promptPath ??
+      persistedDescriptor.paths?.promptPath,
+    resultPath:
+      descriptor.resultPath ??
+      persistedDescriptor.resultPath ??
+      persistedDescriptor.paths?.resultPath
+  };
+}
+
 async function createDispatchReadyRun(tempDir, runId, doctorOverrides = {}) {
   const runResult = await runProject(validSpecPath, tempDir, runId);
   const doctorReportPath = path.join(tempDir, `${runId}.doctor.json`);
@@ -195,7 +243,7 @@ async function createDispatchReadyRun(tempDir, runId, doctorOverrides = {}) {
   await writeFakeDoctorReport(doctorReportPath, doctorOverrides);
 
   const handoffResult = await createRunHandoffs(runResult.statePath, undefined, doctorReportPath);
-  const baseDescriptor = handoffResult.descriptors[0];
+  const baseDescriptor = await expandHandoffDescriptor(handoffResult.descriptors[0]);
 
   if (!baseDescriptor) {
     throw new Error("Expected at least one ready handoff descriptor.");
@@ -222,7 +270,9 @@ async function createReviewDispatchReadyRun(tempDir, runId, doctorOverrides = {}
   await writeFakeDoctorReport(doctorReportPath, doctorOverrides);
 
   const handoffResult = await createRunHandoffs(runResult.statePath, undefined, doctorReportPath);
-  const baseDescriptor = handoffResult.descriptors.find((descriptor) => descriptor.taskId === "review-spec-intake");
+  const baseDescriptor = await expandHandoffDescriptor(
+    handoffResult.descriptors.find((descriptor) => descriptor.taskId === "review-spec-intake")
+  );
 
   if (!baseDescriptor) {
     throw new Error("Expected a review-spec-intake handoff descriptor.");
@@ -247,7 +297,9 @@ async function createPlannerDispatchReadyRun(tempDir, runId, doctorOverrides = {
   await writeFakeDoctorReport(doctorReportPath, doctorOverrides);
 
   const handoffResult = await createRunHandoffs(runResult.statePath, undefined, doctorReportPath);
-  const baseDescriptor = handoffResult.descriptors.find((descriptor) => descriptor.taskId === "planning-brief");
+  const baseDescriptor = await expandHandoffDescriptor(
+    handoffResult.descriptors.find((descriptor) => descriptor.taskId === "planning-brief")
+  );
 
   if (!baseDescriptor) {
     throw new Error("Expected a planning-brief handoff descriptor.");
@@ -301,7 +353,9 @@ async function createVerifierDispatchReadyRun(tempDir, runId, doctorOverrides = 
   await writeFakeDoctorReport(doctorReportPath, doctorOverrides);
 
   const handoffResult = await createRunHandoffs(runResult.statePath, undefined, doctorReportPath);
-  const baseDescriptor = handoffResult.descriptors.find((descriptor) => descriptor.taskId === "verify-spec-intake");
+  const baseDescriptor = await expandHandoffDescriptor(
+    handoffResult.descriptors.find((descriptor) => descriptor.taskId === "verify-spec-intake")
+  );
 
   if (!baseDescriptor) {
     throw new Error("Expected a verify-spec-intake handoff descriptor.");
@@ -1009,6 +1063,265 @@ async function main() {
         process.env.AI_FACTORY_POWERSHELL_TIMEOUT_MS = previousTimeout;
       }
     }
+  });
+
+  await runTest("matrix: launcher timeout still applies a valid result artifact when one was written", async () => {
+    const previousTimeout = process.env.AI_FACTORY_POWERSHELL_TIMEOUT_MS;
+    process.env.AI_FACTORY_POWERSHELL_TIMEOUT_MS = "600";
+
+    try {
+      const launcherScript = `${buildResultArtifactScript("{{RESULT_PATH}}", {
+        status: "completed",
+        summary: "artifact was written before the launcher timed out",
+        changedFiles: ["src/lib/dispatch.mjs"],
+        verification: ["npm test"],
+        notes: ["timeout recovery path"]
+      })}${process.platform === "win32" ? "Start-Sleep -Milliseconds 1200\n" : "sleep 1.2\n"}`;
+      const scenario = await runSingleDescriptorDispatchScenario({
+        tempPrefix: "ai-factory-matrix-timeout-artifact-",
+        runtimeId: "codex",
+        launcherScript
+      });
+      const { descriptor, dispatchResult, report, task } = scenario;
+      const result = dispatchResult.results[0];
+
+      assert.equal(result.status, "completed");
+      assert.match(result.note ?? "", /timed out after writing a valid result artifact/i);
+      assert.deepEqual(dispatchResult.runStateSync?.updatedTasks[0], {
+        taskId: descriptor.taskId,
+        nextStatus: "completed"
+      });
+      assert.equal(task.status, "completed");
+      assert.match(report, new RegExp(`\\[completed\\] ${descriptor.taskId} ->`));
+    } finally {
+      if (previousTimeout === undefined) {
+        delete process.env.AI_FACTORY_POWERSHELL_TIMEOUT_MS;
+      } else {
+        process.env.AI_FACTORY_POWERSHELL_TIMEOUT_MS = previousTimeout;
+      }
+    }
+  });
+
+  await runTest("matrix: descriptor timeoutMs is enforced without environment overrides", async () => {
+    const previousTimeout = process.env.AI_FACTORY_POWERSHELL_TIMEOUT_MS;
+    delete process.env.AI_FACTORY_POWERSHELL_TIMEOUT_MS;
+
+    try {
+      const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-matrix-step-timeout-"));
+      const { runResult, handoffResult, descriptor, reportPath } = await createDispatchReadyRun(
+        tempDir,
+        `step-timeout-${Date.now()}`,
+        { codex: { ok: true } }
+      );
+
+      descriptor.execution = {
+        ...descriptor.execution,
+        timeoutMs: 100
+      };
+
+      await limitDispatchToDescriptors(handoffResult.indexPath, handoffResult.runId, [descriptor]);
+      await writeFile(
+        descriptor.launcherPath,
+        process.platform === "win32" ? "Start-Sleep -Milliseconds 300\n" : "sleep 0.3\n",
+        "utf8"
+      );
+
+      const dispatchResult = await dispatchHandoffs(handoffResult.indexPath, "execute");
+      const runState = JSON.parse(await readFile(runResult.statePath, "utf8"));
+      const report = await readFile(reportPath, "utf8");
+      const task = runState.taskLedger.find((item) => item.id === descriptor.taskId);
+      const result = dispatchResult.results[0];
+
+      assert.equal(result.status, "failed");
+      assert.match(result.error ?? "", /timed out/i);
+      assert.equal(task?.status, "failed");
+      assert.match(report, new RegExp(`\\[failed\\] ${descriptor.taskId} ->`));
+    } finally {
+      if (previousTimeout === undefined) {
+        delete process.env.AI_FACTORY_POWERSHELL_TIMEOUT_MS;
+      } else {
+        process.env.AI_FACTORY_POWERSHELL_TIMEOUT_MS = previousTimeout;
+      }
+    }
+  });
+
+  await runTest("matrix: prompt hash mismatches fail before launcher execution", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-matrix-prompt-hash-"));
+    const { runResult, handoffResult, descriptor, reportPath } = await createDispatchReadyRun(
+      tempDir,
+      `prompt-hash-${Date.now()}`,
+      { codex: { ok: true } }
+    );
+    const markerDirectory = path.join(tempDir, "prompt-hash-markers");
+
+    await limitDispatchToDescriptors(handoffResult.indexPath, handoffResult.runId, [descriptor]);
+    await writeFile(descriptor.launcherPath, buildMarkerOnlyScript(markerDirectory), "utf8");
+    await writeFile(descriptor.promptPath, "tampered prompt\n", "utf8");
+
+    const dispatchResult = await dispatchHandoffs(handoffResult.indexPath, "execute");
+    const result = dispatchResult.results[0];
+    const markerFiles = await readdir(markerDirectory).catch(() => []);
+    const runState = JSON.parse(await readFile(runResult.statePath, "utf8"));
+    const report = await readFile(reportPath, "utf8");
+    const task = runState.taskLedger.find((item) => item.id === descriptor.taskId);
+
+    assert.equal(result.status, "failed");
+    assert.match(result.error ?? "", /prompt hash mismatch/i);
+    assert.equal(markerFiles.length, 0);
+    assert.equal(task?.status, "failed");
+    assert.match(report, new RegExp(`\\[failed\\] ${descriptor.taskId} ->`));
+  });
+
+  await runTest("matrix: retry budget guard blocks execution before the launcher starts", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-matrix-retry-budget-"));
+    const { runResult, handoffResult, descriptor, reportPath } = await createDispatchReadyRun(
+      tempDir,
+      `retry-budget-${Date.now()}`,
+      { codex: { ok: true } }
+    );
+    const markerDirectory = path.join(tempDir, "retry-budget-markers");
+    const runState = JSON.parse(await readFile(runResult.statePath, "utf8"));
+
+    await limitDispatchToDescriptors(handoffResult.indexPath, handoffResult.runId, [descriptor]);
+    await writeFile(descriptor.launcherPath, buildMarkerOnlyScript(markerDirectory), "utf8");
+    await writeJson(runResult.statePath, {
+      ...runState,
+      taskLedger: runState.taskLedger.map((task) =>
+        task.id === descriptor.taskId
+          ? {
+              ...task,
+              attempts: descriptor.execution.retryBudget
+            }
+          : task
+      )
+    });
+
+    const dispatchResult = await dispatchHandoffs(handoffResult.indexPath, "execute");
+    const result = dispatchResult.results[0];
+    const markerFiles = await readdir(markerDirectory).catch(() => []);
+    const nextRunState = JSON.parse(await readFile(runResult.statePath, "utf8"));
+    const report = await readFile(reportPath, "utf8");
+    const task = nextRunState.taskLedger.find((item) => item.id === descriptor.taskId);
+
+    assert.equal(result.status, "skipped");
+    assert.match(result.note ?? "", /retry budget exhausted/i);
+    assert.equal(markerFiles.length, 0);
+    assert.equal(task?.status, "blocked");
+    assert.match(report, new RegExp(`\\[blocked\\] ${descriptor.taskId} ->`));
+  });
+
+  await runTest("matrix: circuit breaker blocks execution after repeated dispatch failures", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-matrix-circuit-open-"));
+    const { runResult, handoffResult, descriptor, reportPath } = await createDispatchReadyRun(
+      tempDir,
+      `circuit-open-${Date.now()}`,
+      { codex: { ok: true } }
+    );
+    const markerDirectory = path.join(tempDir, "circuit-open-markers");
+    const runState = JSON.parse(await readFile(runResult.statePath, "utf8"));
+
+    await limitDispatchToDescriptors(handoffResult.indexPath, handoffResult.runId, [descriptor]);
+    await writeFile(descriptor.launcherPath, buildMarkerOnlyScript(markerDirectory), "utf8");
+    await writeJson(runResult.statePath, {
+      ...runState,
+      taskLedger: runState.taskLedger.map((task) =>
+        task.id === descriptor.taskId
+          ? {
+              ...task,
+              notes: [
+                "2026-04-19T00:00:00.000Z dispatch:failed",
+                "2026-04-19T00:01:00.000Z dispatch:incomplete",
+                "2026-04-19T00:02:00.000Z dispatch:failed"
+              ]
+            }
+          : task
+      )
+    });
+
+    const dispatchResult = await dispatchHandoffs(handoffResult.indexPath, "execute");
+    const result = dispatchResult.results[0];
+    const markerFiles = await readdir(markerDirectory).catch(() => []);
+    const nextRunState = JSON.parse(await readFile(runResult.statePath, "utf8"));
+    const report = await readFile(reportPath, "utf8");
+    const task = nextRunState.taskLedger.find((item) => item.id === descriptor.taskId);
+
+    assert.equal(result.status, "skipped");
+    assert.match(result.note ?? "", /circuit breaker is open/i);
+    assert.equal(markerFiles.length, 0);
+    assert.equal(task?.status, "blocked");
+    assert.match(report, new RegExp(`\\[blocked\\] ${descriptor.taskId} ->`));
+  });
+
+  await runTest("matrix: duplicate idempotency keys skip repeated descriptor entries", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-matrix-idempotency-"));
+    const { runResult, handoffResult, descriptor, reportPath } = await createDispatchReadyRun(
+      tempDir,
+      `idempotency-${Date.now()}`,
+      { codex: { ok: true } }
+    );
+    const markerDirectory = path.join(tempDir, "idempotency-markers");
+
+    await limitDispatchToDescriptors(handoffResult.indexPath, handoffResult.runId, [descriptor, { ...descriptor }]);
+    await writeFile(
+      descriptor.launcherPath,
+      bindArtifactScriptIdentity(
+        buildMarkerResultArtifactScript(
+          descriptor.resultPath,
+          {
+            status: "completed",
+            summary: "single idempotent execution",
+            changedFiles: ["src/lib/dispatch.mjs"],
+            verification: ["npm test"],
+            notes: ["idempotency guard"]
+          },
+          markerDirectory
+        ),
+        descriptor
+      ),
+      "utf8"
+    );
+
+    const dispatchResult = await dispatchHandoffs(handoffResult.indexPath, "execute");
+    const statuses = dispatchResult.results.map((result) => result.status).sort();
+    const markerFiles = await readdir(markerDirectory);
+    const runState = JSON.parse(await readFile(runResult.statePath, "utf8"));
+    const report = await readFile(reportPath, "utf8");
+    const task = runState.taskLedger.find((item) => item.id === descriptor.taskId);
+
+    assert.deepEqual(statuses, ["completed", "skipped"]);
+    assert.ok(dispatchResult.results.some((result) => /duplicate idempotency key/i.test(result.note ?? "")));
+    assert.equal(markerFiles.length, 1);
+    assert.equal(task?.status, "completed");
+    assert.match(report, new RegExp(`\\[completed\\] ${descriptor.taskId} ->`));
+  });
+
+  await runTest("matrix: completed artifacts tolerate advisory continue automationDecision", async () => {
+    const scenario = await runSingleDescriptorDispatchScenario({
+      tempPrefix: "ai-factory-matrix-advisory-complete-",
+      runtimeId: "codex",
+      launcherScript: buildResultArtifactScript("{{RESULT_PATH}}", {
+        status: "completed",
+        summary: "completed artifact carries an advisory continue hint",
+        changedFiles: ["src/lib/result-artifact.mjs"],
+        verification: ["npm test"],
+        notes: ["completed advisory continuation should not block dispatch"],
+        automationDecision: {
+          action: "continue",
+          targetTaskId: "review-spec-intake",
+          reason: "review is the natural next step"
+        }
+      })
+    });
+    const { descriptor, dispatchResult, report, task } = scenario;
+    const result = dispatchResult.results[0];
+
+    assert.equal(result.status, "completed");
+    assert.deepEqual(dispatchResult.runStateSync?.updatedTasks[0], {
+      taskId: descriptor.taskId,
+      nextStatus: "completed"
+    });
+    assert.equal(task.status, "completed");
+    assert.match(report, new RegExp(`\\[completed\\] ${descriptor.taskId} ->`));
   });
 
   await runTest("matrix: manual runtime is skipped and does not mutate run-state", async () => {

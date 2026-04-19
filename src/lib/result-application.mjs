@@ -306,7 +306,7 @@ export function applyTaskArtifactToRunState(
     )
   };
 
-  if (!artifact?.automationDecision) {
+  if (artifact?.status === "completed" || !artifact?.automationDecision) {
     const nextStatus = mapArtifactStatusToTaskStatus(artifact.status);
     const nextRunState = updateTaskInRunState(
       preparedRunState,
@@ -324,7 +324,15 @@ export function applyTaskArtifactToRunState(
         }
       ],
       task: nextRunState.taskLedger.find((task) => task.id === taskId),
-      appliedDecision: null
+      appliedDecision:
+        artifact?.status === "completed" && artifact?.automationDecision
+          ? {
+              action: artifact.automationDecision.action,
+              sourceTaskId: taskId,
+              targetTaskId: artifact.automationDecision.targetTaskId ?? null,
+              advisory: true
+            }
+          : null
     };
   }
 

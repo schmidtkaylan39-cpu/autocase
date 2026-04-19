@@ -68,7 +68,7 @@ ai-factory-starter retry <runStatePath> <taskId> [reason] [delayMinutes]
 ai-factory-starter tick <runStatePath> [doctorReportPath] [outputDir]
 ai-factory-starter handoff <runStatePath> [outputDir] [doctorReportPath]
 ai-factory-starter dispatch <handoffIndexPath> [dry-run|execute]
-ai-factory-starter review-bundle [outputDir] [bundleName] [--no-archive]
+ai-factory-starter review-bundle [outputDir] [bundleName] [--no-archive] [--allow-dirty]
 ai-factory-starter doctor [outputDir]
 ```
 
@@ -93,7 +93,7 @@ node src/index.mjs dispatch runs/demo-run/handoffs/index.json execute
 
 ```bash
 npm run selfcheck
-node src/index.mjs review-bundle review-bundles external-ai-review-<date>-<commit>-gpt-slim
+node src/index.mjs review-bundle review-bundles external-ai-review-<date>-<commit>-gpt-slim [--allow-dirty]
 ```
 
 重點：

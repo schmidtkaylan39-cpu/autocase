@@ -42,4 +42,11 @@ It also avoids the quality drop that often comes from emotional or insulting fee
 ## Current Status In This Starter
 
 This taxonomy is documented and templated.
-It is not yet enforced as a strict machine-validated dispatch artifact.
+
+`autonomous` now emits failure-learning artifacts automatically when dispatch produces failed/incomplete/continued outcomes:
+
+- `runs/<run-id>/artifacts/failure-feedback/failure-feedback-index.json`
+- `runs/<run-id>/artifacts/failure-feedback/generated-test-cases.json`
+- one per-failure JSON artifact under `runs/<run-id>/artifacts/failure-feedback/*.json`
+
+The generated test-case artifact is intended as a direct feed for adding targeted regression coverage in future rounds.

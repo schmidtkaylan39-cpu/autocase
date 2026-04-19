@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { writeJson } from "./fs-utils.mjs";
@@ -111,13 +111,48 @@ export function createInitialValidationArtifact(repoRoot) {
   };
 }
 
+function normalizeReportedPath(filePath) {
+  return filePath.replace(/\\/g, "/");
+}
+
+function assertRelativeEvidencePath(referencePath, label) {
+  if (typeof referencePath !== "string" || referencePath.trim().length === 0) {
+    throw new Error(`${label} must be a non-empty string.`);
+  }
+
+  if (path.isAbsolute(referencePath) || path.win32.isAbsolute(referencePath)) {
+    throw new Error(`${label} must be repo-relative: ${referencePath}`);
+  }
+
+  const normalizedPath = normalizeReportedPath(path.normalize(referencePath));
+
+  if (normalizedPath === ".." || normalizedPath.startsWith("../")) {
+    throw new Error(`${label} must stay inside the repo: ${referencePath}`);
+  }
+}
+
+async function fileExists(targetPath) {
+  try {
+    await access(targetPath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function getValidationEvidencePaths(spec) {
-  const logPath = path.join("reports", "validation-evidence", `${spec.id}.log`).replace(/\\/g, "/");
-  const commandSpecificEvidence = Array.isArray(spec.evidence) ? [...spec.evidence] : [];
+  const logPath = normalizeReportedPath(path.join("reports", "validation-evidence", `${spec.id}.log`));
+  const commandSpecificEvidence = Array.isArray(spec.evidence)
+    ? spec.evidence.map((evidencePath, index) => {
+        assertRelativeEvidencePath(evidencePath, `${spec.command} evidence[${index}]`);
+        return normalizeReportedPath(path.normalize(evidencePath));
+      })
+    : [];
 
   return {
     logPath,
     evidence: [logPath, ...commandSpecificEvidence],
+    commandSpecificEvidence,
     commandSpecificArtifactCount: commandSpecificEvidence.length
   };
 }
@@ -133,6 +168,24 @@ async function ensureDirectory(directoryPath) {
 async function writeValidationCommandLog(filePath, payload) {
   await ensureDirectory(path.dirname(filePath));
   await writeFile(filePath, payload, "utf8");
+}
+
+async function resolveCommandSpecificEvidence(repoRoot, evidencePaths) {
+  const existingEvidence = [];
+  const missingEvidence = [];
+
+  for (const evidencePath of evidencePaths) {
+    if (await fileExists(path.join(repoRoot, evidencePath))) {
+      existingEvidence.push(evidencePath);
+    } else {
+      missingEvidence.push(evidencePath);
+    }
+  }
+
+  return {
+    existingEvidence,
+    missingEvidence
+  };
 }
 
 export async function writeValidationArtifact(artifact, validationResultsPath) {
@@ -182,7 +235,7 @@ export async function runSelfCheckCommand({
   stderr = process.stderr
 }) {
   const startedAt = new Date();
-  const { logPath, evidence, commandSpecificArtifactCount } = getValidationEvidencePaths(spec);
+  const { logPath, commandSpecificEvidence } = getValidationEvidencePaths(spec);
   const absoluteLogPath = path.join(repoRoot, logPath);
   const outputChunks = [];
 
@@ -195,30 +248,54 @@ export async function runSelfCheckCommand({
       }
 
       settled = true;
+      const {
+        existingEvidence: existingCommandSpecificEvidence,
+        missingEvidence: missingCommandSpecificEvidence
+      } = await resolveCommandSpecificEvidence(repoRoot, commandSpecificEvidence);
+      const combinedError = [
+        resultPayload.error,
+        missingCommandSpecificEvidence.length > 0
+          ? `Missing referenced validation evidence: ${missingCommandSpecificEvidence.join(", ")}`
+          : null
+      ]
+        .filter(Boolean)
+        .join("; ");
+      const finalStatus =
+        missingCommandSpecificEvidence.length > 0 ? "failed" : resultPayload.status;
+      const finalBody = [
+        outputChunks.join(""),
+        missingCommandSpecificEvidence.length > 0
+          ? `Missing referenced validation evidence: ${missingCommandSpecificEvidence.join(", ")}\n`
+          : ""
+      ].join("");
+      const evidence = [logPath, ...existingCommandSpecificEvidence];
+
       await writeValidationCommandLog(
         absoluteLogPath,
         formatCommandLog({
           spec,
           repoRoot,
           ...resultPayload,
-          body: outputChunks.join("")
+          status: finalStatus,
+          error: combinedError || null,
+          body: finalBody
         })
       );
       resolve({
         command: spec.command,
-        status: resultPayload.status,
+        status: finalStatus,
         startedAt: resultPayload.startedAt,
         finishedAt: resultPayload.finishedAt,
         durationMs: resultPayload.durationMs,
         evidence,
         evidenceStrength: deriveEvidenceStrength(evidence),
         evidenceSummary: deriveEvidenceSummary(evidence, {
-          commandSpecificArtifactCount,
+          commandSpecificArtifactCount: existingCommandSpecificEvidence.length,
           includesCommandLog: true
         }),
         ...(resultPayload.exitCode !== undefined ? { exitCode: resultPayload.exitCode } : {}),
         ...(resultPayload.signal !== undefined ? { signal: resultPayload.signal } : {}),
-        ...(resultPayload.error ? { error: resultPayload.error } : {})
+        ...(combinedError ? { error: combinedError } : {})
       });
     };
 
@@ -284,10 +361,11 @@ export async function createSkippedSelfCheckResult({
   validationEvidenceDirectory,
   reason
 }) {
-  const { logPath, evidence } = getValidationEvidencePaths(spec);
+  const { logPath } = getValidationEvidencePaths(spec);
   const absoluteLogPath = path.join(repoRoot, logPath);
   const startedAt = null;
   const finishedAt = null;
+  const evidence = [logPath];
 
   await ensureDirectory(validationEvidenceDirectory);
   await writeValidationCommandLog(

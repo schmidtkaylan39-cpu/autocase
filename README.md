@@ -189,7 +189,7 @@ npm run review:bundle
 Or with the CLI directly:
 
 ```bash
-node src/index.mjs review-bundle [outputDir] [bundleName] [--no-archive]
+node src/index.mjs review-bundle [outputDir] [bundleName] [--no-archive] [--allow-dirty]
 ```
 
 The bundle includes:
@@ -199,6 +199,7 @@ The bundle includes:
 - an external-AI review brief
 - copied reports and run artifacts already present in the repository
 - a compressed archive when the current platform supports it
+- default fail-close provenance guard: dirty worktrees are rejected unless `--allow-dirty` is explicitly set
 
 If you want the bundle to include a canonical machine-readable validation record, run:
 
@@ -384,7 +385,7 @@ node src/index.mjs task <runStatePath> <taskId> <status> [note]
 node src/index.mjs result <runStatePath> <taskId> <resultPath>
 node src/index.mjs retry <runStatePath> <taskId> [reason] [delayMinutes]
 node src/index.mjs tick <runStatePath> [doctorReportPath] [outputDir]
-node src/index.mjs review-bundle [outputDir] [bundleName] [--no-archive]
+node src/index.mjs review-bundle [outputDir] [bundleName] [--no-archive] [--allow-dirty]
 node src/index.mjs doctor [outputDir]
 node src/index.mjs handoff <runStatePath> [outputDir] [doctorReportPath]
 node src/index.mjs dispatch <handoffIndexPath> [dry-run|execute]

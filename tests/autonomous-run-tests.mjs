@@ -500,6 +500,83 @@ async function main() {
     );
   });
 
+  await runTest("autonomous loop emits failure-feedback artifacts and generated test cases for dispatch failures", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-autonomous-failure-feedback-"));
+    const runResult = await runProject(validSpecPath, tempDir, "autonomous-failure-feedback-run");
+    const doctorReportPath = path.join(tempDir, "doctor.json");
+    const handoffIndexPath = path.join(tempDir, "handoffs", "index.json");
+    const dispatchResultsPath = path.join(tempDir, "handoffs", "dispatch-results.json");
+    const dispatchResultsMarkdownPath = path.join(tempDir, "handoffs", "dispatch-results.md");
+    let dispatchCalls = 0;
+
+    await writeJson(doctorReportPath, { checks: [] });
+    await mkdir(path.dirname(handoffIndexPath), { recursive: true });
+    await writeJson(handoffIndexPath, {
+      generatedAt: new Date().toISOString(),
+      runId: "autonomous-failure-feedback-run",
+      readyTaskCount: 1,
+      descriptors: []
+    });
+
+    const result = await runAutonomousLoop(runResult.statePath, {
+      maxRounds: 1,
+      operations: {
+        runRuntimeDoctor: async () => ({ jsonPath: doctorReportPath }),
+        tickProjectRun: async () => ({
+          handoffIndexPath,
+          readyTaskCount: 1
+        }),
+        dispatchHandoffs: async () => {
+          dispatchCalls += 1;
+          const currentRunState = refreshRunState(await readJson(runResult.statePath));
+          const failedRunState = refreshRunState({
+            ...currentRunState,
+            taskLedger: currentRunState.taskLedger.map((task) =>
+              task.id === "planning-brief" ? { ...task, status: "failed" } : task
+            )
+          });
+
+          await writeJson(runResult.statePath, failedRunState);
+
+          return {
+            summary: {
+              executed: 1,
+              completed: 0,
+              continued: 0,
+              incomplete: 0,
+              failed: 1,
+              skipped: 0
+            },
+            resultJsonPath: dispatchResultsPath,
+            resultMarkdownPath: dispatchResultsMarkdownPath,
+            results: [
+              {
+                taskId: "planning-brief",
+                runtime: "gpt-runner",
+                status: "failed",
+                error: "Injected 502 Bad Gateway during autonomous drill",
+                launcherPath: path.join(tempDir, "handoffs", "planning-brief.launch.ps1"),
+                resultPath: path.join(tempDir, "handoffs", "results", "planning-brief.result.json")
+              }
+            ]
+          };
+        }
+      }
+    });
+
+    const feedbackDirectory = path.join(path.dirname(runResult.statePath), "artifacts", "failure-feedback");
+    const feedbackIndex = await readJson(path.join(feedbackDirectory, "failure-feedback-index.json"));
+    const generatedCases = await readJson(path.join(feedbackDirectory, "generated-test-cases.json"));
+
+    assert.equal(dispatchCalls, 1);
+    assert.equal(result.summary.failureFeedback.count, 1);
+    assert.equal(feedbackIndex.count, 1);
+    assert.equal(feedbackIndex.entries[0].category, "environment_mismatch");
+    assert.match(feedbackIndex.entries[0].summary, /502 Bad Gateway/i);
+    assert.equal(generatedCases.cases.length, 1);
+    assert.equal(generatedCases.cases[0].retryable, true);
+  });
+
   await runTest("autonomous loop rejects concurrent execution for the same run-state", async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-autonomous-lock-"));
     const runResult = await runProject(validSpecPath, tempDir, "autonomous-lock-run");

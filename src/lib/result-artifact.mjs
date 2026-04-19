@@ -35,11 +35,43 @@ function extractFeatureKey(taskId) {
   return match ? match[2] : null;
 }
 
+function validateAdvisoryCompletionDecision(decision) {
+  const validActions = new Set(["continue", "dispatch"]);
+
+  if (!isPlainObject(decision)) {
+    throw new Error("automationDecision must be an object when provided.");
+  }
+
+  if (!validActions.has(decision.action)) {
+    throw new Error(
+      "automationDecision is only allowed on completed result artifacts for advisory continue/dispatch hints."
+    );
+  }
+
+  if (!isNonEmptyString(decision.reason)) {
+    throw new Error("automationDecision.reason must be a non-empty string.");
+  }
+
+  if (decision.targetTaskId !== undefined && !isNonEmptyString(decision.targetTaskId)) {
+    throw new Error("automationDecision.targetTaskId must be a non-empty string when provided.");
+  }
+
+  if (decision.delayMinutes !== undefined) {
+    throw new Error("automationDecision.delayMinutes is only valid for retry_task actions.");
+  }
+
+  return decision;
+}
+
 function validateAutomationDecision(decision, artifactStatus, expectedTaskId) {
   const validActions = new Set(["retry_task", "rework_feature", "replan_feature"]);
 
   if (!isPlainObject(decision)) {
     throw new Error("automationDecision must be an object when provided.");
+  }
+
+  if (artifactStatus === "completed") {
+    return validateAdvisoryCompletionDecision(decision);
   }
 
   if (artifactStatus !== "blocked") {

@@ -30,6 +30,19 @@ async function runCli(args, cwd = projectRoot) {
   });
 }
 
+async function runOptionalCommand(command, args, cwd) {
+  try {
+    await execFileAsync(command, args, {
+      cwd,
+      encoding: "utf8",
+      windowsHide: true
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function main() {
   const packageJson = JSON.parse(await readFile(path.join(projectRoot, "package.json"), "utf8"));
 
@@ -114,6 +127,50 @@ async function main() {
     assert.ok(outputEntries.includes("cli-no-archive"));
     assert.ok(!outputEntries.includes("--no-archive"));
     await stat(path.join(outputDir, "cli-no-archive", "metadata", "bundle-manifest.json"));
+  });
+
+  await runTest("cli review-bundle rejects dirty worktrees by default and accepts --allow-dirty", async () => {
+    const sourceDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-cli-review-dirty-source-"));
+    const outputDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-cli-review-dirty-output-"));
+
+    await mkdir(path.join(sourceDir, "src"), { recursive: true });
+    await writeFile(
+      path.join(sourceDir, "package.json"),
+      JSON.stringify({ name: "cli-review-dirty-fixture", version: "0.0.2" }, null, 2),
+      "utf8"
+    );
+    await writeFile(path.join(sourceDir, "README.md"), "# CLI Review Dirty Fixture\n", "utf8");
+    await writeFile(path.join(sourceDir, "src", "index.mjs"), "export const dirtyFixture = true;\n", "utf8");
+
+    const gitAvailable = await runOptionalCommand("git", ["--version"], sourceDir);
+    const gitInitialized = gitAvailable && (await runOptionalCommand("git", ["init"], sourceDir));
+
+    if (!gitInitialized) {
+      return;
+    }
+
+    await writeFile(path.join(sourceDir, "dirty-note.txt"), "dirty snapshot fixture\n", "utf8");
+
+    await assert.rejects(
+      () => runCli(["review-bundle", outputDir, "cli-dirty-default"], sourceDir),
+      /dirty worktree snapshot/i
+    );
+    await assert.rejects(() => stat(path.join(outputDir, "cli-dirty-default")));
+
+    const result = await runCli(
+      ["review-bundle", "--allow-dirty", outputDir, "cli-dirty-allow"],
+      sourceDir
+    );
+    const outputEntries = await readdir(outputDir);
+    const manifest = JSON.parse(
+      await readFile(path.join(outputDir, "cli-dirty-allow", "metadata", "bundle-manifest.json"), "utf8")
+    );
+
+    assert.match(result.stdout, /Review bundle directory:/);
+    assert.ok(outputEntries.includes("cli-dirty-allow"));
+    assert.ok(!outputEntries.includes("--allow-dirty"));
+    assert.equal(manifest.provenance?.dirtySnapshot, true);
+    assert.equal(manifest.provenance?.dirtySnapshotAllowed, true);
   });
 
   await runTest("cli intake creates clarification artifacts and prints the next step", async () => {

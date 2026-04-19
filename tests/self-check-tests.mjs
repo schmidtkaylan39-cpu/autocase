@@ -164,6 +164,75 @@ async function main() {
     await assert.rejects(() => stat(path.join(reportsDirectory, "validation-evidence", "stale.log")));
   });
 
+  await runTest("self-check fails closed when referenced evidence artifacts are missing", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "ai-factory-self-check-missing-evidence-"));
+    const reportsDirectory = path.join(repoRoot, "reports");
+    const validationResultsPath = path.join(reportsDirectory, "validation-results.json");
+
+    await mkdir(reportsDirectory, { recursive: true });
+
+    const artifact = await runSelfCheckSuite({
+      repoRoot,
+      reportsDirectory,
+      validationResultsPath,
+      npmInvocation: {
+        command: "fake-npm",
+        prefixArgs: []
+      },
+      commandSpecs: [
+        {
+          id: "doctor",
+          command: "npm run doctor",
+          args: ["run", "doctor"],
+          evidence: ["reports/runtime-doctor.json"]
+        },
+        {
+          id: "test",
+          command: "npm test",
+          args: ["test"],
+          evidence: ["reports/test-output.log"]
+        }
+      ],
+      spawnImpl: createFakeSpawn([
+        {
+          stdout: "doctor ok\n",
+          code: 0
+        }
+      ]),
+      stdout: /** @type {any} */ ({
+        write() {
+          return true;
+        }
+      }),
+      stderr: /** @type {any} */ ({
+        write() {
+          return true;
+        }
+      })
+    });
+
+    assert.equal(artifact.results[0].status, "failed");
+    assert.match(
+      artifact.results[0].error ?? "",
+      /Missing referenced validation evidence: reports\/runtime-doctor\.json/
+    );
+    assert.deepEqual(artifact.results[0].evidence, ["reports/validation-evidence/doctor.log"]);
+    assert.equal(artifact.results[1].status, "skipped");
+    assert.deepEqual(artifact.results[1].evidence, ["reports/validation-evidence/test.log"]);
+
+    const doctorLog = await readFile(path.join(reportsDirectory, "validation-evidence", "doctor.log"), "utf8");
+    const skippedLog = await readFile(path.join(reportsDirectory, "validation-evidence", "test.log"), "utf8");
+    const writtenArtifact = JSON.parse(await readFile(validationResultsPath, "utf8"));
+
+    assert.match(doctorLog, /status: failed/);
+    assert.match(doctorLog, /Missing referenced validation evidence: reports\/runtime-doctor\.json/);
+    assert.match(skippedLog, /Skipped by self-check/);
+    assert.deepEqual(writtenArtifact.results[0].evidence, ["reports/validation-evidence/doctor.log"]);
+    assert.deepEqual(writtenArtifact.results[1].evidence, ["reports/validation-evidence/test.log"]);
+    assert.equal(writtenArtifact.results[0].status, "failed");
+    assert.equal(writtenArtifact.results[1].status, "skipped");
+  });
+
   await runTest("validation artifact helpers describe evidence clearly", async () => {
     const artifact = createInitialValidationArtifact("C:/workspace/demo");
 

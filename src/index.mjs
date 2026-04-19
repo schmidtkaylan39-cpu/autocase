@@ -43,7 +43,7 @@ Usage:
   ${packageMetadata.name} result <runStatePath> <taskId> <resultPath>
   ${packageMetadata.name} retry <runStatePath> <taskId> [reason] [delayMinutes]
   ${packageMetadata.name} tick <runStatePath> [doctorReportPath] [outputDir]
-  ${packageMetadata.name} review-bundle [outputDir] [bundleName] [--no-archive]
+  ${packageMetadata.name} review-bundle [outputDir] [bundleName] [--no-archive] [--allow-dirty]
   ${packageMetadata.name} doctor [outputDir]
   ${packageMetadata.name} handoff <runStatePath> [outputDir] [doctorReportPath]
   ${packageMetadata.name} dispatch <handoffIndexPath> [dry-run|execute]
@@ -210,10 +210,12 @@ async function runReviewBundle(args) {
   const positionals = args.filter((arg) => !arg.startsWith("--"));
   const [outputDir, bundleName] = positionals;
   const archive = !flags.includes("--no-archive");
+  const allowDirty = flags.includes("--allow-dirty");
   const result = await createReviewBundle({
     outputDir,
     bundleName,
-    archive
+    archive,
+    allowDirty
   });
   console.log(`Review bundle directory: ${result.bundleDirectory}`);
   console.log(`Review manifest: ${result.manifestPath}`);

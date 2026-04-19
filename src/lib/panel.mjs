@@ -1,4 +1,5 @@
 import http from "node:http";
+import { createHash } from "node:crypto";
 import { access, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 
@@ -17,12 +18,53 @@ import { runAutonomousLoop } from "./autonomous-run.mjs";
 import { dispatchHandoffs } from "./dispatch.mjs";
 import { runRuntimeDoctor } from "./doctor.mjs";
 import { readJson } from "./fs-utils.mjs";
-import { loadIntakeArtifacts } from "./intake-state.mjs";
+import { clarifyIntakeRequest } from "./intake-clarifier.mjs";
+import { assessIntakePlanningReadiness, loadIntakeArtifacts } from "./intake-state.mjs";
 import { summarizeRunState } from "./run-state.mjs";
 
 const DEFAULT_PANEL_HOST = "127.0.0.1";
 const DEFAULT_PANEL_PORT = 4310;
 const MAX_REQUEST_BYTES = 1_000_000;
+const QUICK_START_CONFIRMATION_TOKEN_SAFE = "我確認起點與終點";
+
+const quickStartContractFields = [
+  {
+    key: "startPoint",
+    label: "起點",
+    example: "起點: 目前有哪些檔案、資料或系統狀態",
+    patterns: [/^\s*(?:起點|開始點|开始点|start(?:ing)? point|start)\s*[:：]\s*(.+)$/im]
+  },
+  {
+    key: "endPoint",
+    label: "終點",
+    example: "終點: 完成後要交付什麼結果",
+    patterns: [/^\s*(?:終點|终点|end point|target outcome|goal)\s*[:：]\s*(.+)$/im]
+  },
+  {
+    key: "successCriteria",
+    label: "成功指標",
+    example: "成功指標: 可量測或可驗收的條件",
+    patterns: [
+      /^\s*(?:成功指標|成功指标|驗收標準|验收标准|acceptance criteria|success criteria)\s*[:：]\s*(.+)$/im
+    ],
+    split: true
+  },
+  {
+    key: "inputSource",
+    label: "輸入來源",
+    example: "輸入來源: 會使用哪些檔案、資料表或 API",
+    patterns: [/^\s*(?:輸入來源|输入来源|資料來源|数据来源|input source|inputs?)\s*[:：]\s*(.+)$/im],
+    split: true
+  },
+  {
+    key: "outOfScope",
+    label: "非範圍",
+    example: "非範圍: 這一輪明確不做哪些事",
+    patterns: [/^\s*(?:非範圍|范围外|out of scope|not in scope)\s*[:：]\s*(.+)$/im],
+    split: true
+  }
+];
+const QUICK_START_CONFIRMATION_TOKEN = "我確認起點與終點";
 
 function escapeHtml(value) {
   return String(value)
@@ -213,6 +255,209 @@ async function buildWorkspaceOverview(workspaceRoot) {
   };
 }
 
+function nonEmptyText(value) {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function summarizeStructuredItems(items, renderItem) {
+  if (!Array.isArray(items)) {
+    return [];
+  }
+
+  return items
+    .map((item) => {
+      try {
+        return renderItem(item);
+      } catch {
+        return null;
+      }
+    })
+    .filter((item) => nonEmptyText(item));
+}
+
+function extractContractFieldValue(requestText, patterns) {
+  for (const pattern of patterns) {
+    const match = pattern.exec(requestText);
+
+    if (match && nonEmptyText(match[1])) {
+      return match[1].trim();
+    }
+  }
+
+  return "";
+}
+
+function splitContractItems(rawValue) {
+  if (!nonEmptyText(rawValue)) {
+    return [];
+  }
+
+  return rawValue
+    .split(/[|,;；，]/g)
+    .map((item) => item.trim())
+    .filter((item) => nonEmptyText(item));
+}
+
+function parseQuickStartExecutionContract(requestText) {
+  const normalizedRequest = typeof requestText === "string" ? requestText.trim() : "";
+  const requestForMatching = normalizedRequest.replace(
+    /\s+(?=(?:起點|開始點|开始点|start(?:ing)? point|start|終點|终点|end point|target outcome|goal|成功指標|成功指标|驗收標準|验收标准|acceptance criteria|success criteria|輸入來源|输入来源|資料來源|数据来源|input source|inputs?|非範圍|范围外|out of scope|not in scope)\s*[:：])/gi,
+    "\n"
+  );
+  const fields = {};
+  const missingDefinitions = [];
+
+  for (const fieldDefinition of quickStartContractFields) {
+    const rawValue = extractContractFieldValue(requestForMatching, fieldDefinition.patterns);
+    const values = fieldDefinition.split ? splitContractItems(rawValue) : [];
+    const defined = fieldDefinition.split ? values.length > 0 : nonEmptyText(rawValue);
+
+    fields[fieldDefinition.key] = {
+      key: fieldDefinition.key,
+      label: fieldDefinition.label,
+      status: defined ? "defined" : "missing",
+      value: defined ? (fieldDefinition.split ? values.join("; ") : rawValue) : "",
+      values
+    };
+
+    if (!defined) {
+      missingDefinitions.push(fieldDefinition);
+    }
+  }
+
+  return {
+    complete: missingDefinitions.length === 0,
+    fields,
+    missingFields: missingDefinitions.map((item) => item.key),
+    missingFieldReasons: missingDefinitions.map((item) => `Execution contract is missing: ${item.label}.`),
+    template: quickStartContractFields.map((item) => item.example)
+  };
+}
+
+function buildPreviewDigest(requestText) {
+  return createHash("sha256").update(String(requestText ?? ""), "utf8").digest("hex");
+}
+
+function buildExecutionPreviewFromIntake(spec, artifactPaths = null) {
+  const requiredInputs = summarizeStructuredItems(
+    spec.requiredInputs,
+    (item) => `${item.name} (${item.status})`
+  );
+  const requiredPermissions = summarizeStructuredItems(
+    spec.requiredAccountsAndPermissions,
+    (item) => `${item.system} (${item.status})`
+  );
+  const successTargets = summarizeStructuredItems(spec.successCriteria, (item) => item.text);
+  const blockingQuestions = summarizeStructuredItems(
+    spec.openQuestions?.filter((item) => item?.blocking),
+    (item) => item.question
+  );
+  const humanCheckpoints = Array.isArray(spec.automationAssessment?.humanStepsRequired)
+    ? spec.automationAssessment.humanStepsRequired.filter((item) => nonEmptyText(item))
+    : [];
+
+  const simulatedConfirmedSpec = {
+    ...spec,
+    successCriteria: Array.isArray(spec.successCriteria)
+      ? spec.successCriteria.map((item) =>
+          item?.status === "needs_confirmation"
+            ? {
+                ...item,
+                status: "defined"
+              }
+            : item
+        )
+      : [],
+    confirmedByUser: true,
+    clarificationStatus: "confirmed"
+  };
+  const readiness = assessIntakePlanningReadiness(simulatedConfirmedSpec);
+
+  return {
+    confirmationToken: QUICK_START_CONFIRMATION_TOKEN,
+    readyToExecute: readiness.allowed,
+    startPoint: {
+      request: spec.originalRequest,
+      inputs: requiredInputs,
+      permissions: requiredPermissions
+    },
+    endPoint: {
+      goal: spec.clarifiedGoal,
+      successTargets,
+      outOfScope: Array.isArray(spec.outOfScope) ? spec.outOfScope : []
+    },
+    processSteps: [
+      "先分析你貼上的任務內文，整理成可執行版本。",
+      "用白話列出起點（會讀什麼、需要哪些前置）與終點（交付什麼、怎樣算成功）。",
+      `你輸入確認語句「${QUICK_START_CONFIRMATION_TOKEN}」後，系統才會正式執行。`,
+      "確認通過後才會進入 confirm -> run -> autonomous。"
+    ],
+    humanCheckpoints,
+    blockingQuestions,
+    readinessReasons: readiness.reasons,
+    intakeSpecPath: artifactPaths?.intakeSpecPath ?? null,
+    intakeSummaryPath: artifactPaths?.intakeSummaryPath ?? null
+  };
+}
+
+function buildPreviewBlockingMessage(preview) {
+  return [
+    "Cannot start execution yet because intake clarification is still incomplete.",
+    ...preview.readinessReasons.map((reason) => `- ${reason}`),
+    preview.intakeSpecPath ? `- intakeSpecPath: ${preview.intakeSpecPath}` : null,
+    preview.intakeSummaryPath ? `- intakeSummaryPath: ${preview.intakeSummaryPath}` : null
+  ]
+    .filter((item) => nonEmptyText(item))
+    .join("\n");
+}
+
+function buildContractBlockingMessage(executionContract) {
+  return [
+    "Cannot start quick execution because the execution contract is incomplete.",
+    ...executionContract.missingFieldReasons.map((reason) => `- ${reason}`),
+    "- Paste your request in this contract format before quick start:",
+    ...executionContract.template.map((item) => `- ${item}`)
+  ].join("\n");
+}
+
+function buildExecutionPreviewFromIntakeV2(spec, artifactPaths = null, requestOverride = null) {
+  const preview = buildExecutionPreviewFromIntake(spec, artifactPaths);
+  const requestTextForContract =
+    nonEmptyText(requestOverride) ? requestOverride : (spec.originalRequest ?? "");
+  const executionContract = parseQuickStartExecutionContract(requestTextForContract);
+  const confirmationToken =
+    nonEmptyText(QUICK_START_CONFIRMATION_TOKEN_SAFE)
+      ? QUICK_START_CONFIRMATION_TOKEN_SAFE
+      : (preview.confirmationToken ?? QUICK_START_CONFIRMATION_TOKEN);
+  const contractInputs = executionContract.fields.inputSource.values;
+  const contractSuccessTargets = executionContract.fields.successCriteria.values;
+  const contractOutOfScope = executionContract.fields.outOfScope.values;
+
+  return {
+    ...preview,
+    confirmationToken,
+    previewDigest: buildPreviewDigest(requestTextForContract),
+    readyToExecute: Boolean(preview.readyToExecute) && executionContract.complete,
+    startPoint: {
+      ...preview.startPoint,
+      request: executionContract.fields.startPoint.value || preview.startPoint?.request || requestTextForContract,
+      inputs: contractInputs.length > 0 ? contractInputs : (preview.startPoint?.inputs ?? [])
+    },
+    endPoint: {
+      ...preview.endPoint,
+      goal: executionContract.fields.endPoint.value || preview.endPoint?.goal || spec.clarifiedGoal,
+      successTargets:
+        contractSuccessTargets.length > 0 ? contractSuccessTargets : (preview.endPoint?.successTargets ?? []),
+      outOfScope: contractOutOfScope.length > 0 ? contractOutOfScope : (preview.endPoint?.outOfScope ?? [])
+    },
+    executionContract,
+    readinessReasons: [
+      ...(Array.isArray(preview.readinessReasons) ? preview.readinessReasons : []),
+      ...executionContract.missingFieldReasons
+    ]
+  };
+}
+
 function createUserError(message) {
   return Object.assign(new Error(message), {
     statusCode: 400
@@ -396,6 +641,28 @@ async function handlePanelAction(state, action, payload = {}) {
 
       return intakeRequest(userRequest, state.workspaceRoot);
     }
+    case "intake-preview": {
+      const requestText = typeof payload?.request === "string" ? payload.request.trim() : "";
+
+      if (requestText.length > 0) {
+        const previewSpec = clarifyIntakeRequest(requestText);
+        return {
+          source: "request",
+          preview: buildExecutionPreviewFromIntakeV2(previewSpec, null, requestText)
+        };
+      }
+
+      const intake = await loadIntakeArtifacts(state.workspaceRoot);
+
+      if (!intake.exists || !intake.spec) {
+        throw createUserError("No intake artifact found. Paste a request first.");
+      }
+
+      return {
+        source: "artifact",
+        preview: buildExecutionPreviewFromIntakeV2(intake.spec, intake.artifactPaths)
+      };
+    }
     case "confirm":
       return confirmIntake(state.workspaceRoot);
     case "revise":
@@ -413,6 +680,95 @@ async function handlePanelAction(state, action, payload = {}) {
         resolveWithinWorkspace(state.workspaceRoot, payload?.outputDir, defaults.runsDir),
         payload?.runId
       );
+    case "quick-start-safe": {
+      const userRequest = typeof payload?.request === "string" ? payload.request.trim() : "";
+
+      if (userRequest.length === 0) {
+        throw createUserError("Please provide request text before quick start.");
+      }
+
+      const parsedRounds =
+        payload?.maxRounds === undefined || payload?.maxRounds === null || String(payload.maxRounds).trim().length === 0
+          ? undefined
+          : Number.parseInt(String(payload.maxRounds), 10);
+      const maxRounds = Number.isFinite(parsedRounds) ? parsedRounds : undefined;
+      const requestedRunId =
+        typeof payload?.runId === "string" && payload.runId.trim().length > 0 ? payload.runId.trim() : undefined;
+      const confirmationText =
+        typeof payload?.confirmationText === "string" ? payload.confirmationText.trim() : "";
+      const previewDigest =
+        typeof payload?.previewDigest === "string" ? payload.previewDigest.trim() : "";
+      const expectedPreviewDigest = buildPreviewDigest(userRequest);
+      const executionContract = parseQuickStartExecutionContract(userRequest);
+
+      if (!executionContract.complete) {
+        throw createUserError(buildContractBlockingMessage(executionContract));
+      }
+
+      if (!nonEmptyText(previewDigest) || previewDigest !== expectedPreviewDigest) {
+        throw createUserError(
+          [
+            "Preview digest mismatch. Run intake-preview first and submit the returned previewDigest unchanged.",
+            `- expectedPreviewDigest: ${expectedPreviewDigest}`
+          ].join("\n")
+        );
+      }
+
+      const initResult = await initProject(state.workspaceRoot);
+      const intakeResult = await intakeRequest(userRequest, state.workspaceRoot);
+      const preview = buildExecutionPreviewFromIntakeV2(
+        intakeResult.spec,
+        intakeResult.artifactPaths,
+        userRequest
+      );
+
+      if (!preview.readyToExecute) {
+        throw createUserError(buildPreviewBlockingMessage(preview));
+      }
+
+      if (preview.previewDigest !== expectedPreviewDigest) {
+        throw createUserError(
+          [
+            "Preview digest mismatch after intake materialization.",
+            `- expectedPreviewDigest: ${expectedPreviewDigest}`,
+            `- actualPreviewDigest: ${preview.previewDigest ?? "(missing)"}`
+          ].join("\n")
+        );
+      }
+
+      if (confirmationText !== preview.confirmationToken) {
+        throw createUserError(
+          [
+            "Human confirmation is required before execution.",
+            `Please type this exact confirmation text: ${preview.confirmationToken}`,
+            `Then run quick start again to continue.`
+          ].join("\n")
+        );
+      }
+
+      const confirmResult = await confirmIntake(state.workspaceRoot);
+      const runResult = await runProject(defaults.specPath, defaults.runsDir, requestedRunId);
+      const autonomousResult = await runAutonomousLoop(runResult.statePath, {
+        doctorReportPath: path.join(defaults.reportsDir, "runtime-doctor.json"),
+        handoffOutputDir: path.join(path.dirname(runResult.statePath), "handoffs"),
+        maxRounds
+      });
+
+      return {
+        init: {
+          targetDir: initResult.targetDir
+        },
+        intake: intakeResult.summary,
+        preview,
+        confirm: confirmResult.summary,
+        run: {
+          runId: runResult.runId,
+          statePath: runResult.statePath,
+          reportPath: runResult.reportPath
+        },
+        autonomous: autonomousResult.summary
+      };
+    }
     case "doctor":
       return runRuntimeDoctor(resolveWithinWorkspace(state.workspaceRoot, payload?.outputDir, defaults.reportsDir));
     case "report": {
@@ -624,8 +980,11 @@ function renderPanelHtml(workspaceRoot) {
           <input id="maxRoundsInput" value="8" />
         </div>
       </div>
+      <label for="confirmationInput" style="margin-top:10px">人工確認語句（建議先按「分析起點/終點」再貼上）</label>
+      <input id="confirmationInput" placeholder="我確認起點與終點" />
       <div class="actions">
         <button id="applyWorkspaceBtn" data-tone="neutral">套用工作區</button>
+        <button id="previewIntakeBtn" data-tone="neutral">分析起點/終點</button>
         <button id="quickStartBtn" data-tone="warn">一鍵開始（推薦）</button>
         <button id="refreshStatusBtn" data-tone="neutral">重新整理狀態</button>
         <button id="viewGptPromptBtn" data-tone="neutral">查看 GPT 發問內容</button>
@@ -668,6 +1027,7 @@ function renderPanelHtml(workspaceRoot) {
     const requestInput = document.getElementById("requestInput");
     const runIdInput = document.getElementById("runIdInput");
     const maxRoundsInput = document.getElementById("maxRoundsInput");
+    const confirmationInput = document.getElementById("confirmationInput");
     const statusPill = document.getElementById("statusPill");
     const statusDetail = document.getElementById("statusDetail");
     const logBox = document.getElementById("logBox");
@@ -838,6 +1198,77 @@ function renderPanelHtml(workspaceRoot) {
       }
     }
 
+    async function runQuickStartSafe() {
+      setButtonsDisabled(true);
+      try {
+        const requestText = requestInput.value.trim();
+        if (requestText.length === 0) {
+          throw new Error("Please paste the task text first.");
+        }
+
+        await setWorkspace(false);
+        const previewResponse = await invokeAction(
+          "intake-preview",
+          { request: requestText },
+          "Step 1/2: analyze start/end in plain language"
+        );
+        const preview = previewResponse?.result?.preview;
+
+        if (!preview) {
+          throw new Error("Intake preview is unavailable.");
+        }
+
+        if (!preview.readyToExecute) {
+          setLog("Quick start paused: clarify task details first", preview);
+          return;
+        }
+
+        const confirmationToken = preview.confirmationToken || "我確認起點與終點";
+        const previewDigest = typeof preview.previewDigest === "string" ? preview.previewDigest : "";
+        const confirmationPrompt =
+          "Please review this before execution.\n\nStart: " +
+          (preview.startPoint?.request || "(not provided)") +
+          "\nEnd: " +
+          (preview.endPoint?.goal || "(not provided)") +
+          "\n\nType exactly: " +
+          confirmationToken;
+        const typedConfirmation = (confirmationInput?.value?.trim() || window.prompt(
+          confirmationPrompt,
+          ""
+        ) || "").trim();
+
+        if (typedConfirmation !== confirmationToken) {
+          setLog("Quick start paused: waiting for human confirmation", {
+            expectedConfirmation: confirmationToken,
+            preview
+          });
+          return;
+        }
+
+        const quickStartResponse = await invokeAction(
+          "quick-start-safe",
+          {
+            request: requestText,
+            runId: runIdInput.value.trim() || undefined,
+            maxRounds: maxRoundsInput.value.trim() || undefined,
+            confirmationText: typedConfirmation,
+            previewDigest
+          },
+          "Step 2/2: execute after human confirmation"
+        );
+
+        setLog("Quick start completed", {
+          runId: quickStartResponse?.result?.run?.runId ?? "-",
+          finalStatus: quickStartResponse?.result?.autonomous?.runSummary?.status ?? "unknown",
+          completedTasks: quickStartResponse?.result?.autonomous?.runSummary?.completedTasks ?? "-"
+        });
+      } catch (error) {
+        setLog("Quick start failed", { error: error instanceof Error ? error.message : String(error) });
+      } finally {
+        setButtonsDisabled(false);
+      }
+    }
+
     document.getElementById("applyWorkspaceBtn").addEventListener("click", async () => {
       setButtonsDisabled(true);
       try {
@@ -848,7 +1279,12 @@ function renderPanelHtml(workspaceRoot) {
         setButtonsDisabled(false);
       }
     });
-    document.getElementById("quickStartBtn").addEventListener("click", runQuickStart);
+    document.getElementById("quickStartBtn").addEventListener("click", runQuickStartSafe);
+    if (document.getElementById("previewIntakeBtn")) {
+      document.getElementById("previewIntakeBtn").addEventListener("click", () =>
+        runAction("intake-preview", { request: requestInput.value }, "Analyze start/end in plain language")
+      );
+    }
     document.getElementById("refreshStatusBtn").addEventListener("click", async () => {
       setButtonsDisabled(true);
       try {

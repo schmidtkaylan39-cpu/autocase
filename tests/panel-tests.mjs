@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdtemp, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -37,6 +38,26 @@ async function postAction(baseUrl, action, payload = {}) {
       payload
     })
   });
+}
+
+async function postActionExpectError(baseUrl, action, payload = {}) {
+  const response = await fetch(`${baseUrl}/api/action`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json"
+    },
+    body: JSON.stringify({
+      action,
+      payload
+    })
+  });
+  const body = await response.json();
+
+  if (response.ok && body.ok !== false) {
+    throw new Error(`Expected ${action} to fail, but it succeeded.`);
+  }
+
+  return body.error ?? `Request failed: ${response.status}`;
 }
 
 async function main() {
@@ -143,6 +164,104 @@ async function main() {
       await panel.close();
     }
   });
+
+  await runTest(
+    "panel quick-start-safe requires structured intake contract and previewDigest round-trip",
+    async () => {
+      const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "ai-factory-panel-preview-"));
+      const panel = await startPanelServer({
+        workspaceDir: workspaceRoot,
+        port: 0
+      });
+      const startPoint = "Local workspace has sales.json and artifacts/generated is writable.";
+      const endPoint = "Write artifacts/generated/summary.md with daily totals and anomalies.";
+      const successCriteria = [
+        "summary.md exists",
+        "summary includes total revenue and top 3 products"
+      ];
+      const inputSources = ["sales.json", "config/thresholds.json"];
+      const outOfScope = ["do not send email notifications", "do not call external APIs"];
+      const requestText = [
+        `Start: ${startPoint}`,
+        `End point: ${endPoint}`,
+        `Success criteria: ${successCriteria.join("; ")}`,
+        `Input source: ${inputSources.join("; ")}`,
+        `Out of scope: ${outOfScope.join("; ")}`
+      ].join("\n");
+      const unstructuredRequest =
+        "Read local sales.json and write summary.md to artifacts/reports; do not send email and do not call external APIs.";
+      const runId = "quick-start-safe-preview-gate";
+      const maxRounds = 1;
+      const correctPreviewDigest = createHash("sha256").update(requestText, "utf8").digest("hex");
+      const mismatchedPreviewDigest = correctPreviewDigest.endsWith("0")
+        ? `${correctPreviewDigest.slice(0, -1)}1`
+        : `${correctPreviewDigest.slice(0, -1)}0`;
+
+      try {
+        const missingContractMessage = await postActionExpectError(panel.url, "quick-start-safe", {
+          request: unstructuredRequest,
+          runId,
+          maxRounds,
+          previewDigest: "missing-digest",
+          confirmationText: "not-used"
+        });
+        assert.match(missingContractMessage, /execution contract is incomplete/i);
+        assert.match(missingContractMessage, /Execution contract is missing/i);
+
+        const previewResponse = await postAction(panel.url, "intake-preview", {
+          request: requestText
+        });
+        const preview = previewResponse.result.preview;
+
+        assert.equal(typeof preview.confirmationToken, "string");
+        assert.ok(preview.confirmationToken.length > 0);
+        assert.equal(typeof preview.previewDigest, "string");
+        assert.match(preview.previewDigest, /^[a-f0-9]{64}$/i);
+        assert.ok(Array.isArray(preview.processSteps));
+        assert.ok(preview.processSteps.length >= 3);
+
+        const digestMismatchMessage = await postActionExpectError(panel.url, "quick-start-safe", {
+          request: requestText,
+          runId,
+          maxRounds,
+          previewDigest: mismatchedPreviewDigest,
+          confirmationText: preview.confirmationToken
+        });
+        assert.match(digestMismatchMessage, /Preview digest mismatch/i);
+        assert.match(digestMismatchMessage, /expectedPreviewDigest:/i);
+        assert.equal(
+          digestMismatchMessage.includes(`- expectedPreviewDigest: ${correctPreviewDigest}`),
+          true
+        );
+        assert.doesNotMatch(
+          digestMismatchMessage,
+          /Cannot start quick execution because the execution contract is incomplete/i
+        );
+
+        const statusAfterDigestMismatch = await getJson(`${panel.url}/api/status`);
+        assert.equal(statusAfterDigestMismatch.overview.latestRun, null);
+        assert.equal(statusAfterDigestMismatch.overview.intake.exists, false);
+        assert.equal(statusAfterDigestMismatch.overview.intake.confirmedByUser, null);
+
+        const confirmationMessage = await postActionExpectError(panel.url, "quick-start-safe", {
+          request: requestText,
+          runId,
+          maxRounds,
+          previewDigest: correctPreviewDigest,
+          confirmationText: "I confirm start and end points"
+        });
+        assert.match(confirmationMessage, /Human confirmation is required before execution/i);
+        assert.equal(confirmationMessage.includes(preview.confirmationToken), true);
+
+        const status = await getJson(`${panel.url}/api/status`);
+        assert.equal(status.overview.latestRun, null);
+        assert.equal(status.overview.intake.exists, true);
+        assert.equal(status.overview.intake.confirmedByUser, false);
+      } finally {
+        await panel.close();
+      }
+    }
+  );
 
   console.log("Panel tests passed.");
 }

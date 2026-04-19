@@ -1,8 +1,13 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
 
 import { selectModelForTask } from "./model-policy.mjs";
-import { describeRuntime, normalizeRuntimeChecks, pickRuntimeForRole } from "./runtime-registry.mjs";
+import {
+  describeRuntime,
+  getRuntimeExecutionProfile,
+  normalizeRuntimeChecks,
+  pickRuntimeForRole
+} from "./runtime-registry.mjs";
 import { toPowerShellSingleQuotedLiteral } from "./powershell.mjs";
 
 function relativeLabel(baseDir, targetPath) {
@@ -15,6 +20,28 @@ function escapeShellLiteral(value) {
 
 function toShellSingleQuotedLiteral(value) {
   return `'${escapeShellLiteral(value)}'`;
+}
+
+function hashTextSha256(value) {
+  return createHash("sha256").update(String(value), "utf8").digest("hex");
+}
+
+function buildIdempotencyKey({ runId, taskId, handoffId, runtimeId, promptHash }) {
+  return hashTextSha256(
+    JSON.stringify({
+      runId,
+      taskId,
+      handoffId,
+      runtimeId,
+      promptHash
+    })
+  );
+}
+
+function compactObject(value) {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, entry]) => entry !== undefined && entry !== null)
+  );
 }
 
 export function getLauncherMetadata(platform = process.platform) {
@@ -46,6 +73,7 @@ function buildRoleAutomationGuidance(task) {
       "# Planning Completion Rules",
       "- Use `status: \"completed\"` only when the plan is execution-ready and the brief is sufficiently clarified.",
       "- Use `status: \"blocked\"` when critical information is missing, a stop rule is triggered, or the plan is unsafe to continue automatically.",
+      "- Omit `automationDecision` on completed results; only blocked results should request an automatic retry or reroute.",
       "- If you block, make the summary and notes concrete enough for the next automated retry or escalation round."
     ];
   }
@@ -56,6 +84,7 @@ function buildRoleAutomationGuidance(task) {
       "# Review Completion Rules",
       "- Use `status: \"completed\"` only when the reviewed implementation is acceptable for verification.",
       "- Use `status: \"blocked\"` when another Codex implementation round is required.",
+      "- Omit `automationDecision` on completed results; only blocked results should request an automatic retry or reroute.",
       `- If you block, include an optional \`automationDecision\` object such as \`{"action":"rework_feature","targetTaskId":"${featureTaskId}","reason":"..."}\` or \`{"action":"replan_feature","targetTaskId":"${featureTaskId}","reason":"..."}\`.`,
       "- Keep findings concrete and file-aware so the next implementation round can act on them."
     ];
@@ -66,11 +95,85 @@ function buildRoleAutomationGuidance(task) {
       "# Delivery Completion Rules",
       "- Use `status: \"completed\"` only when the delivery handoff is ready and the run can be considered packaged.",
       "- Use `status: \"blocked\"` if the run still needs external release approval, missing evidence, or manual intervention.",
+      "- Omit `automationDecision` on completed results; only blocked results should request an automatic retry or reroute.",
       '- If you expect another automatic pass to resolve it, include an optional `automationDecision` such as `{"action":"retry_task","reason":"release evidence still generating","delayMinutes":5}`.'
     ];
   }
 
   return [];
+}
+
+function buildDeterministicControlMetadata(modelSelection, launcherMetadata = {}) {
+  const deterministicSettings = modelSelection?.deterministicSettings ?? {};
+  const fixedModelId =
+    deterministicSettings.fixedModelId ??
+    launcherMetadata.fixedModelId ??
+    launcherMetadata.fixedModel ??
+    modelSelection?.preferredModel ??
+    null;
+  const maxTokens =
+    deterministicSettings.maxTokens ??
+    launcherMetadata.maxTokens ??
+    launcherMetadata.maxOutputTokens;
+
+  return compactObject({
+    fixedModelId,
+    fixedModel: fixedModelId,
+    temperature: deterministicSettings.temperature ?? launcherMetadata.temperature,
+    maxTokens,
+    maxOutputTokens: maxTokens,
+    topP: deterministicSettings.topP ?? launcherMetadata.topP
+  });
+}
+
+function buildLauncherOutputLines(modelSelection, launcherMetadata, promptMetadata, platform = process.platform) {
+  const promptHash = promptMetadata?.hash ?? promptMetadata?.promptHash;
+  const promptHashAlgorithm =
+    promptMetadata?.hashAlgorithm ??
+    promptMetadata?.promptHashAlgorithm ??
+    "sha256";
+  const lines = [
+    ["Preferred model", modelSelection.preferredModel],
+    ["Model reason", modelSelection.selectionReason],
+    [
+      "Deterministic model id",
+      launcherMetadata.fixedModelId ?? launcherMetadata.fixedModel ?? modelSelection.preferredModel
+    ]
+  ];
+
+  if (launcherMetadata.temperature !== undefined) {
+    lines.push(["Deterministic temperature", String(launcherMetadata.temperature)]);
+  }
+
+  if (launcherMetadata.maxTokens !== undefined || launcherMetadata.maxOutputTokens !== undefined) {
+    lines.push([
+      "Deterministic maxTokens",
+      String(launcherMetadata.maxTokens ?? launcherMetadata.maxOutputTokens)
+    ]);
+  }
+
+  if (launcherMetadata.topP !== undefined) {
+    lines.push(["Deterministic topP", String(launcherMetadata.topP)]);
+  }
+
+  if (promptHash) {
+    lines.push([
+      "Prompt hash",
+      `${promptHashAlgorithm}:${promptHash}`
+    ]);
+  }
+
+  if (platform === "win32") {
+    return lines.map(([label, value]) => {
+      const labelLiteral = toPowerShellSingleQuotedLiteral(`${label}: `);
+      const valueLiteral = toPowerShellSingleQuotedLiteral(value);
+      return `Write-Host (${labelLiteral} + ${valueLiteral})`;
+    });
+  }
+
+  return lines.map(
+    ([label, value]) => `printf '${label}: %s\\n' ${toShellSingleQuotedLiteral(value)}`
+  );
 }
 
 export function buildPromptDocument({
@@ -79,6 +182,9 @@ export function buildPromptDocument({
   task,
   handoffId,
   modelSelection,
+  runtimeId,
+  launcherMetadata,
+  executionGuardrails,
   rolePromptTemplate,
   briefPath,
   resultPath,
@@ -96,6 +202,34 @@ export function buildPromptDocument({
     `- workspaceRoot: ${workspacePath}`,
     `- preferredModel: ${modelSelection.preferredModel}`,
     `- modelSelectionMode: ${modelSelection.selectionMode}`,
+    "",
+    ...(launcherMetadata && Object.keys(launcherMetadata).length > 0
+      ? [
+          "# Deterministic Controls",
+          ...(typeof launcherMetadata.fixedModelId === "string"
+            ? [`- fixedModelId: ${launcherMetadata.fixedModelId}`]
+            : []),
+          ...(typeof launcherMetadata.temperature === "number"
+            ? [`- temperature: ${launcherMetadata.temperature}`]
+            : []),
+          ...(typeof launcherMetadata.maxTokens === "number"
+            ? [`- maxTokens: ${launcherMetadata.maxTokens}`]
+            : typeof launcherMetadata.maxOutputTokens === "number"
+              ? [`- maxTokens: ${launcherMetadata.maxOutputTokens}`]
+              : []),
+          ...(typeof launcherMetadata.topP === "number"
+            ? [`- topP: ${launcherMetadata.topP}`]
+            : []),
+          "- Treat these model controls as fixed for deterministic replays.",
+          ""
+        ]
+      : []),
+    "# Execution Guardrails",
+    `- runtimeId: ${runtimeId}`,
+    `- timeoutMs: ${executionGuardrails.timeoutMs}`,
+    `- retryBudget: ${executionGuardrails.retryBudget}`,
+    `- circuitBreakerLimit: ${executionGuardrails.circuitBreakerLimit}`,
+    "- Do not ask for additional retries or alternate launcher settings inside the task output.",
     "",
     "# Execution Rules",
     "- Read the attached task brief first.",
@@ -133,7 +267,7 @@ export function buildPromptDocument({
     '- `"changedFiles"`: an array of changed file paths',
     '- `"verification"`: an array of checks you ran',
     '- `"notes"`: an array of notable decisions or issues',
-    '- optional `"automationDecision"`: an object with `"action"`, `"reason"`, optional `"targetTaskId"`, and optional `"delayMinutes"` for retry actions',
+    '- optional `"automationDecision"`: only include this when `status` is `"blocked"` and the system should retry or reroute automatically',
     "",
     "# Workspace Root Path",
     workspacePath,
@@ -143,10 +277,17 @@ export function buildPromptDocument({
   ].join("\n");
 }
 
-function buildOpenClawLauncher(promptPath, platform = process.platform) {
+function buildOpenClawLauncher(
+  promptPath,
+  modelSelection,
+  launcherMetadata,
+  promptMetadata,
+  platform = process.platform
+) {
   if (platform === "win32") {
     const promptLiteral = toPowerShellSingleQuotedLiteral(promptPath);
     return [
+      ...buildLauncherOutputLines(modelSelection, launcherMetadata, promptMetadata, platform),
       `$message = Get-Content -Raw -LiteralPath ${promptLiteral}`,
       "& openclaw agent --local --json --thinking medium --message $message"
     ].join("\n");
@@ -154,22 +295,28 @@ function buildOpenClawLauncher(promptPath, platform = process.platform) {
 
   const promptLiteral = toShellSingleQuotedLiteral(promptPath);
   return [
+    ...buildLauncherOutputLines(modelSelection, launcherMetadata, promptMetadata, platform),
     `message=$(cat ${promptLiteral})`,
     'openclaw agent --local --json --thinking medium --message "$message"'
   ].join("\n");
 }
 
-function buildCursorLauncher(workspacePath, briefPath, promptPath, modelSelection, platform = process.platform) {
+function buildCursorLauncher(
+  workspacePath,
+  briefPath,
+  promptPath,
+  modelSelection,
+  launcherMetadata,
+  promptMetadata,
+  platform = process.platform
+) {
   if (platform === "win32") {
     const workspaceLiteral = toPowerShellSingleQuotedLiteral(workspacePath);
     const briefLiteral = toPowerShellSingleQuotedLiteral(briefPath);
     const promptLiteral = toPowerShellSingleQuotedLiteral(promptPath);
-    const preferredModelLiteral = toPowerShellSingleQuotedLiteral(modelSelection.preferredModel);
-    const selectionReasonLiteral = toPowerShellSingleQuotedLiteral(modelSelection.selectionReason);
 
     return [
-      `Write-Host ('Preferred model: ' + ${preferredModelLiteral})`,
-      `Write-Host ('Model reason: ' + ${selectionReasonLiteral})`,
+      ...buildLauncherOutputLines(modelSelection, launcherMetadata, promptMetadata, platform),
       `& cursor -n ${workspaceLiteral} ${briefLiteral} ${promptLiteral}`,
       "",
       "# Cursor is currently treated as a planning or review surface.",
@@ -180,12 +327,9 @@ function buildCursorLauncher(workspacePath, briefPath, promptPath, modelSelectio
   const workspaceLiteral = toShellSingleQuotedLiteral(workspacePath);
   const briefLiteral = toShellSingleQuotedLiteral(briefPath);
   const promptLiteral = toShellSingleQuotedLiteral(promptPath);
-  const preferredModelLiteral = toShellSingleQuotedLiteral(modelSelection.preferredModel);
-  const selectionReasonLiteral = toShellSingleQuotedLiteral(modelSelection.selectionReason);
 
   return [
-    `printf 'Preferred model: %s\\n' ${preferredModelLiteral}`,
-    `printf 'Model reason: %s\\n' ${selectionReasonLiteral}`,
+    ...buildLauncherOutputLines(modelSelection, launcherMetadata, promptMetadata, platform),
     `cursor -n ${workspaceLiteral} ${briefLiteral} ${promptLiteral}`,
     "",
     "# Cursor is currently treated as a planning or review surface.",
@@ -215,6 +359,9 @@ function buildLocalCiResultArtifact(runId, taskId, handoffId, verificationComman
 
 function buildLocalCiLauncher(
   workspacePath,
+  modelSelection,
+  launcherMetadata,
+  promptMetadata,
   options = {},
   platform = process.platform
 ) {
@@ -250,6 +397,7 @@ function buildLocalCiLauncher(
     const resultPathLiteral = toPowerShellSingleQuotedLiteral(resultPath);
     return [
       `Set-Location -LiteralPath ${workspaceLiteral}`,
+      ...buildLauncherOutputLines(modelSelection, launcherMetadata, promptMetadata, platform),
       ...(commands.length > 0 ? commands : ["npm test"]),
       `$resultDirectory = Split-Path -Parent ${resultPathLiteral}`,
       "if (![string]::IsNullOrWhiteSpace($resultDirectory)) {",
@@ -266,6 +414,7 @@ function buildLocalCiLauncher(
   const resultPathLiteral = toShellSingleQuotedLiteral(resultPath);
   return [
     `cd ${workspaceLiteral}`,
+    ...buildLauncherOutputLines(modelSelection, launcherMetadata, promptMetadata, platform),
     ...(commands.length > 0 ? commands : ["npm test"]),
     `mkdir -p "$(dirname -- ${resultPathLiteral})"`,
     `cat > ${resultPathLiteral} <<'JSON'`,
@@ -274,15 +423,21 @@ function buildLocalCiLauncher(
   ].join("\n");
 }
 
-function buildCodexLauncher(promptPath, workspacePath, modelSelection, platform = process.platform) {
+function buildCodexLauncher(
+  promptPath,
+  workspacePath,
+  modelSelection,
+  launcherMetadata,
+  promptMetadata,
+  platform = process.platform
+) {
   if (platform === "win32") {
     const promptLiteral = toPowerShellSingleQuotedLiteral(promptPath);
     const workspaceLiteral = toPowerShellSingleQuotedLiteral(workspacePath);
-    const preferredModelLiteral = toPowerShellSingleQuotedLiteral(modelSelection.preferredModel);
 
     return [
       `Set-Location -LiteralPath ${workspaceLiteral}`,
-      `Write-Host ('Preferred model: ' + ${preferredModelLiteral})`,
+      ...buildLauncherOutputLines(modelSelection, launcherMetadata, promptMetadata, platform),
       `$prompt = Get-Content -Raw -LiteralPath ${promptLiteral}`,
       "$prompt | & codex -a never exec -C . -s workspace-write -"
     ].join("\n");
@@ -290,17 +445,23 @@ function buildCodexLauncher(promptPath, workspacePath, modelSelection, platform 
 
   const promptLiteral = toShellSingleQuotedLiteral(promptPath);
   const workspaceLiteral = toShellSingleQuotedLiteral(workspacePath);
-  const preferredModelLiteral = toShellSingleQuotedLiteral(modelSelection.preferredModel);
 
   return [
     `cd ${workspaceLiteral}`,
-    `printf 'Preferred model: %s\\n' ${preferredModelLiteral}`,
+    ...buildLauncherOutputLines(modelSelection, launcherMetadata, promptMetadata, platform),
     `prompt=$(cat ${promptLiteral})`,
     'printf "%s" "$prompt" | codex -a never exec -C . -s workspace-write -'
   ].join("\n");
 }
 
-function buildGptRunnerLauncher(promptPath, workspacePath, modelSelection, platform = process.platform) {
+function buildGptRunnerLauncher(
+  promptPath,
+  workspacePath,
+  modelSelection,
+  launcherMetadata,
+  promptMetadata,
+  platform = process.platform
+) {
   if (platform === "win32") {
     const promptLiteral = toPowerShellSingleQuotedLiteral(promptPath);
     const workspaceLiteral = toPowerShellSingleQuotedLiteral(workspacePath);
@@ -308,7 +469,7 @@ function buildGptRunnerLauncher(promptPath, workspacePath, modelSelection, platf
 
     return [
       `Set-Location -LiteralPath ${workspaceLiteral}`,
-      `Write-Host ('Preferred model: ' + ${preferredModelLiteral})`,
+      ...buildLauncherOutputLines(modelSelection, launcherMetadata, promptMetadata, platform),
       `$prompt = Get-Content -Raw -LiteralPath ${promptLiteral}`,
       `$prompt | & codex -m ${preferredModelLiteral} -a never exec -C . -s workspace-write -`
     ].join("\n");
@@ -320,23 +481,28 @@ function buildGptRunnerLauncher(promptPath, workspacePath, modelSelection, platf
 
   return [
     `cd ${workspaceLiteral}`,
-    `printf 'Preferred model: %s\\n' ${preferredModelLiteral}`,
+    ...buildLauncherOutputLines(modelSelection, launcherMetadata, promptMetadata, platform),
     `prompt=$(cat ${promptLiteral})`,
     `printf "%s" "$prompt" | codex -m ${preferredModelLiteral} -a never exec -C . -s workspace-write -`
   ].join("\n");
 }
 
-function buildManualLauncher(workspacePath, promptPath, briefPath, modelSelection, platform = process.platform) {
+function buildManualLauncher(
+  workspacePath,
+  promptPath,
+  briefPath,
+  modelSelection,
+  launcherMetadata,
+  promptMetadata,
+  platform = process.platform
+) {
   if (platform === "win32") {
     const workspaceLiteral = toPowerShellSingleQuotedLiteral(workspacePath);
     const promptLiteral = toPowerShellSingleQuotedLiteral(promptPath);
     const briefLiteral = toPowerShellSingleQuotedLiteral(briefPath);
-    const preferredModelLiteral = toPowerShellSingleQuotedLiteral(modelSelection.preferredModel);
-    const selectionReasonLiteral = toPowerShellSingleQuotedLiteral(modelSelection.selectionReason);
     return [
       "Write-Host 'Please handle this task manually.'",
-      `Write-Host ('Preferred model: ' + ${preferredModelLiteral})`,
-      `Write-Host ('Model reason: ' + ${selectionReasonLiteral})`,
+      ...buildLauncherOutputLines(modelSelection, launcherMetadata, promptMetadata, platform),
       `Write-Host ('Workspace root: ' + ${workspaceLiteral})`,
       `Write-Host ('Prompt: ' + ${promptLiteral})`,
       `Write-Host ('Brief: ' + ${briefLiteral})`
@@ -346,13 +512,10 @@ function buildManualLauncher(workspacePath, promptPath, briefPath, modelSelectio
   const workspaceLiteral = toShellSingleQuotedLiteral(workspacePath);
   const promptLiteral = toShellSingleQuotedLiteral(promptPath);
   const briefLiteral = toShellSingleQuotedLiteral(briefPath);
-  const preferredModelLiteral = toShellSingleQuotedLiteral(modelSelection.preferredModel);
-  const selectionReasonLiteral = toShellSingleQuotedLiteral(modelSelection.selectionReason);
 
   return [
     "echo 'Please handle this task manually.'",
-    `printf 'Preferred model: %s\\n' ${preferredModelLiteral}`,
-    `printf 'Model reason: %s\\n' ${selectionReasonLiteral}`,
+    ...buildLauncherOutputLines(modelSelection, launcherMetadata, promptMetadata, platform),
     `printf 'Workspace root: %s\\n' ${workspaceLiteral}`,
     `printf 'Prompt: %s\\n' ${promptLiteral}`,
     `printf 'Brief: %s\\n' ${briefLiteral}`
@@ -377,6 +540,16 @@ export function buildHandoffDescriptor({
   const selected = pickRuntimeForRole(task.role, runtimeChecks, runState.runtimeRouting);
   const runtime = describeRuntime(selected.runtimeId);
   const modelSelection = selectModelForTask(task, runState);
+  const executionProfile = getRuntimeExecutionProfile({
+    runtimeId: selected.runtimeId,
+    task,
+    runState,
+    modelSelection
+  });
+  const deterministicControls = buildDeterministicControlMetadata(
+    modelSelection,
+    executionProfile.launcherMetadata
+  );
   const alternatives = Object.entries(runtimeChecks)
     .filter(([runtimeId]) => runtimeId !== selected.runtimeId)
     .map(([runtimeId, status]) => ({
@@ -389,24 +562,90 @@ export function buildHandoffDescriptor({
     task,
     handoffId,
     modelSelection,
+    runtimeId: selected.runtimeId,
+    launcherMetadata: deterministicControls,
+    executionGuardrails: executionProfile.execution,
     rolePromptTemplate,
     briefPath,
     resultPath,
     runState
   });
-  const launcher = getLauncherMetadata(platform);
+  const persistedPromptText = `${promptText}\n`;
+  const promptHash = hashTextSha256(persistedPromptText);
+  const execution = {
+    ...executionProfile.execution,
+    idempotencyKey: buildIdempotencyKey({
+      runId: runState.runId,
+      taskId: task.id,
+      handoffId,
+      runtimeId: selected.runtimeId,
+      promptHash
+    })
+  };
+  const launcher = {
+    ...getLauncherMetadata(platform),
+    metadata: compactObject({
+      runtimeId: selected.runtimeId,
+      fixedModelId: deterministicControls.fixedModelId,
+      fixedModel: deterministicControls.fixedModel,
+      temperature: deterministicControls.temperature,
+      maxTokens: deterministicControls.maxTokens,
+      maxOutputTokens: deterministicControls.maxOutputTokens,
+      topP: deterministicControls.topP,
+      promptHashAlgorithm: "sha256",
+      promptHash,
+      promptEncoding: "utf8",
+      promptByteLength: Buffer.byteLength(persistedPromptText, "utf8"),
+      timeoutMs: execution.timeoutMs,
+      retryBudget: execution.retryBudget,
+      circuitBreakerLimit: execution.circuitBreakerLimit,
+      idempotencyKey: execution.idempotencyKey
+    })
+  };
 
-  let launcherScript = buildManualLauncher(workspacePath, promptPath, briefPath, modelSelection, platform);
+  let launcherScript = buildManualLauncher(
+    workspacePath,
+    promptPath,
+    briefPath,
+    modelSelection,
+    launcher.metadata,
+    launcher.metadata,
+    platform
+  );
 
   if (selected.runtimeId === "openclaw") {
-    launcherScript = buildOpenClawLauncher(promptPath, platform);
+    launcherScript = buildOpenClawLauncher(
+      promptPath,
+      modelSelection,
+      launcher.metadata,
+      launcher.metadata,
+      platform
+    );
   } else if (selected.runtimeId === "gpt-runner") {
-    launcherScript = buildGptRunnerLauncher(promptPath, workspacePath, modelSelection, platform);
+    launcherScript = buildGptRunnerLauncher(
+      promptPath,
+      workspacePath,
+      modelSelection,
+      launcher.metadata,
+      launcher.metadata,
+      platform
+    );
   } else if (selected.runtimeId === "cursor") {
-    launcherScript = buildCursorLauncher(workspacePath, briefPath, promptPath, modelSelection, platform);
+    launcherScript = buildCursorLauncher(
+      workspacePath,
+      briefPath,
+      promptPath,
+      modelSelection,
+      launcher.metadata,
+      launcher.metadata,
+      platform
+    );
   } else if (selected.runtimeId === "local-ci") {
     launcherScript = buildLocalCiLauncher(
       workspacePath,
+      modelSelection,
+      launcher.metadata,
+      launcher.metadata,
       {
         runId: runState.runId,
         taskId: task.id,
@@ -417,11 +656,18 @@ export function buildHandoffDescriptor({
       platform
     );
   } else if (selected.runtimeId === "codex") {
-    launcherScript = buildCodexLauncher(promptPath, workspacePath, modelSelection, platform);
+    launcherScript = buildCodexLauncher(
+      promptPath,
+      workspacePath,
+      modelSelection,
+      launcher.metadata,
+      launcher.metadata,
+      platform
+    );
   }
 
   return {
-    version: 3,
+    version: 4,
     runId: runState.runId,
     handoffId,
     taskId: task.id,
@@ -454,6 +700,13 @@ export function buildHandoffDescriptor({
       briefPath,
       resultPath
     },
+    prompt: {
+      hashAlgorithm: "sha256",
+      hash: promptHash,
+      encoding: "utf8",
+      byteLength: Buffer.byteLength(persistedPromptText, "utf8")
+    },
+    execution,
     launcher,
     alternatives,
     promptText,
@@ -473,6 +726,24 @@ export function renderHandoffMarkdown(descriptor, baseDir) {
     `- selection reason: ${descriptor.runtime.selectionReason}`,
     `- preferred model: ${descriptor.model.preferredModel}`,
     `- model reason: ${descriptor.model.selectionReason}`,
+    ...(descriptor.model?.deterministicSettings?.fixedModelId
+      ? [`- deterministic model id: ${descriptor.model.deterministicSettings.fixedModelId}`]
+      : []),
+    ...(descriptor.model?.deterministicSettings?.temperature !== undefined
+      ? [`- deterministic temperature: ${descriptor.model.deterministicSettings.temperature}`]
+      : []),
+    ...(descriptor.model?.deterministicSettings?.maxTokens !== undefined
+      ? [`- deterministic maxTokens: ${descriptor.model.deterministicSettings.maxTokens}`]
+      : []),
+    ...(descriptor.model?.deterministicSettings?.topP !== undefined
+      ? [`- deterministic topP: ${descriptor.model.deterministicSettings.topP}`]
+      : []),
+    ...(descriptor.prompt?.hash
+      ? [`- prompt hash: ${descriptor.prompt.hashAlgorithm ?? "sha256"}:${descriptor.prompt.hash}`]
+      : []),
+    ...(descriptor.execution?.idempotencyKey
+      ? [`- idempotency key: ${descriptor.execution.idempotencyKey}`]
+      : []),
     "",
     "## Project",
     `- name: ${descriptor.project.name}`,

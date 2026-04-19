@@ -1,24 +1,55 @@
 export const defaultModelPolicy = {
   orchestrator: {
     defaultModel: "gpt-5.4",
+    deterministicSettings: {
+      temperature: 0,
+      maxTokens: 12000,
+      topP: 1
+    },
     autoSwitch: false
   },
   planner: {
     defaultModel: "gpt-5.4",
     escalatedModel: "gpt-5.4-pro",
+    deterministicSettings: {
+      temperature: 0,
+      maxTokens: 12000,
+      topP: 1
+    },
+    escalatedDeterministicSettings: {
+      temperature: 0,
+      maxTokens: 12000,
+      topP: 1
+    },
     autoSwitch: true
   },
   reviewer: {
     defaultModel: "gpt-5.4",
     escalatedModel: "gpt-5.4-pro",
+    deterministicSettings: {
+      temperature: 0,
+      maxTokens: 12000,
+      topP: 1
+    },
+    escalatedDeterministicSettings: {
+      temperature: 0,
+      maxTokens: 12000,
+      topP: 1
+    },
     autoSwitch: true
   },
   executor: {
     defaultModel: "codex",
+    deterministicSettings: {
+      temperature: 0,
+      maxTokens: 12000,
+      topP: 1
+    },
     autoSwitch: false
   },
   verifier: {
     defaultModel: "local-ci",
+    deterministicSettings: {},
     autoSwitch: false
   },
   escalation: {
@@ -88,17 +119,73 @@ function hasDispatchFailureHistory(task) {
   return Array.isArray(task.notes) && task.notes.some((note) => /dispatch:(failed|incomplete)/i.test(note));
 }
 
+function usesSamplingControls(modelId) {
+  return !["local-ci", "manual"].includes(String(modelId).trim().toLowerCase());
+}
+
+function normalizeDeterministicNumber(value, fallback, { minimum = Number.NEGATIVE_INFINITY, maximum = Number.POSITIVE_INFINITY } = {}) {
+  if (!Number.isFinite(value)) {
+    return fallback;
+  }
+
+  return Math.min(Math.max(value, minimum), maximum);
+}
+
+function buildDeterministicSettings(modelId, configuredSettings = {}) {
+  const settings = {
+    fixedModelId: modelId
+  };
+
+  if (!usesSamplingControls(modelId)) {
+    return settings;
+  }
+
+  settings.temperature = normalizeDeterministicNumber(
+    configuredSettings.temperature,
+    0,
+    { minimum: 0, maximum: 2 }
+  );
+  settings.maxTokens = Math.trunc(
+    normalizeDeterministicNumber(configuredSettings.maxTokens, 12000, { minimum: 1 })
+  );
+
+  if (configuredSettings.topP !== undefined && configuredSettings.topP !== null) {
+    settings.topP = normalizeDeterministicNumber(
+      configuredSettings.topP,
+      1,
+      { minimum: 0, maximum: 1 }
+    );
+  }
+
+  return settings;
+}
+
 export function selectModelForTask(task, runState) {
+  const configuredModelPolicy = runState?.modelPolicy ?? {};
   const modelPolicy = {
     ...defaultModelPolicy,
-    ...(runState?.modelPolicy ?? {})
+    ...configuredModelPolicy
   };
+  const defaultRolePolicy = defaultModelPolicy[task.role] ?? {
+    defaultModel: "manual",
+    deterministicSettings: {},
+    escalatedDeterministicSettings: {},
+    autoSwitch: false
+  };
+  const configuredRolePolicy = configuredModelPolicy?.[task.role] ?? {};
   const rolePolicy = {
-    ...(defaultModelPolicy[task.role] ?? {
-      defaultModel: "manual",
-      autoSwitch: false
-    }),
-    ...(modelPolicy?.[task.role] ?? {})
+    ...defaultRolePolicy,
+    ...configuredRolePolicy,
+    deterministicSettings: {
+      ...(defaultRolePolicy.deterministicSettings ?? {}),
+      ...(configuredRolePolicy.deterministicSettings ?? {})
+    },
+    escalatedDeterministicSettings: {
+      ...(defaultRolePolicy.deterministicSettings ?? {}),
+      ...(defaultRolePolicy.escalatedDeterministicSettings ?? {}),
+      ...(configuredRolePolicy.deterministicSettings ?? {}),
+      ...(configuredRolePolicy.escalatedDeterministicSettings ?? {})
+    }
   };
   const escalationPolicy = {
     ...defaultModelPolicy.escalation,
@@ -143,6 +230,10 @@ export function selectModelForTask(task, runState) {
 
   const escalated = reasons.length > 0 && rolePolicy.autoSwitch && Boolean(rolePolicy.escalatedModel);
   const preferredModel = escalated ? rolePolicy.escalatedModel : rolePolicy.defaultModel;
+  const deterministicSettings = buildDeterministicSettings(
+    preferredModel,
+    escalated ? rolePolicy.escalatedDeterministicSettings : rolePolicy.deterministicSettings
+  );
   const selectionMode = escalated ? "escalated" : "default";
   const selectionReason = escalated
     ? `Escalated to ${preferredModel} because ${reasons.join("; ")}.`
@@ -155,6 +246,7 @@ export function selectModelForTask(task, runState) {
     autoSwitch: Boolean(rolePolicy.autoSwitch),
     selectionMode,
     selectionReason,
+    deterministicSettings,
     escalated,
     triggers: reasons
   };

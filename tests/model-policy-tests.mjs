@@ -32,6 +32,12 @@ async function main() {
     assert.equal(selection.preferredModel, "gpt-5.4");
     assert.equal(selection.escalated, false);
     assert.equal(selection.selectionMode, "default");
+    assert.deepEqual(selection.deterministicSettings, {
+      fixedModelId: "gpt-5.4",
+      temperature: 0,
+      maxTokens: 12000,
+      topP: 1
+    });
   });
 
   await runTest("planner escalates to gpt-5.4-pro after repeated retries", async () => {
@@ -53,6 +59,12 @@ async function main() {
     assert.equal(selection.preferredModel, "gpt-5.4-pro");
     assert.equal(selection.escalated, true);
     assert.match(selection.selectionReason, /retryCount/i);
+    assert.deepEqual(selection.deterministicSettings, {
+      fixedModelId: "gpt-5.4-pro",
+      temperature: 0,
+      maxTokens: 12000,
+      topP: 1
+    });
   });
 
   await runTest("reviewer escalates to gpt-5.4-pro on attention-required runs", async () => {
@@ -96,6 +108,83 @@ async function main() {
     assert.equal(selection.preferredModel, "codex");
     assert.equal(selection.escalated, false);
     assert.equal(selection.autoSwitch, false);
+    assert.deepEqual(selection.deterministicSettings, {
+      fixedModelId: "codex",
+      temperature: 0,
+      maxTokens: 12000,
+      topP: 1
+    });
+  });
+
+  await runTest("deterministic settings honor role overrides for default and escalated models", async () => {
+    const defaultSelection = selectModelForTask(
+      {
+        id: "planning-brief",
+        role: "planner",
+        title: "Clarify deterministic routing",
+        description: "Keep replay controls fixed.",
+        acceptanceCriteria: ["must be reproducible"],
+        attempts: 0,
+        retryCount: 0
+      },
+      {
+        status: "planned",
+        modelPolicy: {
+          planner: {
+            deterministicSettings: {
+              temperature: 0.15,
+              maxTokens: 4321,
+              topP: 0.25
+            },
+            escalatedDeterministicSettings: {
+              maxTokens: 9876,
+              topP: 0.4
+            }
+          }
+        }
+      }
+    );
+
+    const escalatedSelection = selectModelForTask(
+      {
+        id: "planning-brief",
+        role: "planner",
+        title: "Clarify deterministic routing",
+        description: "Keep replay controls fixed.",
+        acceptanceCriteria: ["must be reproducible"],
+        attempts: 0,
+        retryCount: 2
+      },
+      {
+        status: "planned",
+        modelPolicy: {
+          planner: {
+            deterministicSettings: {
+              temperature: 0.15,
+              maxTokens: 4321,
+              topP: 0.25
+            },
+            escalatedDeterministicSettings: {
+              maxTokens: 9876,
+              topP: 0.4
+            }
+          }
+        }
+      }
+    );
+
+    assert.deepEqual(defaultSelection.deterministicSettings, {
+      fixedModelId: "gpt-5.4",
+      temperature: 0.15,
+      maxTokens: 4321,
+      topP: 0.25
+    });
+    assert.deepEqual(escalatedSelection.deterministicSettings, {
+      fixedModelId: "gpt-5.4-pro",
+      temperature: 0.15,
+      maxTokens: 9876,
+      topP: 0.4
+    });
   });
 
   await runTest("planner escalates on hyphen-delimited mixed-language dispatch tasks", async () => {
