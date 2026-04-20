@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtemp, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -25,6 +25,17 @@ async function getJson(url, options = {}) {
   }
 
   return payload;
+}
+
+async function getText(url, options = {}) {
+  const response = await fetch(url, options);
+  const body = await response.text();
+
+  if (!response.ok) {
+    throw new Error(`Request failed: ${response.status}`);
+  }
+
+  return body;
 }
 
 async function postAction(baseUrl, action, payload = {}) {
@@ -165,6 +176,51 @@ async function main() {
     }
   });
 
+  await runTest("panel landing page exposes the human one-click controls and wiring", async () => {
+    const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "ai-factory-panel-ui-contract-"));
+    const panel = await startPanelServer({
+      workspaceDir: workspaceRoot,
+      port: 0
+    });
+
+    try {
+      const pageHtml = await getText(panel.url);
+
+      assert.match(pageHtml, /id="workspaceInput"/);
+      assert.match(pageHtml, /id="requestInput"/);
+      assert.match(pageHtml, /id="runIdInput"/);
+      assert.match(pageHtml, /id="maxRoundsInput"/);
+      assert.match(pageHtml, /id="confirmationInput"/);
+      assert.match(pageHtml, /id="applyWorkspaceBtn"/);
+      assert.match(pageHtml, /id="previewIntakeBtn"/);
+      assert.match(pageHtml, /id="quickStartBtn"/);
+      assert.match(pageHtml, /id="resumeNowBtn"/);
+      assert.match(pageHtml, /id="refreshStatusBtn"/);
+      assert.match(pageHtml, /id="viewGptPromptBtn"/);
+      assert.match(pageHtml, /id="initBtn"/);
+      assert.match(pageHtml, /id="intakeBtn"/);
+      assert.match(pageHtml, /id="confirmBtn"/);
+      assert.match(pageHtml, /id="runBtn"/);
+      assert.match(pageHtml, /id="autonomousBtn"/);
+      assert.match(pageHtml, /id="doctorBtn"/);
+      assert.match(pageHtml, /<details>/);
+      assert.match(pageHtml, /Step 1\/2: analyze start\/end in plain language/);
+      assert.match(pageHtml, /Step 2\/2: execute after human confirmation/);
+      assert.match(pageHtml, /Quick start paused: clarify task details first/);
+      assert.match(pageHtml, /Quick start paused: waiting for human confirmation/);
+      assert.match(pageHtml, /Quick start failed/);
+      assert.match(pageHtml, /window\.prompt\(/);
+      assert.match(pageHtml, /confirmationInput\?\.value\?\.trim\(\)/);
+      assert.match(pageHtml, /document\.getElementById\("quickStartBtn"\)\.addEventListener\("click", runQuickStartSafe\)/);
+      assert.match(pageHtml, /runAction\("intake-preview", \{ request: requestInput\.value \}/);
+      assert.match(pageHtml, /invokeAction\(\s*"quick-start-safe"/);
+      assert.match(pageHtml, /scheduleAutoResume\(overviewPayload\.overview\)/);
+      assert.match(pageHtml, /refreshStatus\(\)\.catch/);
+    } finally {
+      await panel.close();
+    }
+  });
+
   await runTest(
     "panel quick-start-safe requires structured intake contract and previewDigest round-trip",
     async () => {
@@ -257,11 +313,122 @@ async function main() {
         assert.equal(status.overview.latestRun, null);
         assert.equal(status.overview.intake.exists, true);
         assert.equal(status.overview.intake.confirmedByUser, false);
+
+        const successResponse = await postAction(panel.url, "quick-start-safe", {
+          request: requestText,
+          runId,
+          maxRounds: 0,
+          previewDigest: correctPreviewDigest,
+          confirmationText: preview.confirmationToken
+        });
+        const generatedSpecPath = successResponse.result.spec.specPath;
+        const runStatePath = successResponse.result.run.statePath;
+        const specSnapshotPath = path.join(workspaceRoot, "runs", runId, "spec.snapshot.json");
+        const generatedSpec = JSON.parse(await readFile(generatedSpecPath, "utf8"));
+        const runState = JSON.parse(await readFile(runStatePath, "utf8"));
+        const specSnapshot = JSON.parse(await readFile(specSnapshotPath, "utf8"));
+
+        assert.equal(successResponse.result.outcome.kind, "in_progress");
+        assert.match(successResponse.result.outcome.title, /still in progress|not finished yet/i);
+        assert.match(successResponse.result.outcome.message, /round limit|additional autonomous rounds/i);
+        assert.equal(generatedSpec.projectName, specSnapshot.projectName);
+        assert.notEqual(generatedSpec.projectName, "AI Factory Demo");
+        assert.equal(generatedSpec.projectGoal.oneLine, endPoint);
+        assert.deepEqual(generatedSpec.acceptanceCriteria, successCriteria);
+        assert.equal(runState.intake?.clarificationStatus, "confirmed");
+        assert.equal(runState.projectName, generatedSpec.projectName);
+        assert.equal(runState.runId, runId);
       } finally {
         await panel.close();
       }
     }
   );
+
+  await runTest("panel status exposes waiting-retry metadata and auto-resume controls", async () => {
+    const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "ai-factory-panel-waiting-retry-"));
+    const runId = "waiting-retry-run";
+    const runDirectory = path.join(workspaceRoot, "runs", runId);
+    const nextRetryAt = "2026-04-20T18:45:00.000Z";
+    const runStatePath = path.join(runDirectory, "run-state.json");
+    const runStateFixture = {
+      version: 1,
+      runId,
+      projectName: "Waiting Retry Demo",
+      workspacePath: workspaceRoot,
+      createdAt: "2026-04-20T18:30:00.000Z",
+      updatedAt: "2026-04-20T18:31:00.000Z",
+      status: "in_progress",
+      summary: {
+        totalTasks: 2,
+        readyTasks: 0,
+        pendingTasks: 0,
+        waitingRetryTasks: 1,
+        completedTasks: 1,
+        blockedTasks: 0,
+        failedTasks: 0
+      },
+      roles: {},
+      retryPolicy: {},
+      runtimeRouting: {},
+      modelPolicy: {},
+      mandatoryGates: [],
+      intake: null,
+      stopConditions: [],
+      definitionOfDone: [],
+      taskLedger: [
+        {
+          id: "planning-brief",
+          phaseId: "planning",
+          role: "planner",
+          owner: "Codex",
+          title: "Clarify the brief and execution sequence",
+          description: "Planning completed.",
+          status: "completed",
+          attempts: 0,
+          dependsOn: [],
+          acceptanceCriteria: []
+        },
+        {
+          id: "executor-retry",
+          phaseId: "implementation",
+          role: "executor",
+          owner: "Codex",
+          title: "Retry after cooldown",
+          description: "Continue after the retry window opens.",
+          status: "waiting_retry",
+          attempts: 1,
+          dependsOn: ["planning-brief"],
+          acceptanceCriteria: [],
+          nextRetryAt
+        }
+      ],
+      nextActions: []
+    };
+
+    await mkdir(runDirectory, { recursive: true });
+    await writeFile(runStatePath, `${JSON.stringify(runStateFixture, null, 2)}\n`, "utf8");
+
+    const panel = await startPanelServer({
+      workspaceDir: workspaceRoot,
+      port: 0
+    });
+
+    try {
+      const status = await getJson(`${panel.url}/api/status`);
+      assert.equal(status.overview.latestRun?.summary?.waitingRetryTasks, 1);
+      assert.equal(status.overview.latestRun?.waitingRetry?.earliestNextRetryAt, nextRetryAt);
+      assert.deepEqual(status.overview.latestRun?.waitingRetry?.scheduledTaskIds, ["executor-retry"]);
+
+      const pageHtml = await getText(panel.url);
+      assert.match(pageHtml, /id="resumeNowBtn"/);
+      assert.match(pageHtml, /Resume now/);
+      assert.match(pageHtml, /Next retry at/);
+      assert.match(pageHtml, /scheduleAutoResume\(overviewPayload\.overview\)/);
+      assert.match(pageHtml, /Auto resume after waiting_retry/);
+    } finally {
+      await panel.close();
+    }
+  });
 
   console.log("Panel tests passed.");
 }

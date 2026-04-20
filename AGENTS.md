@@ -17,6 +17,8 @@ Read it before making broad changes.
 - Do not invent missing files. If a file is named, open it.
 - If a task mentions tests or scripts, run the closest relevant verification before declaring success.
 - Preserve existing user changes unless the task explicitly asks to overwrite them.
+- Default to full agent autonomy: do not ask the human to take action unless execution is blocked by a capability, permission, or environment limit the agent cannot resolve directly.
+- If blocked, immediately escalate to GPT-5.4 for support; only ask the human after that escalation path is exhausted.
 
 ## Role Contracts
 

@@ -1,0 +1,8 @@
+{
+  "statusPillText": "需求狀態：已確認 | 執行狀態：已規劃",
+  "logBoxText": "[2026/4/21 03:37:56] Quick start started but the run is still in progress\n\n{\n  \"runId\": \"panel-browser-20260421-033739\",\n  \"finalStatus\": \"planned\",\n  \"stopReason\": \"maximum rounds reached\",\n  \"completedTasks\": 0,\n  \"readyTasks\": 1,\n  \"outcome\": \"in_progress\"\n}",
+  "promptMessages": [
+    "Please review this before execution.\n\nStart: Local workspace contains data/brief.txt and data/details.txt with tokens BRIEF-PANEL-BROWSER-SMOKE-20260421-A and DETAIL-PANEL-BROWSER-SMOKE-20260421-B, and artifacts/generated is writable.\nEnd: Create artifacts/generated/summary.md from both local files without changing the input files.\n\nType exactly: 我確認起點與終點"
+  ],
+  "quickStartDisabled": false
+}

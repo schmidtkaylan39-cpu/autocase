@@ -16,6 +16,62 @@ async function runTest(name, fn) {
   }
 }
 
+function decodeEncodedPowerShellCommand(args = []) {
+  const encodedCommandIndex = args.indexOf("-EncodedCommand");
+
+  if (encodedCommandIndex === -1 || encodedCommandIndex === args.length - 1) {
+    return null;
+  }
+
+  return Buffer.from(String(args[encodedCommandIndex + 1]), "base64").toString("utf16le");
+}
+
+function createWindowsLauncherParityFailureExecMock() {
+  return async (_command, args = []) => {
+    const encodedCommand = decodeEncodedPowerShellCommand(args);
+
+    if (Array.isArray(args) && args.includes("-File")) {
+      const error = /** @type {Error & { code?: string }} */ (new Error("spawn EPERM"));
+      error.code = "EPERM";
+      throw error;
+    }
+
+    if (encodedCommand?.includes("$PSVersionTable.PSVersion.ToString()")) {
+      return {
+        stdout: "7.5.0\n",
+        stderr: ""
+      };
+    }
+
+    if (encodedCommand?.includes("Get-Command 'codex'")) {
+      return {
+        stdout: "C:\\mock\\codex.exe\n",
+        stderr: ""
+      };
+    }
+
+    if (encodedCommand?.includes("& 'codex' '--help'")) {
+      return {
+        stdout: "Codex CLI\n",
+        stderr: ""
+      };
+    }
+
+    if (encodedCommand?.includes("& 'codex' 'login' 'status'")) {
+      return {
+        stdout: "Logged in\n",
+        stderr: ""
+      };
+    }
+
+    const error = /** @type {Error & { code?: string }} */ (
+      new Error(`mock command not implemented: ${encodedCommand ?? args.join(" ")}`)
+    );
+    error.code = "ENOENT";
+    throw error;
+  };
+}
+
 async function main() {
   await runTest("PowerShell availability check reports missing pwsh on non-Windows when overridden", async () => {
     const previousOverride = process.env.AI_FACTORY_POWERSHELL_COMMAND;
@@ -191,6 +247,57 @@ async function main() {
     assert.equal(localCiCheck.details?.packageJsonPath, path.join(tempDir, "package.json"));
     assert.equal(localCiCheck.ok, false);
     assert.ok(localCiCheck.details?.missingScripts.includes("lint"));
+  });
+
+  await runTest("runtime doctor marks codex not ready when Windows launcher parity probe fails", async () => {
+    if (process.platform !== "win32") {
+      return;
+    }
+
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-doctor-launcher-parity-"));
+    const reportsDir = path.join(tempDir, "reports");
+    const workspaceDir = path.join(tempDir, "workspace");
+
+    await mkdir(reportsDir, { recursive: true });
+    await mkdir(workspaceDir, { recursive: true });
+    await writeFile(
+      path.join(workspaceDir, "package.json"),
+      JSON.stringify(
+        {
+          name: "doctor-launcher-parity-fixture",
+          version: "0.0.1",
+          scripts: {
+            build: "echo build",
+            lint: "echo lint",
+            typecheck: "echo typecheck",
+            test: "echo test",
+            "test:integration": "echo integration",
+            "test:e2e": "echo e2e"
+          }
+        },
+        null,
+        2
+      ),
+      "utf8"
+    );
+
+    const result = await runRuntimeDoctor(reportsDir, workspaceDir, {
+      execFileImpl: createWindowsLauncherParityFailureExecMock()
+    });
+    const codexCheck = result.checks.find((check) => check.id === "codex");
+    const gptRunnerCheck = result.checks.find((check) => check.id === "gpt-runner");
+
+    assert.ok(codexCheck);
+    assert.equal(codexCheck.ok, false);
+    assert.equal(codexCheck.details?.launcherShellReady, true);
+    assert.equal(codexCheck.details?.launcherParityReady, false);
+    assert.match(codexCheck.error ?? "", /launcher parity probe failed/i);
+    assert.match(codexCheck.error ?? "", /spawn EPERM/i);
+    assert.equal(codexCheck.details?.launcherProbeMode, "powershell-file-codex-exec");
+
+    assert.ok(gptRunnerCheck);
+    assert.equal(gptRunnerCheck.ok, false);
+    assert.equal(gptRunnerCheck.details?.launcherParityReady, false);
   });
 
   console.log("Doctor tests passed.");

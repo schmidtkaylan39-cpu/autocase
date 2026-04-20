@@ -1,0 +1,23 @@
+{
+  "generatedAt": "2026-04-20T19:32:12.955Z",
+  "startedAt": "2026-04-20T19:32:01.915Z",
+  "finishedAt": "2026-04-20T19:32:12.955Z",
+  "panelUrl": "http://127.0.0.1:64623",
+  "evidenceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-existing-run\\panel-browser-one-click-20260421-033201",
+  "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-existing-run\\panel-browser-one-click-20260421-033201\\workspace",
+  "runId": "panel-browser-smoke-20260421-033201",
+  "clientMode": "browser-cdp one-click button + /api/status polling",
+  "browserPath": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+  "browserVersion": "Chrome/149.0.7795.2",
+  "watchdogMs": 60000,
+  "pollIntervalMs": 1000,
+  "pollCount": 0,
+  "harnessPassed": false,
+  "error": "Timed out waiting for page condition: typeof callApi === \"function\" && !!document.getElementById(\"quickStartBtn\")",
+  "panelStdoutPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-existing-run\\panel-browser-one-click-20260421-033201\\panel.stdout.log",
+  "panelStderrPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-existing-run\\panel-browser-one-click-20260421-033201\\panel.stderr.log",
+  "browserStdoutPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-existing-run\\panel-browser-one-click-20260421-033201\\browser.stdout.log",
+  "browserStderrPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-existing-run\\panel-browser-one-click-20260421-033201\\browser.stderr.log",
+  "browserLogPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-existing-run\\panel-browser-one-click-20260421-033201\\browser.log.txt",
+  "screenshotPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-existing-run\\panel-browser-one-click-20260421-033201\\panel-browser-after.png"
+}

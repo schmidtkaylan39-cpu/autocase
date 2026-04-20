@@ -439,7 +439,7 @@ function buildCodexLauncher(
       `Set-Location -LiteralPath ${workspaceLiteral}`,
       ...buildLauncherOutputLines(modelSelection, launcherMetadata, promptMetadata, platform),
       `$prompt = Get-Content -Raw -LiteralPath ${promptLiteral}`,
-      "$prompt | & codex -a never exec -C . -s workspace-write -"
+      "$prompt | & codex -a never exec --skip-git-repo-check -C . -s workspace-write -"
     ].join("\n");
   }
 
@@ -450,7 +450,7 @@ function buildCodexLauncher(
     `cd ${workspaceLiteral}`,
     ...buildLauncherOutputLines(modelSelection, launcherMetadata, promptMetadata, platform),
     `prompt=$(cat ${promptLiteral})`,
-    'printf "%s" "$prompt" | codex -a never exec -C . -s workspace-write -'
+    'printf "%s" "$prompt" | codex -a never exec --skip-git-repo-check -C . -s workspace-write -'
   ].join("\n");
 }
 
@@ -471,7 +471,7 @@ function buildGptRunnerLauncher(
       `Set-Location -LiteralPath ${workspaceLiteral}`,
       ...buildLauncherOutputLines(modelSelection, launcherMetadata, promptMetadata, platform),
       `$prompt = Get-Content -Raw -LiteralPath ${promptLiteral}`,
-      `$prompt | & codex -m ${preferredModelLiteral} -a never exec -C . -s workspace-write -`
+      `$prompt | & codex -m ${preferredModelLiteral} -a never exec --skip-git-repo-check -C . -s workspace-write -`
     ].join("\n");
   }
 
@@ -483,7 +483,7 @@ function buildGptRunnerLauncher(
     `cd ${workspaceLiteral}`,
     ...buildLauncherOutputLines(modelSelection, launcherMetadata, promptMetadata, platform),
     `prompt=$(cat ${promptLiteral})`,
-    `printf "%s" "$prompt" | codex -m ${preferredModelLiteral} -a never exec -C . -s workspace-write -`
+    `printf "%s" "$prompt" | codex -m ${preferredModelLiteral} -a never exec --skip-git-repo-check -C . -s workspace-write -`
   ].join("\n");
 }
 
@@ -522,6 +522,46 @@ function buildManualLauncher(
   ].join("\n");
 }
 
+function hasExplicitRoleRuntimeOverride(runState, role) {
+  const configuredPreferences = runState?.runtimeRouting?.roleOverrides?.[role];
+  return Array.isArray(configuredPreferences) && configuredPreferences.length > 0;
+}
+
+function shouldAutoFailoverPlannerOrReviewerToCodex(task, runState, runtimeChecks, selectedRuntimeId) {
+  if (!task || (task.role !== "planner" && task.role !== "reviewer")) {
+    return false;
+  }
+
+  if (selectedRuntimeId !== "gpt-runner") {
+    return false;
+  }
+
+  if (hasExplicitRoleRuntimeOverride(runState, task.role)) {
+    return false;
+  }
+
+  if (!runtimeChecks?.codex?.ok) {
+    return false;
+  }
+
+  return /transient gpt runner upstream failure/i.test(String(task.lastRetryReason ?? ""));
+}
+
+function resolveTaskRuntimeSelection(task, runState, runtimeChecks) {
+  const selected = pickRuntimeForRole(task.role, runtimeChecks, runState.runtimeRouting);
+
+  if (!shouldAutoFailoverPlannerOrReviewerToCodex(task, runState, runtimeChecks, selected.runtimeId)) {
+    return selected;
+  }
+
+  return {
+    runtimeId: "codex",
+    status: "ready",
+    reason:
+      "Codex was selected automatically after a transient GPT Runner upstream failure for this task."
+  };
+}
+
 export function buildHandoffDescriptor({
   workspacePath,
   spec,
@@ -537,7 +577,7 @@ export function buildHandoffDescriptor({
   platform = process.platform
 }) {
   const runtimeChecks = normalizeRuntimeChecks(doctorReport);
-  const selected = pickRuntimeForRole(task.role, runtimeChecks, runState.runtimeRouting);
+  const selected = resolveTaskRuntimeSelection(task, runState, runtimeChecks);
   const runtime = describeRuntime(selected.runtimeId);
   const modelSelection = selectModelForTask(task, runState);
   const executionProfile = getRuntimeExecutionProfile({

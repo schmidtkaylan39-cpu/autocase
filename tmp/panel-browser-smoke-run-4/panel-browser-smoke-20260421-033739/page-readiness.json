@@ -1,0 +1,8 @@
+{
+  "readyState": "complete",
+  "callApiType": "function",
+  "refreshStatusType": "function",
+  "quickStartButtonText": "一鍵開始（推薦）",
+  "statusPillText": "需求狀態：已確認 | 執行狀態：已規劃",
+  "logBoxText": "[2026/4/21 03:37:56] Quick start started but the run is still in progress\n\n{\n  \"runId\": \"panel-browser-20260421-033739\",\n  \"finalStatus\": \"planned\",\n  \"stopReason\": \"maximum rounds reached\",\n  \"completedTasks\": 0,\n  \"readyTasks\": 1,\n  \"outcome\": \"in_progress\"\n}"
+}

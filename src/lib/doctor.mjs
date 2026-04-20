@@ -1,11 +1,13 @@
 import { execFile } from "node:child_process";
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
 import { ensureDirectory, writeJson } from "./fs-utils.mjs";
 import {
   buildPowerShellCommandArgs,
+  buildPowerShellFileArgs,
   checkLauncherShellAvailability,
   getNonWindowsLauncherShellCommand,
   getPowerShellInvocation,
@@ -22,11 +24,15 @@ const defaultReadinessProfile = {
 };
 const requiredRuntimeIdSet = new Set(defaultReadinessProfile.requiredRuntimeIds);
 
-async function resolveCommand(command) {
+function formatErrorMessage(error) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+async function resolveCommand(command, execFileImpl = execFileAsync) {
   if (process.platform === "win32") {
     const runtime = getPowerShellInvocation();
     try {
-      const result = await execFileAsync(
+      const result = await execFileImpl(
         runtime.command,
         buildPowerShellCommandArgs(
           `(Get-Command ${toPowerShellSingleQuotedLiteral(command)} -ErrorAction Stop | Select-Object -ExpandProperty Source -First 1)`
@@ -51,7 +57,7 @@ async function resolveCommand(command) {
   }
 
   try {
-    const result = await execFileAsync("which", [command], {
+    const result = await execFileImpl("which", [command], {
       encoding: "utf8",
       timeout: 15000
     });
@@ -68,21 +74,21 @@ async function resolveCommand(command) {
   }
 }
 
-async function runCommand(command, args) {
+async function runCommand(command, args, execFileImpl = execFileAsync) {
   if (process.platform === "win32") {
     const runtime = getPowerShellInvocation();
     const commandLine = [`& ${toPowerShellSingleQuotedLiteral(command)}`]
       .concat(args.map((arg) => toPowerShellSingleQuotedLiteral(arg)))
       .join(" ");
 
-    return execFileAsync(runtime.command, buildPowerShellCommandArgs(commandLine), {
+    return execFileImpl(runtime.command, buildPowerShellCommandArgs(commandLine), {
       encoding: "utf8",
       windowsHide: runtime.windowsHide,
       timeout: 30000
     });
   }
 
-  return execFileAsync(command, args, {
+  return execFileImpl(command, args, {
     encoding: "utf8",
     timeout: 30000
   });
@@ -92,8 +98,8 @@ function combineOutput(result) {
   return [result.stdout?.trim(), result.stderr?.trim()].filter(Boolean).join("\n");
 }
 
-async function checkOpenClaw() {
-  const resolution = await resolveCommand("openclaw");
+async function checkOpenClaw(execFileImpl = execFileAsync) {
+  const resolution = await resolveCommand("openclaw", execFileImpl);
 
   if (!resolution.installed) {
     return {
@@ -107,9 +113,9 @@ async function checkOpenClaw() {
   }
 
   try {
-    const version = await runCommand("openclaw", ["--version"]);
-    const gatewayStatus = await runCommand("openclaw", ["gateway", "status"]);
-    const securityAudit = await runCommand("openclaw", ["security", "audit"]);
+    const version = await runCommand("openclaw", ["--version"], execFileImpl);
+    const gatewayStatus = await runCommand("openclaw", ["gateway", "status"], execFileImpl);
+    const securityAudit = await runCommand("openclaw", ["security", "audit"], execFileImpl);
 
     const gatewayText = combineOutput(gatewayStatus);
     const auditText = combineOutput(securityAudit);
@@ -158,13 +164,13 @@ async function checkOpenClaw() {
       ok: false,
       source: resolution.source,
       command: "openclaw gateway status",
-      error: error instanceof Error ? error.message : String(error)
+      error: formatErrorMessage(error)
     };
   }
 }
 
-async function checkCursor() {
-  const resolution = await resolveCommand("cursor");
+async function checkCursor(execFileImpl = execFileAsync) {
+  const resolution = await resolveCommand("cursor", execFileImpl);
 
   if (!resolution.installed) {
     return {
@@ -178,7 +184,7 @@ async function checkCursor() {
   }
 
   try {
-    const version = await runCommand("cursor", ["--version"]);
+    const version = await runCommand("cursor", ["--version"], execFileImpl);
     return {
       id: "cursor",
       label: "Cursor CLI",
@@ -196,13 +202,13 @@ async function checkCursor() {
       ok: false,
       source: resolution.source,
       command: "cursor --version",
-      error: error instanceof Error ? error.message : String(error)
+      error: formatErrorMessage(error)
     };
   }
 }
 
-async function checkGptRunner() {
-  const resolution = await resolveCommand("codex");
+async function checkGptRunner(execFileImpl = execFileAsync) {
+  const resolution = await resolveCommand("codex", execFileImpl);
 
   if (!resolution.installed) {
     return {
@@ -216,7 +222,7 @@ async function checkGptRunner() {
   }
 
   try {
-    const loginStatus = await runCommand("codex", ["login", "status"]);
+    const loginStatus = await runCommand("codex", ["login", "status"], execFileImpl);
 
     return {
       id: "gpt-runner",
@@ -239,13 +245,13 @@ async function checkGptRunner() {
       ok: false,
       source: resolution.source,
       command: "codex exec -m gpt-5.4 -",
-      error: error instanceof Error ? error.message : String(error)
+      error: formatErrorMessage(error)
     };
   }
 }
 
-async function checkCodex() {
-  const resolution = await resolveCommand("codex");
+async function checkCodex(execFileImpl = execFileAsync) {
+  const resolution = await resolveCommand("codex", execFileImpl);
 
   if (!resolution.installed) {
     return {
@@ -259,8 +265,8 @@ async function checkCodex() {
   }
 
   try {
-    const help = await runCommand("codex", ["--help"]);
-    const loginStatus = await runCommand("codex", ["login", "status"]);
+    const help = await runCommand("codex", ["--help"], execFileImpl);
+    const loginStatus = await runCommand("codex", ["login", "status"], execFileImpl);
 
     return {
       id: "codex",
@@ -283,7 +289,7 @@ async function checkCodex() {
       ok: false,
       source: resolution.source,
       command: "codex login status",
-      error: error instanceof Error ? error.message : String(error),
+      error: formatErrorMessage(error),
       details: {
         authReady: false
       }
@@ -320,13 +326,13 @@ async function checkLocalCi(workspaceRoot = process.cwd()) {
       installed: false,
       ok: false,
       command: "package.json",
-      error: error instanceof Error ? error.message : String(error)
+      error: formatErrorMessage(error)
     };
   }
 }
 
-async function checkLauncherRuntimeAvailability() {
-  const launcherStatus = await checkLauncherShellAvailability();
+async function checkLauncherRuntimeAvailability(execFileImpl = execFileAsync) {
+  const launcherStatus = await checkLauncherShellAvailability(process.platform, execFileImpl);
 
   if (process.platform === "win32") {
     return launcherStatus;
@@ -342,6 +348,56 @@ async function checkLauncherRuntimeAvailability() {
     source: resolution.source,
     error: launcherStatus.error
   };
+}
+
+async function probeWindowsCodexLauncher(execFileImpl = execFileAsync) {
+  if (process.platform !== "win32") {
+    return null;
+  }
+
+  const runtime = getPowerShellInvocation();
+  const previewArgs = buildPowerShellFileArgs("<launcher.ps1>");
+  const tempDirectory = await mkdtemp(path.join(os.tmpdir(), "ai-factory-codex-launcher-probe-"));
+  const workspacePath = path.join(tempDirectory, "workspace");
+  const promptPath = path.join(tempDirectory, "probe.prompt.md");
+  const scriptPath = path.join(tempDirectory, "probe.launch.ps1");
+  const launcherScript = [
+    `Set-Location -LiteralPath ${toPowerShellSingleQuotedLiteral(workspacePath)}`,
+    `$prompt = Get-Content -Raw -LiteralPath ${toPowerShellSingleQuotedLiteral(promptPath)}`,
+    "$prompt | & codex -a never exec --skip-git-repo-check -C . -s workspace-write -"
+  ].join("\n");
+
+  try {
+    await ensureDirectory(workspacePath);
+    await writeFile(
+      promptPath,
+      "Reply with exactly READY.\nDo not read, create, modify, or delete any workspace files.\n",
+      "utf8"
+    );
+    await writeFile(scriptPath, `${launcherScript}\n`, "utf8");
+
+    const result = await execFileImpl(runtime.command, buildPowerShellFileArgs(scriptPath), {
+      encoding: "utf8",
+      windowsHide: runtime.windowsHide,
+      timeout: 60000
+    });
+
+    return {
+      ok: true,
+      mode: "powershell-file-codex-exec",
+      command: `${runtime.command} ${previewArgs.join(" ")}`,
+      stdout: combineOutput(result)
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      mode: "powershell-file-codex-exec",
+      command: `${runtime.command} ${previewArgs.join(" ")}`,
+      error: formatErrorMessage(error)
+    };
+  } finally {
+    await rm(tempDirectory, { force: true, recursive: true }).catch(() => undefined);
+  }
 }
 
 function applyLauncherRuntimeRequirement(check, launcherStatus) {
@@ -363,6 +419,35 @@ function applyLauncherRuntimeRequirement(check, launcherStatus) {
   }
 
   const dependencyMessage = `Launcher shell runtime is unavailable: ${launcherStatus.command}`;
+
+  return {
+    ...check,
+    ok: false,
+    details,
+    error: check.error ? `${check.error}\n${dependencyMessage}` : dependencyMessage
+  };
+}
+
+function applyLauncherParityRequirement(check, launcherProbe) {
+  if (!launcherProbe || !["gpt-runner", "codex"].includes(check.id)) {
+    return check;
+  }
+
+  const details = {
+    ...(check.details ?? {}),
+    launcherProbeMode: launcherProbe.mode,
+    launcherProbeCommand: launcherProbe.command,
+    launcherParityReady: launcherProbe.ok
+  };
+
+  if (launcherProbe.ok) {
+    return {
+      ...check,
+      details
+    };
+  }
+
+  const dependencyMessage = `Runtime launcher parity probe failed: ${launcherProbe.error ?? launcherProbe.command}`;
 
   return {
     ...check,
@@ -447,13 +532,21 @@ function renderDoctorReport(checks) {
   ].join("\n");
 }
 
-export async function runRuntimeDoctor(outputDir = "reports", workspaceRoot = process.cwd()) {
-  const launcherStatus = await checkLauncherRuntimeAvailability();
+export async function runRuntimeDoctor(outputDir = "reports", workspaceRoot = process.cwd(), options = {}) {
+  const execFileImpl = options.execFileImpl ?? execFileAsync;
+  const launcherStatus = await checkLauncherRuntimeAvailability(execFileImpl);
+  const launcherProbe = launcherStatus.ok ? await probeWindowsCodexLauncher(execFileImpl) : null;
   const checks = [
-    applyLauncherRuntimeRequirement(await checkOpenClaw(), launcherStatus),
-    await checkCursor(),
-    applyLauncherRuntimeRequirement(await checkGptRunner(), launcherStatus),
-    applyLauncherRuntimeRequirement(await checkCodex(), launcherStatus),
+    applyLauncherRuntimeRequirement(await checkOpenClaw(execFileImpl), launcherStatus),
+    await checkCursor(execFileImpl),
+    applyLauncherParityRequirement(
+      applyLauncherRuntimeRequirement(await checkGptRunner(execFileImpl), launcherStatus),
+      launcherProbe
+    ),
+    applyLauncherParityRequirement(
+      applyLauncherRuntimeRequirement(await checkCodex(execFileImpl), launcherStatus),
+      launcherProbe
+    ),
     applyLauncherRuntimeRequirement(await checkLocalCi(workspaceRoot), launcherStatus)
   ].map((check) => applyReadinessProfile(check));
 

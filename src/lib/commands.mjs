@@ -81,6 +81,37 @@ function resolveRunRelativePath(runDirectory, targetPath, fallbackPath) {
   return path.isAbsolute(effectivePath) ? path.resolve(effectivePath) : path.resolve(runDirectory, effectivePath);
 }
 
+function normalizePathSegmentForComparison(value) {
+  return process.platform === "win32" ? String(value).toLowerCase() : String(value);
+}
+
+function assertCanonicalHandoffOutputDir(runDirectory, resolvedOutputDir) {
+  const relativeFromRun = path.relative(runDirectory, resolvedOutputDir);
+
+  if (
+    relativeFromRun.length === 0 ||
+    relativeFromRun === "." ||
+    relativeFromRun.startsWith("..") ||
+    path.isAbsolute(relativeFromRun)
+  ) {
+    return;
+  }
+
+  const segments = relativeFromRun.split(/[\\/]+/).filter(Boolean);
+  const runId = path.basename(runDirectory);
+
+  if (
+    segments.length >= 2 &&
+    normalizePathSegmentForComparison(segments[0]) === "runs" &&
+    normalizePathSegmentForComparison(segments[1]) === normalizePathSegmentForComparison(runId)
+  ) {
+    throw new Error(
+      `Refusing to generate handoffs inside a nested run directory: ${resolvedOutputDir}. ` +
+        'Pass an absolute output directory or a run-relative leaf such as "handoffs-failover".'
+    );
+  }
+}
+
 function summarizeIntake(spec) {
   return {
     requestId: spec.requestId,
@@ -674,6 +705,7 @@ export async function createRunHandoffs(
   const resolvedRunStatePath = path.resolve(runStatePath);
   const runDirectory = path.dirname(resolvedRunStatePath);
   const resolvedOutputDir = resolveRunRelativePath(runDirectory, outputDir, path.join(runDirectory, "handoffs"));
+  assertCanonicalHandoffOutputDir(runDirectory, resolvedOutputDir);
   const runState = refreshRunState(await readJson(resolvedRunStatePath));
   const workspaceRoot = inferWorkspaceRootFromRunState(runState, resolvedRunStatePath);
   await ensureRunStateIntakePlanningReady(runState, workspaceRoot, null, "handoff generation");

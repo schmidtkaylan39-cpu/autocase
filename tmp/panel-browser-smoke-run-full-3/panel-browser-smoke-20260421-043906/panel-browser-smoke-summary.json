@@ -1,0 +1,190 @@
+{
+  "generatedAt": "2026-04-20T20:39:06.946Z",
+  "startedAt": "2026-04-20T20:39:06.945Z",
+  "finishedAt": "2026-04-20T20:56:09.343Z",
+  "feasibleNow": true,
+  "harnessPassed": true,
+  "evidenceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full-3\\panel-browser-smoke-20260421-043906",
+  "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full-3\\panel-browser-smoke-20260421-043906\\workspace",
+  "runId": "panel-browser-20260421-043906",
+  "maxRounds": 20,
+  "requireCompleted": true,
+  "headless": true,
+  "requestText": "Start: Local workspace contains data/brief.txt and data/details.txt with tokens BRIEF-PANEL-SMOKE-20260421-A and DETAIL-PANEL-SMOKE-20260421-B, and artifacts/generated is writable.\nEnd point: Create artifacts/generated/summary.md from both local files without changing the input files.\nSuccess criteria: artifacts/generated/summary.md exists; summary.md includes the exact token BRIEF-PANEL-SMOKE-20260421-A; summary.md includes the exact token DETAIL-PANEL-SMOKE-20260421-B; summary.md contains a heading named Combined Notes; summary.md includes a short Chinese summary.\nInput source: data/brief.txt; data/details.txt.\nOut of scope: do not modify input files; do not call external APIs; do not send email.",
+  "browser": {
+    "browserPath": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+    "browserName": "chrome",
+    "candidatesTried": [
+      "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
+    ]
+  },
+  "panelUrl": "http://127.0.0.1:10680",
+  "devTools": {
+    "port": 10681,
+    "browserWebSocketUrl": "ws://127.0.0.1:10681/devtools/browser/8e152761-04b6-441b-9995-f8f48da92998"
+  },
+  "debugBaseUrl": "http://127.0.0.1:10681",
+  "pageTarget": {
+    "id": "0B17A2A46BD294B2F3D07B9B883E02F8",
+    "title": "AI Factory 中文操作面板",
+    "type": "page",
+    "url": "http://127.0.0.1:10680/",
+    "websocketUrl": "ws://127.0.0.1:10681/devtools/page/0B17A2A46BD294B2F3D07B9B883E02F8"
+  },
+  "pageReadiness": {
+    "readyState": "complete",
+    "callApiType": "function",
+    "refreshStatusType": "function",
+    "quickStartButtonText": "一鍵開始（推薦）",
+    "statusPillText": "需求狀態：已確認 | 執行狀態：已完成",
+    "logBoxText": "[2026/4/21 04:55:59] Quick start completed\n\n{\n  \"runId\": \"panel-browser-20260421-043906\",\n  \"finalStatus\": \"completed\",\n  \"stopReason\": \"run completed\",\n  \"completedTasks\": 5,\n  \"readyTasks\": 0,\n  \"outcome\": \"completed\"\n}"
+  },
+  "statusAfter": {
+    "ok": true,
+    "overview": {
+      "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full-3\\panel-browser-smoke-20260421-043906\\workspace",
+      "defaults": {
+        "specPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full-3\\panel-browser-smoke-20260421-043906\\workspace\\specs\\project-spec.json",
+        "runsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full-3\\panel-browser-smoke-20260421-043906\\workspace\\runs",
+        "reportsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full-3\\panel-browser-smoke-20260421-043906\\workspace\\reports"
+      },
+      "intake": {
+        "exists": true,
+        "clarificationStatus": "confirmed",
+        "confirmedByUser": true,
+        "recommendedNextStep": "planning-ready",
+        "intakeSpecPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full-3\\panel-browser-smoke-20260421-043906\\workspace\\artifacts\\clarification\\intake-spec.json",
+        "intakeSummaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full-3\\panel-browser-smoke-20260421-043906\\workspace\\artifacts\\clarification\\intake-summary.md"
+      },
+      "latestRun": {
+        "runDirectory": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full-3\\panel-browser-smoke-20260421-043906\\workspace\\runs\\panel-browser-20260421-043906",
+        "runStatePath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full-3\\panel-browser-smoke-20260421-043906\\workspace\\runs\\panel-browser-20260421-043906\\run-state.json",
+        "reportPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full-3\\panel-browser-smoke-20260421-043906\\workspace\\runs\\panel-browser-20260421-043906\\report.md",
+        "handoffIndexPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full-3\\panel-browser-smoke-20260421-043906\\workspace\\runs\\panel-browser-20260421-043906\\handoffs\\index.json",
+        "summary": {
+          "runId": "panel-browser-20260421-043906",
+          "status": "completed",
+          "totalTasks": 5,
+          "readyTasks": 0,
+          "pendingTasks": 0,
+          "waitingRetryTasks": 0,
+          "completedTasks": 5,
+          "blockedTasks": 0,
+          "failedTasks": 0
+        },
+        "waitingRetry": {
+          "taskIds": [],
+          "earliestNextRetryAt": null,
+          "scheduledTaskIds": []
+        }
+      }
+    }
+  },
+  "uiState": {
+    "statusPillText": "需求狀態：已確認 | 執行狀態：已完成",
+    "logBoxText": "[2026/4/21 04:55:59] Quick start completed\n\n{\n  \"runId\": \"panel-browser-20260421-043906\",\n  \"finalStatus\": \"completed\",\n  \"stopReason\": \"run completed\",\n  \"completedTasks\": 5,\n  \"readyTasks\": 0,\n  \"outcome\": \"completed\"\n}",
+    "promptMessages": [
+      "Please review this before execution.\n\nStart: Local workspace contains data/brief.txt and data/details.txt with tokens BRIEF-PANEL-SMOKE-20260421-A and DETAIL-PANEL-SMOKE-20260421-B, and artifacts/generated is writable.\nEnd: Create artifacts/generated/summary.md from both local files without changing the input files.\n\nType exactly: 我確認起點與終點"
+    ],
+    "quickStartDisabled": false
+  },
+  "verification": {
+    "passed": true,
+    "extractedPromptToken": "我確認起點與終點",
+    "checks": [
+      {
+        "id": "browser-detected",
+        "passed": true,
+        "message": "A supported Chrome/Edge browser executable was found."
+      },
+      {
+        "id": "cdp-connected",
+        "passed": true,
+        "message": "The browser exposed a DevTools websocket endpoint."
+      },
+      {
+        "id": "prompt-handled",
+        "passed": true,
+        "message": "The browser smoke handled the panel confirmation prompt in-page."
+      },
+      {
+        "id": "ui-log-updated",
+        "passed": true,
+        "message": "The panel log updated with the quick-start run id."
+      },
+      {
+        "id": "run-state-created",
+        "passed": true,
+        "message": "The quick-start click created the expected run-state.json file."
+      },
+      {
+        "id": "spec-snapshot-created",
+        "passed": true,
+        "message": "The quick-start flow created a spec.snapshot.json file."
+      },
+      {
+        "id": "panel-status-updated",
+        "passed": true,
+        "message": "The panel status endpoint reports the new run after the browser click."
+      },
+      {
+        "id": "final-run-completed",
+        "passed": true,
+        "message": "The browser-triggered run reached completed status."
+      },
+      {
+        "id": "summary-artifact-verified",
+        "passed": true,
+        "message": "The generated summary artifact satisfies the required smoke assertions."
+      },
+      {
+        "id": "autonomous-summary-completed",
+        "passed": true,
+        "message": "The browser-triggered quick start reached a completed autonomous summary."
+      },
+      {
+        "id": "ui-log-completed",
+        "passed": true,
+        "message": "The browser UI log shows a completed quick-start outcome."
+      }
+    ]
+  },
+  "runStatePath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full-3\\panel-browser-smoke-20260421-043906\\workspace\\runs\\panel-browser-20260421-043906\\run-state.json",
+  "specSnapshotPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full-3\\panel-browser-smoke-20260421-043906\\workspace\\runs\\panel-browser-20260421-043906\\spec.snapshot.json",
+  "autonomousSummaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full-3\\panel-browser-smoke-20260421-043906\\workspace\\runs\\panel-browser-20260421-043906\\autonomous-summary.json",
+  "artifactVerification": {
+    "passed": true,
+    "summaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full-3\\panel-browser-smoke-20260421-043906\\workspace\\artifacts\\generated\\summary.md",
+    "checks": [
+      {
+        "id": "summary-exists",
+        "passed": true,
+        "message": "Generated summary artifact exists."
+      },
+      {
+        "id": "brief-token",
+        "passed": true,
+        "message": "summary.md must include exact token BRIEF-PANEL-SMOKE-20260421-A."
+      },
+      {
+        "id": "detail-token",
+        "passed": true,
+        "message": "summary.md must include exact token DETAIL-PANEL-SMOKE-20260421-B."
+      },
+      {
+        "id": "combined-notes-heading",
+        "passed": true,
+        "message": "summary.md must contain a heading named Combined Notes."
+      },
+      {
+        "id": "chinese-summary",
+        "passed": true,
+        "message": "summary.md must include at least one Chinese character."
+      }
+    ]
+  },
+  "pollIntervalMs": 15000,
+  "statusPollCount": 69,
+  "finalRunStatus": "completed",
+  "autonomousFinalStatus": "completed"
+}

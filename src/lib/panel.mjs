@@ -19,7 +19,8 @@ import { dispatchHandoffs } from "./dispatch.mjs";
 import { runRuntimeDoctor } from "./doctor.mjs";
 import { readJson } from "./fs-utils.mjs";
 import { clarifyIntakeRequest } from "./intake-clarifier.mjs";
-import { assessIntakePlanningReadiness, loadIntakeArtifacts } from "./intake-state.mjs";
+import { assessIntakePlanningReadiness, loadIntakeArtifacts, writeIntakeArtifacts } from "./intake-state.mjs";
+import { writeQuickStartProjectSpec } from "./quick-start-spec.mjs";
 import { summarizeRunState } from "./run-state.mjs";
 
 const DEFAULT_PANEL_HOST = "127.0.0.1";
@@ -193,6 +194,39 @@ function getDefaultPaths(workspaceRoot) {
   };
 }
 
+function summarizeWaitingRetryTasks(runState) {
+  const waitingRetryTasks = Array.isArray(runState?.taskLedger)
+    ? runState.taskLedger.filter((task) => task?.status === "waiting_retry")
+    : [];
+  const scheduledRetries = waitingRetryTasks
+    .map((task) => {
+      const nextRetryAt =
+        typeof task?.nextRetryAt === "string" && task.nextRetryAt.trim().length > 0
+          ? task.nextRetryAt.trim()
+          : null;
+      const nextRetryAtMs = nextRetryAt ? Date.parse(nextRetryAt) : Number.NaN;
+
+      return {
+        taskId: typeof task?.id === "string" ? task.id : null,
+        nextRetryAt,
+        nextRetryAtMs
+      };
+    })
+    .filter((task) => Number.isFinite(task.nextRetryAtMs))
+    .sort((left, right) => left.nextRetryAtMs - right.nextRetryAtMs);
+  const earliestRetry = scheduledRetries[0] ?? null;
+
+  return {
+    taskIds: waitingRetryTasks
+      .map((task) => (typeof task?.id === "string" ? task.id : null))
+      .filter((taskId) => nonEmptyText(taskId)),
+    earliestNextRetryAt: earliestRetry?.nextRetryAt ?? null,
+    scheduledTaskIds: scheduledRetries
+      .map((task) => task.taskId)
+      .filter((taskId) => nonEmptyText(taskId))
+  };
+}
+
 export function normalizePanelPort(portInput, fallbackPort = DEFAULT_PANEL_PORT) {
   if (portInput === undefined || portInput === null || String(portInput).trim().length === 0) {
     return fallbackPort;
@@ -235,7 +269,8 @@ async function buildWorkspaceOverview(workspaceRoot) {
         runStatePath: latestRunStatePath,
         reportPath,
         handoffIndexPath: defaultHandoffIndexPath,
-        summary: summarizeRunState(runState)
+        summary: summarizeRunState(runState),
+        waitingRetry: summarizeWaitingRetryTasks(runState)
       };
     }
   }
@@ -298,6 +333,30 @@ function splitContractItems(rawValue) {
     .filter((item) => nonEmptyText(item));
 }
 
+function dedupeTextList(items) {
+  const seen = new Set();
+  const results = [];
+
+  for (const item of items ?? []) {
+    const normalized = nonEmptyText(item) ? item.trim() : "";
+
+    if (!normalized) {
+      continue;
+    }
+
+    const key = normalized.toLowerCase();
+
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    results.push(normalized);
+  }
+
+  return results;
+}
+
 function parseQuickStartExecutionContract(requestText) {
   const normalizedRequest = typeof requestText === "string" ? requestText.trim() : "";
   const requestForMatching = normalizedRequest.replace(
@@ -336,6 +395,92 @@ function parseQuickStartExecutionContract(requestText) {
 
 function buildPreviewDigest(requestText) {
   return createHash("sha256").update(String(requestText ?? ""), "utf8").digest("hex");
+}
+
+function applyExecutionContractToIntakeSpec(spec, executionContract, now = new Date()) {
+  if (!spec || typeof spec !== "object") {
+    return spec;
+  }
+
+  const goalValue = contractValue(executionContract, "endPoint");
+  const inputValues = contractValues(executionContract, "inputSource");
+  const successValues = contractValues(executionContract, "successCriteria");
+  const outOfScopeValues = contractValues(executionContract, "outOfScope");
+  const openQuestions = Array.isArray(spec.openQuestions)
+    ? spec.openQuestions.filter((question) => {
+        if (question?.category === "goal" && nonEmptyText(goalValue)) {
+          return false;
+        }
+
+        if (question?.category === "success" && successValues.length > 0) {
+          return false;
+        }
+
+        if (question?.category === "inputs" && inputValues.length > 0) {
+          return false;
+        }
+
+        if (question?.category === "scope" && outOfScopeValues.length > 0) {
+          return false;
+        }
+
+        return true;
+      })
+    : [];
+  const blockers = openQuestions.filter((item) => item?.blocking).map((item) => item.question);
+  const requiredInputs =
+    inputValues.length > 0
+      ? inputValues.map((name) => ({
+          name,
+          description: `Confirmed input source: ${name}.`,
+          status: "provided"
+        }))
+      : spec.requiredInputs;
+  const successCriteria =
+    successValues.length > 0
+      ? successValues.map((text) => ({
+          text,
+          status: "needs_confirmation"
+        }))
+      : spec.successCriteria;
+
+  return {
+    ...spec,
+    clarifiedGoal: goalValue || spec.clarifiedGoal,
+    inScope: dedupeTextList([
+      ...(Array.isArray(spec.inScope) ? spec.inScope : []),
+      goalValue ? `Deliver the confirmed end point: ${goalValue}.` : null
+    ]),
+    outOfScope: outOfScopeValues.length > 0 ? outOfScopeValues : spec.outOfScope,
+    requiredInputs,
+    successCriteria,
+    openQuestions,
+    clarificationStatus: blockers.length === 0 ? "awaiting_confirmation" : spec.clarificationStatus,
+    recommendedNextStep:
+      blockers.length === 0
+        ? "Human confirmation can proceed because the structured execution contract filled the missing details."
+        : spec.recommendedNextStep,
+    automationAssessment: {
+      ...spec.automationAssessment,
+      blockers,
+      canFullyAutomate:
+        blockers.length === 0 &&
+        !(Array.isArray(spec.requiredAccountsAndPermissions)
+          ? spec.requiredAccountsAndPermissions.some((item) => item?.status === "missing" || item?.status === "needs_clarification")
+          : false),
+      estimatedAutomatablePercent:
+        blockers.length === 0
+          ? Math.max(Number(spec.automationAssessment?.estimatedAutomatablePercent ?? 0) || 0, 90)
+          : spec.automationAssessment?.estimatedAutomatablePercent ?? 25,
+      rationale: dedupeTextList([
+        ...(Array.isArray(spec.automationAssessment?.rationale) ? spec.automationAssessment.rationale : []),
+        blockers.length === 0
+          ? "The structured execution contract supplied the missing goal, input, success, and scope details."
+          : null
+      ])
+    },
+    lastUpdatedAt: now.toISOString()
+  };
 }
 
 function buildExecutionPreviewFromIntake(spec, artifactPaths = null) {
@@ -411,6 +556,66 @@ function buildPreviewBlockingMessage(preview) {
     .join("\n");
 }
 
+function summarizeAutonomousOutcome(summary = null) {
+  const runSummary =
+    summary && typeof summary.runSummary === "object" && summary.runSummary !== null
+      ? summary.runSummary
+      : {};
+  const finalStatus =
+    typeof summary?.finalStatus === "string" && summary.finalStatus.trim().length > 0
+      ? summary.finalStatus.trim()
+      : typeof runSummary.status === "string" && runSummary.status.trim().length > 0
+        ? runSummary.status.trim()
+        : "unknown";
+  const stopReason =
+    typeof summary?.stopReason === "string" && summary.stopReason.trim().length > 0
+      ? summary.stopReason.trim()
+      : null;
+  const readyTasks = Number.isFinite(runSummary.readyTasks) ? runSummary.readyTasks : 0;
+  const pendingTasks = Number.isFinite(runSummary.pendingTasks) ? runSummary.pendingTasks : 0;
+  const waitingRetryTasks = Number.isFinite(runSummary.waitingRetryTasks) ? runSummary.waitingRetryTasks : 0;
+  const blockedTasks = Number.isFinite(runSummary.blockedTasks) ? runSummary.blockedTasks : 0;
+  const failedTasks = Number.isFinite(runSummary.failedTasks) ? runSummary.failedTasks : 0;
+
+  if (finalStatus === "completed" && readyTasks === 0 && blockedTasks === 0 && failedTasks === 0) {
+    return {
+      kind: "completed",
+      title: "Quick start completed",
+      message: "The run reached a completed state with no remaining ready, blocked, or failed tasks."
+    };
+  }
+
+  if (stopReason === "maximum rounds reached" && (readyTasks > 0 || pendingTasks > 0)) {
+    return {
+      kind: "in_progress",
+      title: "Quick start started but the run is still in progress",
+      message: "The one-click flow reached the current round limit before the run completed."
+    };
+  }
+
+  if (waitingRetryTasks > 0 && blockedTasks === 0 && failedTasks === 0) {
+    return {
+      kind: "in_progress",
+      title: "Quick start is waiting to retry automatically",
+      message: "The run is in a retry cooldown after a recoverable launcher or runtime issue."
+    };
+  }
+
+  if (blockedTasks > 0 || failedTasks > 0) {
+    return {
+      kind: "needs_attention",
+      title: "Quick start finished this pass but the run needs attention",
+      message: "The run stopped with blocked or failed tasks that still need follow-up."
+    };
+  }
+
+  return {
+    kind: "in_progress",
+    title: "Quick start started but the run is not finished yet",
+    message: "The run has been created and may need additional autonomous rounds to finish."
+  };
+}
+
 function buildContractBlockingMessage(executionContract) {
   return [
     "Cannot start quick execution because the execution contract is incomplete.",
@@ -456,6 +661,14 @@ function buildExecutionPreviewFromIntakeV2(spec, artifactPaths = null, requestOv
       ...executionContract.missingFieldReasons
     ]
   };
+}
+
+function contractValue(executionContract, key) {
+  return executionContract?.fields?.[key]?.value ?? "";
+}
+
+function contractValues(executionContract, key) {
+  return Array.isArray(executionContract?.fields?.[key]?.values) ? executionContract.fields[key].values : [];
 }
 
 function createUserError(message) {
@@ -645,7 +858,11 @@ async function handlePanelAction(state, action, payload = {}) {
       const requestText = typeof payload?.request === "string" ? payload.request.trim() : "";
 
       if (requestText.length > 0) {
-        const previewSpec = clarifyIntakeRequest(requestText);
+        const executionContract = parseQuickStartExecutionContract(requestText);
+        const previewSpec = applyExecutionContractToIntakeSpec(
+          clarifyIntakeRequest(requestText),
+          executionContract
+        );
         return {
           source: "request",
           preview: buildExecutionPreviewFromIntakeV2(previewSpec, null, requestText)
@@ -716,8 +933,10 @@ async function handlePanelAction(state, action, payload = {}) {
 
       const initResult = await initProject(state.workspaceRoot);
       const intakeResult = await intakeRequest(userRequest, state.workspaceRoot);
+      const contractResolvedIntake = applyExecutionContractToIntakeSpec(intakeResult.spec, executionContract);
+      await writeIntakeArtifacts(state.workspaceRoot, contractResolvedIntake);
       const preview = buildExecutionPreviewFromIntakeV2(
-        intakeResult.spec,
+        contractResolvedIntake,
         intakeResult.artifactPaths,
         userRequest
       );
@@ -747,12 +966,18 @@ async function handlePanelAction(state, action, payload = {}) {
       }
 
       const confirmResult = await confirmIntake(state.workspaceRoot);
-      const runResult = await runProject(defaults.specPath, defaults.runsDir, requestedRunId);
+      const generatedSpec = await writeQuickStartProjectSpec(
+        state.workspaceRoot,
+        confirmResult.spec,
+        preview.executionContract
+      );
+      const runResult = await runProject(generatedSpec.specPath, defaults.runsDir, requestedRunId);
       const autonomousResult = await runAutonomousLoop(runResult.statePath, {
         doctorReportPath: path.join(defaults.reportsDir, "runtime-doctor.json"),
         handoffOutputDir: path.join(path.dirname(runResult.statePath), "handoffs"),
         maxRounds
       });
+      const outcome = summarizeAutonomousOutcome(autonomousResult.summary);
 
       return {
         init: {
@@ -761,12 +986,17 @@ async function handlePanelAction(state, action, payload = {}) {
         intake: intakeResult.summary,
         preview,
         confirm: confirmResult.summary,
+        spec: {
+          specPath: generatedSpec.specPath,
+          projectName: generatedSpec.spec.projectName
+        },
         run: {
           runId: runResult.runId,
           statePath: runResult.statePath,
           reportPath: runResult.reportPath
         },
-        autonomous: autonomousResult.summary
+        autonomous: autonomousResult.summary,
+        outcome
       };
     }
     case "doctor":
@@ -986,6 +1216,7 @@ function renderPanelHtml(workspaceRoot) {
         <button id="applyWorkspaceBtn" data-tone="neutral">套用工作區</button>
         <button id="previewIntakeBtn" data-tone="neutral">分析起點/終點</button>
         <button id="quickStartBtn" data-tone="warn">一鍵開始（推薦）</button>
+        <button id="resumeNowBtn" data-tone="neutral">Resume now</button>
         <button id="refreshStatusBtn" data-tone="neutral">重新整理狀態</button>
         <button id="viewGptPromptBtn" data-tone="neutral">查看 GPT 發問內容</button>
       </div>
@@ -1031,6 +1262,12 @@ function renderPanelHtml(workspaceRoot) {
     const statusPill = document.getElementById("statusPill");
     const statusDetail = document.getElementById("statusDetail");
     const logBox = document.getElementById("logBox");
+    const resumeNowBtn = document.getElementById("resumeNowBtn");
+    let latestOverview = null;
+    let panelBusy = false;
+    let autoResumeTimerId = null;
+    let scheduledAutoResumeKey = null;
+    let triggeredAutoResumeKey = null;
 
     const runStatusLabelMap = {
       planned: "已規劃",
@@ -1058,10 +1295,12 @@ function renderPanelHtml(workspaceRoot) {
     workspaceInput.value = initialWorkspace;
 
     function setButtonsDisabled(disabled) {
+      panelBusy = disabled;
       for (const button of document.querySelectorAll("button")) {
         button.disabled = disabled;
         button.style.opacity = disabled ? "0.65" : "1";
       }
+      syncResumeNowButton();
     }
 
     async function parseJsonResponse(response) {
@@ -1090,17 +1329,208 @@ function renderPanelHtml(workspaceRoot) {
     function labelForRunStatus(value) { return runStatusLabelMap[value] || value || "-"; }
     function labelForIntakeStatus(value) { return intakeStatusLabelMap[value] || value || "-"; }
 
+    function formatDateTime(value) {
+      if (typeof value !== "string" || value.trim().length === 0) {
+        return "-";
+      }
+
+      const parsed = new Date(value);
+      return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString();
+    }
+
+    function buildAutonomousPayload(runStatePath) {
+      return {
+        runStatePath,
+        maxRounds: maxRoundsInput.value.trim() || undefined
+      };
+    }
+
+    function getWaitingRetryState(overview = latestOverview) {
+      const latestRun = overview?.latestRun ?? {};
+      const summary = latestRun.summary ?? {};
+      const waitingRetry = latestRun.waitingRetry ?? {};
+      const waitingRetryTasks = Number.isFinite(summary.waitingRetryTasks) ? summary.waitingRetryTasks : 0;
+      const blockedTasks = Number.isFinite(summary.blockedTasks) ? summary.blockedTasks : 0;
+      const failedTasks = Number.isFinite(summary.failedTasks) ? summary.failedTasks : 0;
+      const runStatePath =
+        typeof latestRun.runStatePath === "string" && latestRun.runStatePath.trim().length > 0
+          ? latestRun.runStatePath.trim()
+          : "";
+      const nextRetryAt =
+        typeof waitingRetry.earliestNextRetryAt === "string" && waitingRetry.earliestNextRetryAt.trim().length > 0
+          ? waitingRetry.earliestNextRetryAt.trim()
+          : "";
+
+      return {
+        canResume: waitingRetryTasks > 0 && blockedTasks === 0 && failedTasks === 0 && runStatePath.length > 0,
+        runStatePath,
+        nextRetryAt,
+        autoResumeKey: runStatePath && nextRetryAt ? runStatePath + "::" + nextRetryAt : ""
+      };
+    }
+
+    function syncResumeNowButton(overview = latestOverview) {
+      if (!resumeNowBtn) {
+        return;
+      }
+
+      const waitingRetryState = getWaitingRetryState(overview);
+      const enabled = waitingRetryState.canResume && !panelBusy;
+
+      resumeNowBtn.disabled = !enabled;
+      resumeNowBtn.style.opacity = enabled ? "1" : "0.65";
+      resumeNowBtn.title = waitingRetryState.canResume
+        ? waitingRetryState.nextRetryAt
+          ? "Scheduled retry at " + formatDateTime(waitingRetryState.nextRetryAt) + "."
+          : "The latest run is waiting to retry."
+        : "Resume is only available when the latest run is waiting to retry.";
+    }
+
+    function clearAutoResumeTimer() {
+      if (autoResumeTimerId !== null) {
+        window.clearTimeout(autoResumeTimerId);
+        autoResumeTimerId = null;
+      }
+
+      scheduledAutoResumeKey = null;
+    }
+
+    function scheduleAutoResume(overview = latestOverview) {
+      const waitingRetryState = getWaitingRetryState(overview);
+
+      if (!waitingRetryState.canResume) {
+        clearAutoResumeTimer();
+        triggeredAutoResumeKey = null;
+        syncResumeNowButton(overview);
+        return;
+      }
+
+      syncResumeNowButton(overview);
+
+      if (!waitingRetryState.nextRetryAt) {
+        clearAutoResumeTimer();
+        return;
+      }
+
+      const nextRetryAtMs = Date.parse(waitingRetryState.nextRetryAt);
+
+      if (!Number.isFinite(nextRetryAtMs)) {
+        clearAutoResumeTimer();
+        return;
+      }
+
+      const autoResumeKey = waitingRetryState.autoResumeKey;
+
+      if (triggeredAutoResumeKey && triggeredAutoResumeKey !== autoResumeKey) {
+        triggeredAutoResumeKey = null;
+      }
+
+      if (scheduledAutoResumeKey === autoResumeKey && autoResumeTimerId !== null) {
+        return;
+      }
+
+      clearAutoResumeTimer();
+
+      if (triggeredAutoResumeKey === autoResumeKey && nextRetryAtMs <= Date.now()) {
+        return;
+      }
+
+      const delayMs = Math.max(nextRetryAtMs - Date.now(), 0);
+
+      const triggerAutoResume = async () => {
+        autoResumeTimerId = null;
+        scheduledAutoResumeKey = null;
+
+        if (panelBusy) {
+          scheduledAutoResumeKey = autoResumeKey;
+          autoResumeTimerId = window.setTimeout(() => {
+            void triggerAutoResume();
+          }, 1000);
+          return;
+        }
+
+        triggeredAutoResumeKey = autoResumeKey;
+        await runAction(
+          "autonomous",
+          buildAutonomousPayload(waitingRetryState.runStatePath),
+          "Auto resume after waiting_retry"
+        );
+      };
+
+      scheduledAutoResumeKey = autoResumeKey;
+      autoResumeTimerId = window.setTimeout(() => {
+        void triggerAutoResume();
+      }, delayMs);
+    }
+
+    function summarizeAutonomousOutcomeForLog(summary) {
+      const runSummary = summary && typeof summary.runSummary === "object" ? summary.runSummary : {};
+      const finalStatus =
+        typeof summary?.finalStatus === "string" && summary.finalStatus.trim()
+          ? summary.finalStatus.trim()
+          : (runSummary.status || "unknown");
+      const stopReason =
+        typeof summary?.stopReason === "string" && summary.stopReason.trim()
+          ? summary.stopReason.trim()
+          : null;
+      const readyTasks = Number.isFinite(runSummary.readyTasks) ? runSummary.readyTasks : 0;
+      const pendingTasks = Number.isFinite(runSummary.pendingTasks) ? runSummary.pendingTasks : 0;
+      const waitingRetryTasks = Number.isFinite(runSummary.waitingRetryTasks) ? runSummary.waitingRetryTasks : 0;
+      const blockedTasks = Number.isFinite(runSummary.blockedTasks) ? runSummary.blockedTasks : 0;
+      const failedTasks = Number.isFinite(runSummary.failedTasks) ? runSummary.failedTasks : 0;
+
+      if (finalStatus === "completed" && readyTasks === 0 && blockedTasks === 0 && failedTasks === 0) {
+        return {
+          title: "Quick start completed",
+          status: "completed"
+        };
+      }
+
+      if (stopReason === "maximum rounds reached" && (readyTasks > 0 || pendingTasks > 0)) {
+        return {
+          title: "Quick start reached the round limit and the run is still in progress",
+          status: "in_progress"
+        };
+      }
+
+      if (waitingRetryTasks > 0 && blockedTasks === 0 && failedTasks === 0) {
+        return {
+          title: "Quick start is waiting to retry automatically",
+          status: "in_progress"
+        };
+      }
+
+      if (blockedTasks > 0 || failedTasks > 0) {
+        return {
+          title: "Quick start finished this pass but the run needs attention",
+          status: "needs_attention"
+        };
+      }
+
+      return {
+        title: "Quick start started but the run is not finished yet",
+        status: "in_progress"
+      };
+    }
+
     function renderStatus(overview) {
+      latestOverview = overview;
       workspaceTag.textContent = overview.workspaceRoot;
       const intakeState = overview.intake?.clarificationStatus || "not-found";
       const runState = overview.latestRun?.summary?.status || "no-run";
       const waitingConfirm = overview.intake?.exists && overview.intake?.confirmedByUser === false;
+      const waitingRetry = overview.latestRun?.waitingRetry || {};
       statusPill.textContent = "需求狀態：" + labelForIntakeStatus(intakeState) + " | 執行狀態：" + labelForRunStatus(runState);
       statusPill.className = "status-pill";
       if (waitingConfirm) { statusPill.classList.add("warn"); }
       if (overview.latestRun?.summary?.blockedTasks > 0 || overview.latestRun?.summary?.failedTasks > 0) {
         statusPill.classList.remove("warn");
         statusPill.classList.add("error");
+      } else if (overview.latestRun?.summary?.waitingRetryTasks > 0) {
+        statusPill.classList.add("warn");
+        if (waitingRetry.earliestNextRetryAt) {
+          statusPill.textContent += " | Retry at " + formatDateTime(waitingRetry.earliestNextRetryAt);
+        }
       }
 
       const latestRun = overview.latestRun || {};
@@ -1117,7 +1547,14 @@ function renderPanelHtml(workspaceRoot) {
         ["阻塞任務", String(summary.blockedTasks ?? "-")],
         ["失敗任務", String(summary.failedTasks ?? "-")]
       ];
+      fields.splice(8, 0, ["Waiting retry", String(summary.waitingRetryTasks ?? "-")]);
+      fields.splice(
+        9,
+        0,
+        ["Next retry at", waitingRetry.earliestNextRetryAt ? formatDateTime(waitingRetry.earliestNextRetryAt) : "-"]
+      );
       statusDetail.innerHTML = fields.map(([key, value]) => "<dt>" + key + "</dt><dd>" + String(value) + "</dd>").join("");
+      syncResumeNowButton(overview);
     }
 
     async function setWorkspace(logResult = true) {
@@ -1152,6 +1589,7 @@ function renderPanelHtml(workspaceRoot) {
       });
       const overviewPayload = await callApi("/api/status");
       renderStatus(overviewPayload.overview);
+      scheduleAutoResume(overviewPayload.overview);
       return overviewPayload;
     }
 
@@ -1226,11 +1664,11 @@ function renderPanelHtml(workspaceRoot) {
         const confirmationToken = preview.confirmationToken || "我確認起點與終點";
         const previewDigest = typeof preview.previewDigest === "string" ? preview.previewDigest : "";
         const confirmationPrompt =
-          "Please review this before execution.\n\nStart: " +
+          "Please review this before execution.\\n\\nStart: " +
           (preview.startPoint?.request || "(not provided)") +
-          "\nEnd: " +
+          "\\nEnd: " +
           (preview.endPoint?.goal || "(not provided)") +
-          "\n\nType exactly: " +
+          "\\n\\nType exactly: " +
           confirmationToken;
         const typedConfirmation = (confirmationInput?.value?.trim() || window.prompt(
           confirmationPrompt,
@@ -1256,11 +1694,17 @@ function renderPanelHtml(workspaceRoot) {
           },
           "Step 2/2: execute after human confirmation"
         );
+        const outcome =
+          quickStartResponse?.result?.outcome ??
+          summarizeAutonomousOutcomeForLog(quickStartResponse?.result?.autonomous);
 
-        setLog("Quick start completed", {
+        setLog(outcome.title || "Quick start finished", {
           runId: quickStartResponse?.result?.run?.runId ?? "-",
           finalStatus: quickStartResponse?.result?.autonomous?.runSummary?.status ?? "unknown",
-          completedTasks: quickStartResponse?.result?.autonomous?.runSummary?.completedTasks ?? "-"
+          stopReason: quickStartResponse?.result?.autonomous?.stopReason ?? null,
+          completedTasks: quickStartResponse?.result?.autonomous?.runSummary?.completedTasks ?? "-",
+          readyTasks: quickStartResponse?.result?.autonomous?.runSummary?.readyTasks ?? "-",
+          outcome: outcome.status ?? outcome.kind ?? "unknown"
         });
       } catch (error) {
         setLog("Quick start failed", { error: error instanceof Error ? error.message : String(error) });
@@ -1280,6 +1724,22 @@ function renderPanelHtml(workspaceRoot) {
       }
     });
     document.getElementById("quickStartBtn").addEventListener("click", runQuickStartSafe);
+    if (resumeNowBtn) {
+      resumeNowBtn.addEventListener("click", () => {
+        const waitingRetryState = getWaitingRetryState();
+
+        if (!waitingRetryState.canResume) {
+          setLog("Resume now is unavailable", {
+            reason: "The latest run is not waiting to retry."
+          });
+          return;
+        }
+
+        clearAutoResumeTimer();
+        triggeredAutoResumeKey = waitingRetryState.autoResumeKey || triggeredAutoResumeKey;
+        runAction("autonomous", buildAutonomousPayload(waitingRetryState.runStatePath), "Resume now");
+      });
+    }
     if (document.getElementById("previewIntakeBtn")) {
       document.getElementById("previewIntakeBtn").addEventListener("click", () =>
         runAction("intake-preview", { request: requestInput.value }, "Analyze start/end in plain language")

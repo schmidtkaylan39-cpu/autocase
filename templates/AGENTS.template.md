@@ -37,6 +37,8 @@ For significant rounds, prefer leaving behind the same core artifacts:
 - Prefer reading the current implementation over guessing.
 - If verification was requested, run it before claiming completion.
 - If something fails, summarize the failure with a structured category and the next recovery step.
+- Default to full agent autonomy: do not ask the human to take action unless execution is blocked by a capability, permission, or environment limit the agent cannot resolve directly.
+- If blocked, immediately escalate to GPT-5.4 for support; only ask the human after that escalation path is exhausted.
 
 ## Workflow Spine
 

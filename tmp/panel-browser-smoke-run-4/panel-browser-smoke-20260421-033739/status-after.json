@@ -1,0 +1,41 @@
+{
+  "ok": true,
+  "overview": {
+    "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-4\\panel-browser-smoke-20260421-033739\\workspace",
+    "defaults": {
+      "specPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-4\\panel-browser-smoke-20260421-033739\\workspace\\specs\\project-spec.json",
+      "runsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-4\\panel-browser-smoke-20260421-033739\\workspace\\runs",
+      "reportsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-4\\panel-browser-smoke-20260421-033739\\workspace\\reports"
+    },
+    "intake": {
+      "exists": true,
+      "clarificationStatus": "confirmed",
+      "confirmedByUser": true,
+      "recommendedNextStep": "planning-ready",
+      "intakeSpecPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-4\\panel-browser-smoke-20260421-033739\\workspace\\artifacts\\clarification\\intake-spec.json",
+      "intakeSummaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-4\\panel-browser-smoke-20260421-033739\\workspace\\artifacts\\clarification\\intake-summary.md"
+    },
+    "latestRun": {
+      "runDirectory": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-4\\panel-browser-smoke-20260421-033739\\workspace\\runs\\panel-browser-20260421-033739",
+      "runStatePath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-4\\panel-browser-smoke-20260421-033739\\workspace\\runs\\panel-browser-20260421-033739\\run-state.json",
+      "reportPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-4\\panel-browser-smoke-20260421-033739\\workspace\\runs\\panel-browser-20260421-033739\\report.md",
+      "handoffIndexPath": null,
+      "summary": {
+        "runId": "panel-browser-20260421-033739",
+        "status": "planned",
+        "totalTasks": 5,
+        "readyTasks": 1,
+        "pendingTasks": 4,
+        "waitingRetryTasks": 0,
+        "completedTasks": 0,
+        "blockedTasks": 0,
+        "failedTasks": 0
+      },
+      "waitingRetry": {
+        "taskIds": [],
+        "earliestNextRetryAt": null,
+        "scheduledTaskIds": []
+      }
+    }
+  }
+}

@@ -15,6 +15,10 @@ function isNonEmptyString(value) {
   return typeof value === "string" && value.trim().length > 0;
 }
 
+function dedupeText(items) {
+  return [...new Set(safeArray(items).filter(isNonEmptyString).map((item) => item.trim()))];
+}
+
 const autonomousLockSuffix = ".autonomous.lock";
 const descriptorExecutionLockSuffix = ".execute.lock";
 const autonomousLockStaleMs = 10 * 60 * 1000;
@@ -960,7 +964,11 @@ function classifyFailureCategory(reason = "") {
     return "missing_dependency";
   }
 
-  if (/502|bad gateway|network|dns|connection|runtime is not available|shell is not available/.test(text)) {
+  if (
+    /502|503|bad gateway|service unavailable|network|dns|connection|stream disconnected|reconnecting|provider or transport|runtime is not available|shell is not available|transient gpt runner|spawn eperm|spawn eacces|permission denied|operation not permitted|policy restriction|launcher process creation was denied/.test(
+      text
+    )
+  ) {
     return "environment_mismatch";
   }
 
@@ -997,7 +1005,7 @@ function deriveLikelyCause(category, reason) {
   }
 
   if (category === "environment_mismatch") {
-    return "Runtime/network environment was unstable or unavailable.";
+    return "Runtime, network, or upstream provider availability was unstable.";
   }
 
   if (category === "artifact_invalid") {
@@ -1031,7 +1039,7 @@ function deriveNextBestAction(category) {
   }
 
   if (category === "environment_mismatch") {
-    return "Stabilize runtime/network availability and retry the failed handoff.";
+    return "Retry the same handoff after runtime, network, or upstream provider availability recovers.";
   }
 
   if (category === "artifact_invalid") {
@@ -1392,9 +1400,13 @@ export async function runAutonomousLoop(
           continue;
         }
 
-        const reason = [result?.error, result?.note]
-          .filter(isNonEmptyString)
-          .join(" | ");
+        const reason = dedupeText([
+          result?.error,
+          result?.note,
+          result?.artifact?.summary,
+          ...safeArray(result?.artifact?.notes),
+          ...safeArray(result?.artifact?.verification)
+        ]).join(" | ");
 
         failureFeedbackEntries.push(
           createFailureFeedbackEntry({

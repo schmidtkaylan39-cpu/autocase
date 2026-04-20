@@ -1,0 +1,61 @@
+{
+  "passed": true,
+  "extractedPromptToken": "我確認起點與終點",
+  "checks": [
+    {
+      "id": "browser-detected",
+      "passed": true,
+      "message": "A supported Chrome/Edge browser executable was found."
+    },
+    {
+      "id": "cdp-connected",
+      "passed": true,
+      "message": "The browser exposed a DevTools websocket endpoint."
+    },
+    {
+      "id": "prompt-handled",
+      "passed": true,
+      "message": "The browser smoke handled the panel confirmation prompt in-page."
+    },
+    {
+      "id": "ui-log-updated",
+      "passed": true,
+      "message": "The panel log updated with the quick-start run id."
+    },
+    {
+      "id": "run-state-created",
+      "passed": true,
+      "message": "The quick-start click created the expected run-state.json file."
+    },
+    {
+      "id": "spec-snapshot-created",
+      "passed": true,
+      "message": "The quick-start flow created a spec.snapshot.json file."
+    },
+    {
+      "id": "panel-status-updated",
+      "passed": true,
+      "message": "The panel status endpoint reports the new run after the browser click."
+    },
+    {
+      "id": "final-run-completed",
+      "passed": true,
+      "message": "The browser-triggered run reached completed status."
+    },
+    {
+      "id": "summary-artifact-verified",
+      "passed": true,
+      "message": "The generated summary artifact satisfies the required smoke assertions."
+    },
+    {
+      "id": "autonomous-summary-completed",
+      "passed": true,
+      "message": "The browser-triggered quick start reached a completed autonomous summary."
+    },
+    {
+      "id": "ui-log-completed",
+      "passed": true,
+      "message": "The browser UI log shows a completed quick-start outcome."
+    }
+  ]
+}

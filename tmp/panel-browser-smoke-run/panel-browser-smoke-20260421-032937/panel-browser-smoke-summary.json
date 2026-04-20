@@ -1,0 +1,34 @@
+{
+  "generatedAt": "2026-04-20T19:29:37.342Z",
+  "startedAt": "2026-04-20T19:29:37.341Z",
+  "finishedAt": "2026-04-20T19:31:08.203Z",
+  "feasibleNow": false,
+  "harnessPassed": false,
+  "evidenceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run\\panel-browser-smoke-20260421-032937",
+  "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run\\panel-browser-smoke-20260421-032937\\workspace",
+  "runId": "panel-browser-20260421-032937",
+  "maxRounds": 0,
+  "headless": true,
+  "requestText": "Start: Local workspace contains data/brief.txt and data/details.txt with tokens BRIEF-PANEL-BROWSER-SMOKE-20260421-A and DETAIL-PANEL-BROWSER-SMOKE-20260421-B, and artifacts/generated is writable.\nEnd point: Create artifacts/generated/summary.md from both local files without changing the input files.\nSuccess criteria: use both local input files; create a run for this request; keep the output inside artifacts/generated.\nInput source: data/brief.txt; data/details.txt.\nOut of scope: do not modify input files; do not call external APIs; do not send email.",
+  "browser": {
+    "browserPath": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+    "browserName": "chrome",
+    "candidatesTried": [
+      "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
+    ]
+  },
+  "panelUrl": "http://127.0.0.1:64569",
+  "devTools": {
+    "port": 64570,
+    "browserWebSocketUrl": "ws://127.0.0.1:64570/devtools/browser/e662a82e-43e7-4e76-b7a8-93d1cf6486f1"
+  },
+  "debugBaseUrl": "http://127.0.0.1:64570",
+  "pageTarget": {
+    "id": "E081584BBAD08E6C6A18BFD977642622",
+    "title": "AI Factory 中文操作面板",
+    "type": "page",
+    "url": "http://127.0.0.1:64569/",
+    "websocketUrl": "ws://127.0.0.1:64570/devtools/page/E081584BBAD08E6C6A18BFD977642622"
+  },
+  "error": "file C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run\\panel-browser-smoke-20260421-032937\\workspace\\runs\\panel-browser-20260421-032937\\run-state.json timed out after 90000ms."
+}

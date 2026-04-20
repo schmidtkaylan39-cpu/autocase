@@ -28,6 +28,7 @@ function createDescriptorFixture({
   taskId,
   doctorReport,
   runState = {},
+  taskOverrides = {},
   platform = process.platform
 }) {
   const workspacePath = "C:/workspace/demo";
@@ -56,7 +57,8 @@ function createDescriptorFixture({
       title: `Task for ${role}`,
       description: `Execute ${role} work.`,
       dependsOn: [],
-      acceptanceCriteria: ["must pass"]
+      acceptanceCriteria: ["must pass"],
+      ...taskOverrides
     },
     rolePromptTemplate: "# role prompt",
     promptPath,
@@ -258,13 +260,52 @@ async function main() {
     assert.equal(windowsDescriptor.launcher.language, "powershell");
     assert.match(
       windowsDescriptor.launcherScript,
-      /\$prompt \| & codex -m 'gpt-5\.4' -a never exec -C \. -s workspace-write -/i
+      /\$prompt \| & codex -m 'gpt-5\.4' -a never exec --skip-git-repo-check -C \. -s workspace-write -/i
     );
 
     assert.equal(linuxDescriptor.launcher.language, "bash");
     assert.match(
       linuxDescriptor.launcherScript,
-      /printf "%s" "\$prompt" \| codex -m 'gpt-5\.4' -a never exec -C \. -s workspace-write -/i
+      /printf "%s" "\$prompt" \| codex -m 'gpt-5\.4' -a never exec --skip-git-repo-check -C \. -s workspace-write -/i
+    );
+  });
+
+  await runTest("buildHandoffDescriptor automatically fails planner retries over to codex after transient gpt-runner failures", async () => {
+    const descriptor = createDescriptorFixture({
+      role: "planner",
+      taskId: "planning-brief",
+      taskOverrides: {
+        retryCount: 1,
+        lastRetryReason:
+          "Transient GPT Runner upstream failure; automatically retrying the same task. Observed transient provider or transport symptoms in launcher output."
+      },
+      doctorReport: {
+        checks: [
+          {
+            id: "gpt-runner",
+            installed: true,
+            ok: true,
+            source: "C:/tools/codex.cmd"
+          },
+          {
+            id: "codex",
+            installed: true,
+            ok: true,
+            source: "C:/tools/codex.cmd"
+          }
+        ]
+      },
+      platform: "win32"
+    });
+
+    assert.equal(descriptor.runtime.id, "codex");
+    assert.equal(descriptor.runtime.mode, "automated");
+    assert.equal(descriptor.runtime.selectionStatus, "ready");
+    assert.match(descriptor.runtime.selectionReason, /selected automatically after a transient GPT Runner upstream failure/i);
+    assert.equal(descriptor.launcher.metadata.runtimeId, "codex");
+    assert.match(
+      descriptor.launcherScript,
+      /\$prompt \| & codex -a never exec --skip-git-repo-check -C \. -s workspace-write -/i
     );
   });
 
@@ -518,7 +559,10 @@ async function main() {
         descriptor.launcherScript,
         /Get-Content -Raw -LiteralPath 'C:\/handoffs\/prompt ''\$demo'' & work\.md'/
       );
-      assert.match(descriptor.launcherScript, /\$prompt \| & codex -a never exec -C \. -s workspace-write -/);
+      assert.match(
+        descriptor.launcherScript,
+        /\$prompt \| & codex -a never exec --skip-git-repo-check -C \. -s workspace-write -/
+      );
     } else {
       assert.equal(descriptor.launcher.language, "bash");
       assert.match(descriptor.launcherScript, /cd 'C:\/workspace\/\$demo & path'/);
@@ -526,7 +570,10 @@ async function main() {
         descriptor.launcherScript,
         /prompt=\$\(cat 'C:\/handoffs\/prompt '"'"'\$demo'"'"' & work\.md'\)/
       );
-      assert.match(descriptor.launcherScript, /printf "%s" "\$prompt" \| codex -a never exec -C \. -s workspace-write -/);
+      assert.match(
+        descriptor.launcherScript,
+        /printf "%s" "\$prompt" \| codex -a never exec --skip-git-repo-check -C \. -s workspace-write -/
+      );
     }
   });
 

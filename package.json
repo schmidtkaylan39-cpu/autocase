@@ -33,6 +33,9 @@
     "test:integration": "node tests/all-tests.mjs",
     "test:e2e": "node scripts/e2e-smoke.mjs",
     "acceptance:live": "node scripts/live-roundtrip-acceptance.mjs",
+    "acceptance:panel": "node scripts/panel-one-click-smoke.mjs",
+    "acceptance:panel:browser": "node scripts/panel-browser-smoke.mjs",
+    "acceptance:panel:browser:full": "node scripts/panel-browser-smoke.mjs --require-completed --max-rounds 20 --watchdog-ms 2700000 --poll-interval-ms 15000",
     "burnin": "node scripts/release-burnin.mjs --rounds 3 --summary-file reports/release-burnin-summary.json",
     "burnin:example": "node scripts/release-burnin.mjs --preset example --rounds 3 --summary-file reports/example-smoke-burnin-summary.json",
     "validate:example": "node src/index.mjs validate examples/project-spec.valid.json",
@@ -44,6 +47,7 @@
     "review:bundle": "node src/index.mjs review-bundle",
     "review:share": "node scripts/review-share-package.mjs",
     "doctor": "node src/index.mjs doctor",
+    "test:panel:browser": "node tests/panel-browser-smoke-tests.mjs",
     "handoff:example": "node src/index.mjs handoff runs/example-run/run-state.json",
     "dispatch:example": "node src/index.mjs dispatch runs/example-run/handoffs/index.json dry-run",
     "test": "node tests/all-tests.mjs"

@@ -961,6 +961,168 @@ async function main() {
     assert.equal(generatedCases.cases[0].retryable, true);
   });
 
+  await runTest("autonomous loop records continued transient GPT-runner retries as retryable environment feedback", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-autonomous-continued-feedback-"));
+    const runResult = await runProject(validSpecPath, tempDir, "autonomous-continued-feedback-run");
+    const doctorReportPath = path.join(tempDir, "doctor.json");
+    const handoffIndexPath = path.join(tempDir, "handoffs", "index.json");
+    const dispatchResultsPath = path.join(tempDir, "handoffs", "dispatch-results.json");
+    const dispatchResultsMarkdownPath = path.join(tempDir, "handoffs", "dispatch-results.md");
+
+    await writeJson(doctorReportPath, { checks: [] });
+    await mkdir(path.dirname(handoffIndexPath), { recursive: true });
+    await writeJson(handoffIndexPath, {
+      generatedAt: new Date().toISOString(),
+      runId: "autonomous-continued-feedback-run",
+      readyTaskCount: 1,
+      descriptors: []
+    });
+
+    const result = await runAutonomousLoop(runResult.statePath, {
+      maxRounds: 1,
+      operations: {
+        runRuntimeDoctor: async () => ({ jsonPath: doctorReportPath }),
+        tickProjectRun: async () => ({
+          handoffIndexPath,
+          readyTaskCount: 1
+        }),
+        dispatchHandoffs: async () => ({
+          summary: {
+            executed: 1,
+            completed: 0,
+            continued: 1,
+            incomplete: 0,
+            failed: 0,
+            skipped: 0
+          },
+          resultJsonPath: dispatchResultsPath,
+          resultMarkdownPath: dispatchResultsMarkdownPath,
+          results: [
+            {
+              taskId: "planning-brief",
+              runtime: "gpt-runner",
+              status: "continued",
+              note: "Converted exhausted transient GPT Runner failure into an automatic retry. Runtime reported a blocked task with an automatic continuation decision.",
+              launcherPath: path.join(tempDir, "handoffs", "planning-brief.launch.ps1"),
+              resultPath: path.join(tempDir, "handoffs", "results", "planning-brief.result.json"),
+              artifact: {
+                status: "blocked",
+                summary:
+                  "Transient GPT Runner upstream failure; automatically retrying the same task. Observed transient provider or transport symptoms in launcher output.",
+                verification: [
+                  "Observed transient GPT Runner provider failure and scheduled an automatic retry."
+                ],
+                notes: [
+                  "Transient GPT Runner upstream failure; automatically retrying the same task. Observed transient provider or transport symptoms in launcher output."
+                ],
+                automationDecision: {
+                  action: "retry_task",
+                  reason:
+                    "Transient GPT Runner upstream failure; automatically retrying the same task. Observed transient provider or transport symptoms in launcher output.",
+                  delayMinutes: 0
+                }
+              }
+            }
+          ]
+        })
+      }
+    });
+
+    const feedbackDirectory = path.join(path.dirname(runResult.statePath), "artifacts", "failure-feedback");
+    const feedbackIndex = await readJson(path.join(feedbackDirectory, "failure-feedback-index.json"));
+    const generatedCases = await readJson(path.join(feedbackDirectory, "generated-test-cases.json"));
+
+    assert.equal(result.summary.failureFeedback.count, 1);
+    assert.equal(feedbackIndex.count, 1);
+    assert.equal(feedbackIndex.entries[0].status, "continued");
+    assert.equal(feedbackIndex.entries[0].category, "environment_mismatch");
+    assert.equal(feedbackIndex.entries[0].retryable, true);
+    assert.match(feedbackIndex.entries[0].summary, /transient gpt runner/i);
+    assert.equal(generatedCases.cases.length, 1);
+    assert.equal(generatedCases.cases[0].retryable, true);
+  });
+
+  await runTest("autonomous loop records launcher permission retry decisions as environment feedback", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-autonomous-launcher-permission-feedback-"));
+    const runResult = await runProject(validSpecPath, tempDir, "autonomous-launcher-permission-feedback-run");
+    const doctorReportPath = path.join(tempDir, "doctor.json");
+    const handoffIndexPath = path.join(tempDir, "handoffs", "index.json");
+    const dispatchResultsPath = path.join(tempDir, "handoffs", "dispatch-results.json");
+    const dispatchResultsMarkdownPath = path.join(tempDir, "handoffs", "dispatch-results.md");
+
+    await writeJson(doctorReportPath, { checks: [] });
+    await mkdir(path.dirname(handoffIndexPath), { recursive: true });
+    await writeJson(handoffIndexPath, {
+      generatedAt: new Date().toISOString(),
+      runId: "autonomous-launcher-permission-feedback-run",
+      readyTaskCount: 1,
+      descriptors: []
+    });
+
+    const result = await runAutonomousLoop(runResult.statePath, {
+      maxRounds: 1,
+      operations: {
+        runRuntimeDoctor: async () => ({ jsonPath: doctorReportPath }),
+        tickProjectRun: async () => ({
+          handoffIndexPath,
+          readyTaskCount: 1
+        }),
+        dispatchHandoffs: async () => ({
+          summary: {
+            executed: 1,
+            completed: 0,
+            continued: 1,
+            incomplete: 0,
+            failed: 0,
+            skipped: 0
+          },
+          resultJsonPath: dispatchResultsPath,
+          resultMarkdownPath: dispatchResultsMarkdownPath,
+          results: [
+            {
+              taskId: "planning-brief",
+              runtime: "codex",
+              status: "continued",
+              note: "Converted launcher process permission denial into an automatic retry. Runtime reported a blocked task with an automatic continuation decision.",
+              launcherPath: path.join(tempDir, "handoffs", "planning-brief.launch.ps1"),
+              resultPath: path.join(tempDir, "handoffs", "results", "planning-brief.result.json"),
+              artifact: {
+                status: "blocked",
+                summary:
+                  "Launcher process creation was denied for runtime codex; automatically retrying the same task after a short cooldown. The host environment reported a permission or policy restriction while starting the launcher. spawn EPERM",
+                verification: [
+                  "Observed launcher process creation denial while starting runtime codex."
+                ],
+                notes: [
+                  "Launcher process creation was denied for runtime codex; automatically retrying the same task after a short cooldown. The host environment reported a permission or policy restriction while starting the launcher. spawn EPERM"
+                ],
+                automationDecision: {
+                  action: "retry_task",
+                  reason:
+                    "Launcher process creation was denied for runtime codex; automatically retrying the same task after a short cooldown. The host environment reported a permission or policy restriction while starting the launcher. spawn EPERM",
+                  delayMinutes: 1
+                }
+              }
+            }
+          ]
+        })
+      }
+    });
+
+    const feedbackDirectory = path.join(path.dirname(runResult.statePath), "artifacts", "failure-feedback");
+    const feedbackIndex = await readJson(path.join(feedbackDirectory, "failure-feedback-index.json"));
+    const generatedCases = await readJson(path.join(feedbackDirectory, "generated-test-cases.json"));
+
+    assert.equal(result.summary.failureFeedback.count, 1);
+    assert.equal(feedbackIndex.count, 1);
+    assert.equal(feedbackIndex.entries[0].status, "continued");
+    assert.equal(feedbackIndex.entries[0].category, "environment_mismatch");
+    assert.equal(feedbackIndex.entries[0].retryable, true);
+    assert.match(feedbackIndex.entries[0].summary, /launcher process creation was denied/i);
+    assert.equal(generatedCases.cases.length, 1);
+    assert.equal(generatedCases.cases[0].retryable, true);
+  });
+
   await runTest("autonomous loop rejects concurrent execution for the same run-state", async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-autonomous-lock-"));
     const runResult = await runProject(validSpecPath, tempDir, "autonomous-lock-run");

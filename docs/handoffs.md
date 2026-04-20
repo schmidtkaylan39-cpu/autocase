@@ -54,6 +54,7 @@ Automated roles select the first non-manual runtime with `ok: true`.
 Planner/reviewer/orchestrator work now defaults to `gpt-runner`, which uses Codex CLI with the preferred GPT model from model routing.
 Cursor remains available as an auxiliary human IDE or spot-check surface, but it is not selected by default in the autonomous GPT-5.4 + Codex baseline.
 OpenClaw is available as an optional orchestrator route, but it is not selected by default.
+When a planner or reviewer task is retried after a transient GPT Runner upstream failure, `handoff` can temporarily select `codex` instead, as long as Codex is healthy and no explicit `runtimeRouting.roleOverrides` entry is forcing another route.
 
 If you need an emergency human-side Cursor route, set `runtimeRouting.roleOverrides` in `config/factory.config.json`, for example:
 
@@ -169,6 +170,8 @@ The launcher changes into the workspace, reads the prompt, and pipes it into:
 ```powershell
 codex -a never exec -C . -s workspace-write -
 ```
+
+If launcher process creation is denied by the host environment, dispatch converts that failure into a timed `retry_task` decision so the task moves to `waiting_retry` instead of failing immediately.
 
 ### `local-ci`
 
