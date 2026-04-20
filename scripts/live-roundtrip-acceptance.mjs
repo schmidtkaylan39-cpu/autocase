@@ -39,6 +39,26 @@ const acceptanceRetryPolicyGuardrail = Object.freeze({
   replanning: 2
 });
 
+/**
+ * @typedef {object} AttemptContext
+ * @property {number} attemptNumber
+ * @property {string} attemptLabel
+ * @property {string} attemptRoot
+ * @property {string} workspaceRoot
+ * @property {string} runRoot
+ * @property {string} handoffRoot
+ * @property {string} runStatePath
+ * @property {string} doctorReportPath
+ */
+
+/**
+ * @typedef {Error & {
+ *   stdout?: string,
+ *   stderr?: string,
+ *   attemptContext?: AttemptContext | null
+ * }} AcceptanceRuntimeError
+ */
+
 function timestampLabel() {
   const now = new Date();
   const pad = (value) => String(value).padStart(2, "0");
@@ -598,7 +618,7 @@ async function inspectAutonomousOrphanedExecutionLock({
       continue;
     }
 
-    let lockContent = "";
+    let lockContent;
     let lockStats;
 
     try {
@@ -750,15 +770,19 @@ async function probeGptRunnerModel({ workspaceRoot, modelId }) {
       );
     }
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    const stdout = typeof error?.stdout === "string" ? error.stdout : "";
-    const stderr = typeof error?.stderr === "string" ? error.stderr : "";
+    if (!(error instanceof Error)) {
+      throw error;
+    }
 
-    throw new Error(
+    const runtimeError = /** @type {AcceptanceRuntimeError} */ (error);
+    const message = runtimeError.message;
+    const stdout = typeof runtimeError.stdout === "string" ? runtimeError.stdout : "";
+    const stderr = typeof runtimeError.stderr === "string" ? runtimeError.stderr : "";
+    const failureMessage =
       `Planner runtime preflight probe failed for gpt-runner (model=${modelId}): ${message}. ` +
-        `stdoutTail=${tailText(stdout)} stderrTail=${tailText(stderr)}`,
-      { cause: error instanceof Error ? error : undefined }
-    );
+      `stdoutTail=${tailText(stdout)} stderrTail=${tailText(stderr)}`;
+
+    throw new Error(failureMessage, { cause: error });
   }
 }
 
@@ -1680,8 +1704,10 @@ async function runAttempt({
       evidence
     };
   } catch (error) {
-    if (error instanceof Error && !error.attemptContext) {
-      error.attemptContext = {
+    const attemptError = error instanceof Error ? /** @type {AcceptanceRuntimeError} */ (error) : null;
+
+    if (attemptError && !attemptError.attemptContext) {
+      attemptError.attemptContext = {
         attemptNumber,
         attemptLabel,
         attemptRoot,
@@ -1871,9 +1897,10 @@ async function main() {
         `Attempt ${attemptNumber} succeeded: ${attempt.runId} (${attempt.durationSeconds}s, success ${successCount}/${options.successes})`
       );
     } catch (error) {
+      const attemptError = error instanceof Error ? /** @type {AcceptanceRuntimeError} */ (error) : null;
       const failureMessage = error instanceof Error ? error.message : String(error);
       const attemptLabel = `attempt-${String(attemptNumber).padStart(2, "0")}`;
-      const attemptContext = error instanceof Error ? error.attemptContext ?? null : null;
+      const attemptContext = attemptError?.attemptContext ?? null;
       const attemptArtifacts = attemptContext
         ? await collectAttemptFailureArtifacts({
             runRoot: attemptContext.runRoot,

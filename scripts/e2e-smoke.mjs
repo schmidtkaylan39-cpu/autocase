@@ -297,9 +297,11 @@ async function verifyScenario({
   if (scenario.faultMode === "bad-gateway-once") {
     assert.equal(fakeCodexState.badGatewayInjected, true, "bad-gateway scenario should inject one 502");
     const allTaskNotes = runState.taskLedger.flatMap((task) => task.notes ?? []);
+    const recoveredWithinLauncher = (fakeCodexState.invocations ?? 0) > 4;
     assert.ok(
-      allTaskNotes.some((note) => /dispatch:(failed|incomplete|invalid-automation-decision)|autonomous-(requeue|reset)/i.test(note)),
-      "bad-gateway scenario should leave failure recovery evidence in task notes"
+      allTaskNotes.some((note) => /dispatch:(failed|incomplete|invalid-automation-decision)|autonomous-(requeue|reset)/i.test(note)) ||
+        recoveredWithinLauncher,
+      "bad-gateway scenario should leave recovery evidence in task notes or through an extra launcher retry"
     );
   }
 

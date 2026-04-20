@@ -13,6 +13,10 @@ import { getLauncherMetadata } from "../src/lib/handoffs.mjs";
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const validSpecPath = path.join(projectRoot, "examples", "project-spec.valid.json");
 
+/**
+ * @typedef {Record<string, { ok?: boolean, installed?: boolean, [key: string]: unknown }>} DoctorOverrides
+ */
+
 function computeDescriptorIdempotencyKey(descriptor) {
   const promptHash =
     descriptor.prompt?.hash ??
@@ -225,7 +229,7 @@ function buildLargeStderrArtifactScript(
   const lines = [
     `stderrChunk='${escapeShellSingleQuoted(stderrChunk)}'`,
     "i=0",
-    `while [ \"$i\" -lt ${repeatCount} ]; do`,
+    `while [ "$i" -lt ${repeatCount} ]; do`,
     "  printf '%s\\n' \"$stderrChunk\" >&2",
     "  i=$((i + 1))",
     "done",
@@ -294,6 +298,10 @@ function modeForRuntime(runtimeId) {
   return "automated";
 }
 
+/**
+ * @param {string} filePath
+ * @param {DoctorOverrides} [overrides]
+ */
 async function writeFakeDoctorReport(filePath, overrides = {}) {
   const runtimeIds = ["openclaw", "cursor", "gpt-runner", "codex", "local-ci"];
   const checks = runtimeIds.map((runtimeId) => ({
@@ -337,6 +345,11 @@ async function expandHandoffDescriptor(descriptor) {
   };
 }
 
+/**
+ * @param {string} tempDir
+ * @param {string} runId
+ * @param {DoctorOverrides} [doctorOverrides]
+ */
 async function createDispatchReadyRun(tempDir, runId, doctorOverrides = {}) {
   const runResult = await runProject(validSpecPath, tempDir, runId);
   const doctorReportPath = path.join(tempDir, `${runId}.doctor.json`);
@@ -362,6 +375,11 @@ async function createDispatchReadyRun(tempDir, runId, doctorOverrides = {}) {
   };
 }
 
+/**
+ * @param {string} tempDir
+ * @param {string} runId
+ * @param {DoctorOverrides} [doctorOverrides]
+ */
 async function createReviewDispatchReadyRun(tempDir, runId, doctorOverrides = {}) {
   const runResult = await runProject(validSpecPath, tempDir, runId);
   const doctorReportPath = path.join(tempDir, `${runId}.doctor.json`);
@@ -391,6 +409,11 @@ async function createReviewDispatchReadyRun(tempDir, runId, doctorOverrides = {}
   };
 }
 
+/**
+ * @param {string} tempDir
+ * @param {string} runId
+ * @param {DoctorOverrides} [doctorOverrides]
+ */
 async function createPlannerDispatchReadyRun(tempDir, runId, doctorOverrides = {}) {
   const runResult = await runProject(validSpecPath, tempDir, runId);
   const doctorReportPath = path.join(tempDir, `${runId}.doctor.json`);
@@ -418,6 +441,11 @@ async function createPlannerDispatchReadyRun(tempDir, runId, doctorOverrides = {
   };
 }
 
+/**
+ * @param {string} tempDir
+ * @param {string} runId
+ * @param {DoctorOverrides} [doctorOverrides]
+ */
 async function createVerifierDispatchReadyRun(tempDir, runId, doctorOverrides = {}) {
   const workspaceRoot = path.join(tempDir, "workspace");
   const specPath = path.join(workspaceRoot, "specs", "project-spec.json");
@@ -561,6 +589,21 @@ async function limitDispatchToDescriptors(indexPath, runId, descriptors) {
   });
 }
 
+/**
+ * @param {{
+ *   tempPrefix: string,
+ *   runtimeId: string,
+ *   launcherScript: string,
+ *   doctorOverrides?: DoctorOverrides,
+ *   beforeDispatch?: ((args: {
+ *     tempDir: string,
+ *     runResult: unknown,
+ *     handoffResult: unknown,
+ *     descriptor: Record<string, unknown>,
+ *     reportPath: string
+ *   }) => Promise<void> | void) | null
+ * }} options
+ */
 async function runSingleDescriptorDispatchScenario({
   tempPrefix,
   runtimeId,

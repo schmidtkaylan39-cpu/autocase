@@ -596,7 +596,7 @@ function appendNoteFragment(baseNote, nextNote) {
 }
 
 async function recoverDescriptorExecutionLock(lockPath, descriptor) {
-  let lockContent = "";
+  let lockContent;
   let lockStats;
 
   try {
