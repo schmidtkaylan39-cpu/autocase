@@ -21,7 +21,13 @@ const descriptorExecutionLockSuffix = ".execute.lock";
 const dispatchLockTimeoutMs = 15000;
 const dispatchLockRetryDelayMs = 100;
 const dispatchLockStaleMs = 120000;
+const descriptorExecutionLockUninitializedMs = 5000;
 const launcherTimeoutErrorCode = "AI_FACTORY_LAUNCHER_TIMEOUT";
+const defaultLauncherMaxBufferBytes = 16 * 1024 * 1024;
+const defaultDispatchOutputTailBytes = 64 * 1024;
+const defaultGptRunnerLauncherAttempts = 3;
+const defaultGptRunnerRetryBaseDelayMs = 2000;
+const defaultGptRunnerRetryMaxDelayMs = 15000;
 
 function readPositiveIntegerEnv(name, fallbackValue) {
   const rawValue = process.env[name];
@@ -35,6 +41,38 @@ function hashTextSha256(value) {
 
 function isNonEmptyString(value) {
   return typeof value === "string" && value.trim().length > 0;
+}
+
+function parseLockPid(lockContent) {
+  const match = /^(\d+)/.exec(String(lockContent).trim());
+
+  if (!match) {
+    return null;
+  }
+
+  const parsedPid = Number.parseInt(match[1], 10);
+  return Number.isFinite(parsedPid) && parsedPid > 0 ? parsedPid : null;
+}
+
+function isProcessAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      "code" in error &&
+      (error.code === "ESRCH" || error.code === "EINVAL")
+    ) {
+      return false;
+    }
+
+    if (error instanceof Error && "code" in error && error.code === "EPERM") {
+      return true;
+    }
+
+    return true;
+  }
 }
 
 function normalizePositiveInteger(value, fallbackValue) {
@@ -65,6 +103,113 @@ function getLauncherTimeoutMs(stepTimeoutMs = null) {
     "AI_FACTORY_POWERSHELL_TIMEOUT_MS",
     normalizePositiveInteger(stepTimeoutMs, 300000)
   );
+}
+
+function getLauncherMaxBufferBytes() {
+  return readPositiveIntegerEnv("AI_FACTORY_LAUNCHER_MAX_BUFFER_BYTES", defaultLauncherMaxBufferBytes);
+}
+
+function getDispatchOutputTailBytes() {
+  return readPositiveIntegerEnv("AI_FACTORY_DISPATCH_OUTPUT_TAIL_BYTES", defaultDispatchOutputTailBytes);
+}
+
+function getGptRunnerLauncherAttempts() {
+  return readPositiveIntegerEnv(
+    "AI_FACTORY_GPT_RUNNER_LAUNCHER_ATTEMPTS",
+    defaultGptRunnerLauncherAttempts
+  );
+}
+
+function getGptRunnerRetryBaseDelayMs() {
+  return readPositiveIntegerEnv(
+    "AI_FACTORY_GPT_RUNNER_RETRY_BASE_DELAY_MS",
+    defaultGptRunnerRetryBaseDelayMs
+  );
+}
+
+function getGptRunnerRetryMaxDelayMs() {
+  return readPositiveIntegerEnv(
+    "AI_FACTORY_GPT_RUNNER_RETRY_MAX_DELAY_MS",
+    defaultGptRunnerRetryMaxDelayMs
+  );
+}
+
+function computeGptRunnerRetryDelayMs(attemptIndex) {
+  const normalizedAttemptIndex = Math.max(1, normalizePositiveInteger(attemptIndex, 1));
+  const baseDelayMs = getGptRunnerRetryBaseDelayMs();
+  const maxDelayMs = Math.max(baseDelayMs, getGptRunnerRetryMaxDelayMs());
+  const jitterFactor = 0.85 + Math.random() * 0.3;
+  const delayMs = Math.round(baseDelayMs * (2 ** (normalizedAttemptIndex - 1)) * jitterFactor);
+  return Math.min(maxDelayMs, delayMs);
+}
+
+function tailTruncateExecutionOutput(value) {
+  const normalizedValue = typeof value === "string" ? value.trim() : "";
+
+  if (!normalizedValue) {
+    return "";
+  }
+
+  const maxBytes = getDispatchOutputTailBytes();
+  const encodedValue = Buffer.from(normalizedValue, "utf8");
+
+  if (encodedValue.length <= maxBytes) {
+    return normalizedValue;
+  }
+
+  return encodedValue.subarray(encodedValue.length - maxBytes).toString("utf8");
+}
+
+function classifyGptRunnerTransientSignal(value) {
+  const text = String(value ?? "").toLowerCase();
+  return /stream disconnected|reconnecting|503 service unavailable|502 bad gateway|service temporarily unavailable|connection reset|econnreset|network/i.test(
+    text
+  );
+}
+
+function shouldRetryGptRunnerLauncher({
+  runtimeId,
+  attemptNumber,
+  maxAttempts,
+  execution = null,
+  error = null,
+  resultArtifact = null
+}) {
+  if (runtimeId !== "gpt-runner") {
+    return false;
+  }
+
+  if (attemptNumber >= maxAttempts) {
+    return false;
+  }
+
+  if (error) {
+    const code = typeof error === "object" && error !== null && "code" in error ? String(error.code) : "";
+    const message = error instanceof Error ? error.message : String(error);
+    const stdout = typeof error?.stdout === "string" ? error.stdout : "";
+    const stderr = typeof error?.stderr === "string" ? error.stderr : "";
+    return (
+      code === launcherTimeoutErrorCode ||
+      code === "ETIMEDOUT" ||
+      classifyGptRunnerTransientSignal(message) ||
+      classifyGptRunnerTransientSignal(stdout) ||
+      classifyGptRunnerTransientSignal(stderr)
+    );
+  }
+
+  if (!resultArtifact || resultArtifact.valid) {
+    return false;
+  }
+
+  const reason = resultArtifact.reason ?? "";
+  const stdout = execution?.stdout ?? "";
+  const stderr = execution?.stderr ?? "";
+
+  if (!/result artifact was not written|no such file|enoent/i.test(String(reason))) {
+    return false;
+  }
+
+  return classifyGptRunnerTransientSignal(`${stdout}\n${stderr}`);
 }
 
 function normalizeExecutionGuardrails(descriptor) {
@@ -146,8 +291,8 @@ function isLauncherTimeoutError(error) {
 
 function executionFromError(error) {
   return {
-    stdout: typeof error?.stdout === "string" ? error.stdout.trim() : "",
-    stderr: typeof error?.stderr === "string" ? error.stderr.trim() : ""
+    stdout: typeof error?.stdout === "string" ? error.stdout : "",
+    stderr: typeof error?.stderr === "string" ? error.stderr : ""
   };
 }
 
@@ -181,6 +326,7 @@ async function runPowerShellScript(scriptPath, timeoutMs = null) {
 
   const runtime = getPowerShellInvocation();
   const powerShellTimeoutMs = getLauncherTimeoutMs(timeoutMs);
+  const powerShellMaxBufferBytes = getLauncherMaxBufferBytes();
 
   try {
     return await execFileAsync(
@@ -188,6 +334,7 @@ async function runPowerShellScript(scriptPath, timeoutMs = null) {
       buildPowerShellFileArgs(scriptPath),
       {
         encoding: "utf8",
+        maxBuffer: powerShellMaxBufferBytes,
         windowsHide: runtime.windowsHide,
         timeout: powerShellTimeoutMs
       }
@@ -229,10 +376,12 @@ async function runShellScript(scriptPath, timeoutMs = null) {
 
   const shellCommand = getNonWindowsLauncherShellCommand();
   const shellTimeoutMs = getLauncherTimeoutMs(timeoutMs);
+  const shellMaxBufferBytes = getLauncherMaxBufferBytes();
 
   try {
     return await execFileAsync(shellCommand, [scriptPath], {
       encoding: "utf8",
+      maxBuffer: shellMaxBufferBytes,
       timeout: shellTimeoutMs
     });
   } catch (error) {
@@ -434,35 +583,103 @@ function resolveDescriptorExecutionLockPath(descriptor) {
   return `${path.resolve(lockTarget)}${descriptorExecutionLockSuffix}`;
 }
 
-async function tryAcquireDescriptorExecutionLock(descriptor) {
+function appendNoteFragment(baseNote, nextNote) {
+  if (!isNonEmptyString(baseNote)) {
+    return isNonEmptyString(nextNote) ? nextNote.trim() : null;
+  }
+
+  if (!isNonEmptyString(nextNote)) {
+    return baseNote.trim();
+  }
+
+  return `${baseNote.trim()} ${nextNote.trim()}`.trim();
+}
+
+async function recoverDescriptorExecutionLock(lockPath, descriptor) {
+  let lockContent = "";
+  let lockStats;
+
+  try {
+    [lockContent, lockStats] = await Promise.all([
+      readFile(lockPath, "utf8").catch(() => ""),
+      stat(lockPath)
+    ]);
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      return {
+        recovered: true,
+        note: null
+      };
+    }
+
+    throw error;
+  }
+
+  const lockPid = parseLockPid(lockContent);
+  const lockAgeMs = Date.now() - lockStats.mtimeMs;
+
+  if (lockPid !== null && !isProcessAlive(lockPid)) {
+    await rm(lockPath, { force: true });
+    return {
+      recovered: true,
+      note:
+        `Recovered stale orphaned execution lock for task ${descriptor.taskId} ` +
+        `(dead pid ${lockPid}).`
+    };
+  }
+
+  if ((lockStats.size === 0 || lockPid === null) && lockAgeMs > descriptorExecutionLockUninitializedMs) {
+    await rm(lockPath, { force: true });
+    return {
+      recovered: true,
+      note:
+        `Recovered uninitialized execution lock for task ${descriptor.taskId} ` +
+        `(age ${lockAgeMs}ms).`
+    };
+  }
+
+  if (lockAgeMs > dispatchLockStaleMs) {
+    await rm(lockPath, { force: true });
+    return {
+      recovered: true,
+      note:
+        `Recovered aged execution lock for task ${descriptor.taskId} ` +
+        `(pid ${lockPid}, age ${lockAgeMs}ms).`
+    };
+  }
+
+  return {
+    recovered: false,
+    note: null
+  };
+}
+
+async function tryAcquireDescriptorExecutionLock(descriptor, recoveredNote = null) {
   const lockPath = resolveDescriptorExecutionLockPath(descriptor);
 
   try {
     const lockHandle = await open(lockPath, "wx");
     await lockHandle.writeFile(`${process.pid} ${new Date().toISOString()}\n`, "utf8");
 
-    return async () => {
-      await lockHandle.close().catch(() => undefined);
-      await rm(lockPath, { force: true }).catch(() => undefined);
+    return {
+      recoveredNote,
+      release: async () => {
+        await lockHandle.close().catch(() => undefined);
+        await rm(lockPath, { force: true }).catch(() => undefined);
+      }
     };
   } catch (error) {
     if (!(error instanceof Error) || !("code" in error) || error.code !== "EEXIST") {
       throw error;
     }
 
-    try {
-      const existingLockStats = await stat(lockPath);
+    const recovery = await recoverDescriptorExecutionLock(lockPath, descriptor);
 
-      if (Date.now() - existingLockStats.mtimeMs > dispatchLockStaleMs) {
-        await rm(lockPath, { force: true });
-        return tryAcquireDescriptorExecutionLock(descriptor);
-      }
-    } catch (statError) {
-      if (!(statError instanceof Error) || !("code" in statError) || statError.code !== "ENOENT") {
-        throw statError;
-      }
-
-      return tryAcquireDescriptorExecutionLock(descriptor);
+    if (recovery.recovered) {
+      return tryAcquireDescriptorExecutionLock(
+        descriptor,
+        appendNoteFragment(recoveredNote, recovery.note)
+      );
     }
 
     return null;
@@ -579,8 +796,8 @@ function buildDispatchResultFromArtifact(descriptor, runtimeId, resultArtifact, 
     artifact: resultArtifact.artifact,
     artifactValid: resultArtifact.valid,
     note,
-    stdout: execution?.stdout ?? "",
-    stderr: execution?.stderr ?? ""
+    stdout: tailTruncateExecutionOutput(execution?.stdout),
+    stderr: tailTruncateExecutionOutput(execution?.stderr)
   };
 }
 
@@ -999,6 +1216,8 @@ export async function dispatchHandoffs(indexPath, mode = "dry-run") {
       continue;
     }
 
+    let executionLock = null;
+
     try {
       const planPath = path.join(runDirectory, "execution-plan.json");
       const reportPath = path.join(runDirectory, "report.md");
@@ -1018,9 +1237,9 @@ export async function dispatchHandoffs(indexPath, mode = "dry-run") {
       }
 
       seenIdempotencyKeys.add(executionGuardrails.idempotencyKey);
-      const releaseExecutionLock = await tryAcquireDescriptorExecutionLock(descriptor);
+      executionLock = await tryAcquireDescriptorExecutionLock(descriptor);
 
-      if (!releaseExecutionLock) {
+      if (!executionLock) {
         const recoveredResult = await tryRecoverExistingResultArtifact(
           runStatePath,
           descriptor,
@@ -1045,6 +1264,8 @@ export async function dispatchHandoffs(indexPath, mode = "dry-run") {
         continue;
       }
 
+      const lockRecoveryNote = executionLock.recoveredNote;
+
       try {
         const preparation = await prepareTaskForExecution(
           runStatePath,
@@ -1062,7 +1283,7 @@ export async function dispatchHandoffs(indexPath, mode = "dry-run") {
             status: "skipped",
             launcherPath: descriptor.launcherPath,
             resultPath: descriptor.resultPath ?? null,
-            note: preparation.note
+            note: appendNoteFragment(lockRecoveryNote, preparation.note)
           });
           continue;
         }
@@ -1083,48 +1304,78 @@ export async function dispatchHandoffs(indexPath, mode = "dry-run") {
         }
 
         await validatePromptIntegrity(descriptor, executionGuardrails);
-        await removeExistingResultArtifact(descriptor.resultPath ?? null);
-        const launcherStartedAtMs = Date.now();
-        let execution;
-        let resultArtifact;
+        const maxLauncherAttempts = runtimeId === "gpt-runner" ? getGptRunnerLauncherAttempts() : 1;
+        let completedResult = null;
 
-        try {
-          execution = await runLauncherScript(descriptor.launcherPath, executionGuardrails.timeoutMs);
-        } catch (error) {
-          if (isLauncherTimeoutError(error)) {
-            resultArtifact = await readResultArtifactForExecution(descriptor.resultPath ?? null, {
-              runId,
-              taskId: descriptor.taskId,
-              handoffId: descriptor.handoffId ?? null,
-              minimumMtimeMs: launcherStartedAtMs
-            });
+        for (let launcherAttempt = 1; launcherAttempt <= maxLauncherAttempts; launcherAttempt += 1) {
+          await removeExistingResultArtifact(descriptor.resultPath ?? null);
+          const launcherStartedAtMs = Date.now();
+          let execution;
+          let resultArtifact;
 
-            if (resultArtifact.valid) {
-              results.push(
-                buildDispatchResultFromArtifact(
+          try {
+            execution = await runLauncherScript(descriptor.launcherPath, executionGuardrails.timeoutMs);
+          } catch (error) {
+            if (isLauncherTimeoutError(error)) {
+              resultArtifact = await readResultArtifactForExecution(descriptor.resultPath ?? null, {
+                runId,
+                taskId: descriptor.taskId,
+                handoffId: descriptor.handoffId ?? null,
+                minimumMtimeMs: launcherStartedAtMs
+              });
+
+              if (resultArtifact.valid) {
+                completedResult = buildDispatchResultFromArtifact(
                   descriptor,
                   runtimeId,
                   resultArtifact,
                   executionFromError(error),
-                  "Launcher timed out after writing a valid result artifact."
-                )
-              );
+                  appendNoteFragment(
+                    lockRecoveryNote,
+                    "Launcher timed out after writing a valid result artifact."
+                  )
+                );
+                break;
+              }
+            }
+
+            if (
+              shouldRetryGptRunnerLauncher({
+                runtimeId,
+                attemptNumber: launcherAttempt,
+                maxAttempts: maxLauncherAttempts,
+                error,
+                resultArtifact
+              })
+            ) {
+              await sleep(computeGptRunnerRetryDelayMs(launcherAttempt));
               continue;
             }
+
+            throw error;
           }
 
-          throw error;
-        }
+          resultArtifact = await readResultArtifactForExecution(descriptor.resultPath ?? null, {
+            runId,
+            taskId: descriptor.taskId,
+            handoffId: descriptor.handoffId ?? null,
+            minimumMtimeMs: launcherStartedAtMs
+          });
 
-        resultArtifact = await readResultArtifactForExecution(descriptor.resultPath ?? null, {
-          runId,
-          taskId: descriptor.taskId,
-          handoffId: descriptor.handoffId ?? null,
-          minimumMtimeMs: launcherStartedAtMs
-        });
+          if (
+            shouldRetryGptRunnerLauncher({
+              runtimeId,
+              attemptNumber: launcherAttempt,
+              maxAttempts: maxLauncherAttempts,
+              execution,
+              resultArtifact
+            })
+          ) {
+            await sleep(computeGptRunnerRetryDelayMs(launcherAttempt));
+            continue;
+          }
 
-        results.push(
-          buildDispatchResultFromArtifact(
+          completedResult = buildDispatchResultFromArtifact(
             descriptor,
             runtimeId,
             {
@@ -1133,14 +1384,24 @@ export async function dispatchHandoffs(indexPath, mode = "dry-run") {
               reason: resultArtifact.reason
             },
             {
-              stdout: execution.stdout.trim(),
-              stderr: execution.stderr.trim()
+              stdout: execution.stdout,
+              stderr: execution.stderr
             },
-            "Launcher finished."
-          )
-        );
+            appendNoteFragment(
+              lockRecoveryNote,
+              launcherAttempt > 1 ? `Launcher finished after ${launcherAttempt} attempts.` : "Launcher finished."
+            )
+          );
+          break;
+        }
+
+        if (!completedResult) {
+          throw new Error(`Launcher execution produced no dispatch result for task ${descriptor.taskId}.`);
+        }
+
+        results.push(completedResult);
       } finally {
-        await releaseExecutionLock();
+        await executionLock.release();
       }
     } catch (error) {
       results.push({
@@ -1150,6 +1411,7 @@ export async function dispatchHandoffs(indexPath, mode = "dry-run") {
         status: "failed",
         launcherPath: descriptor.launcherPath,
         resultPath: descriptor.resultPath ?? null,
+        note: executionLock?.recoveredNote ?? null,
         error: error instanceof Error ? error.message : String(error)
       });
     }

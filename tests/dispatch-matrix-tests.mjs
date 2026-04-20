@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -11,6 +12,25 @@ import { getLauncherMetadata } from "../src/lib/handoffs.mjs";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const validSpecPath = path.join(projectRoot, "examples", "project-spec.valid.json");
+
+function computeDescriptorIdempotencyKey(descriptor) {
+  const promptHash =
+    descriptor.prompt?.hash ??
+    descriptor.launcher?.metadata?.promptHash ??
+    null;
+  return createHash("sha256")
+    .update(
+      JSON.stringify({
+        runId: descriptor.runId ?? null,
+        taskId: descriptor.taskId ?? descriptor.task?.id ?? null,
+        handoffId: descriptor.handoffId ?? null,
+        runtimeId: descriptor.runtime?.id ?? null,
+        promptHash
+      }),
+      "utf8"
+    )
+    .digest("hex");
+}
 
 async function runTest(name, fn) {
   try {
@@ -179,6 +199,87 @@ function buildMarkerOnlyScript(markerDirectory) {
     'mkdir -p "$markerDirectory"',
     'printf "ran\n" > "$markerDirectory/launcher-ran.txt"'
   ].join("\n");
+}
+
+function buildLargeStderrArtifactScript(
+  resultPath,
+  artifact,
+  {
+    chunkSize = 4096,
+    repeatCount = 320,
+    tailMarker = "stderr-tail-marker"
+  } = {}
+) {
+  const stderrChunk = "E".repeat(chunkSize);
+
+  if (process.platform === "win32") {
+    const lines = [
+      `$stderrChunk = '${escapePowerShellSingleQuoted(stderrChunk)}'`,
+      `for ($i = 0; $i -lt ${repeatCount}; $i++) { [Console]::Error.WriteLine($stderrChunk) }`,
+      `[Console]::Error.WriteLine('${escapePowerShellSingleQuoted(tailMarker)}')`
+    ];
+
+    return `${lines.join("\n")}\n${buildResultArtifactScript(resultPath, artifact)}`;
+  }
+
+  const lines = [
+    `stderrChunk='${escapeShellSingleQuoted(stderrChunk)}'`,
+    "i=0",
+    `while [ \"$i\" -lt ${repeatCount} ]; do`,
+    "  printf '%s\\n' \"$stderrChunk\" >&2",
+    "  i=$((i + 1))",
+    "done",
+    `printf '%s\\n' '${escapeShellSingleQuoted(tailMarker)}' >&2`
+  ];
+
+  return `${lines.join("\n")}\n${buildResultArtifactScript(resultPath, artifact)}`;
+}
+
+function buildTransientGptRunnerRecoveryScript(
+  resultPath,
+  artifact,
+  {
+    attemptCounterFileName = ".gpt-runner-attempt.txt",
+    transientMessage = "503 Service Unavailable: transient upstream failure"
+  } = {}
+) {
+  if (process.platform === "win32") {
+    const lines = [
+      `$resultPath = '${escapePowerShellSingleQuoted(resultPath)}'`,
+      `$attemptCounterPath = Join-Path (Split-Path -Parent $resultPath) '${escapePowerShellSingleQuoted(
+        attemptCounterFileName
+      )}'`,
+      "$attemptCount = 0",
+      "if (Test-Path -LiteralPath $attemptCounterPath) {",
+      "  $attemptCount = [int](Get-Content -LiteralPath $attemptCounterPath -Raw)",
+      "}",
+      "$attemptCount += 1",
+      "Set-Content -LiteralPath $attemptCounterPath -Value $attemptCount -Encoding utf8",
+      "if ($attemptCount -eq 1) {",
+      `  [Console]::Error.WriteLine('${escapePowerShellSingleQuoted(transientMessage)}')`,
+      "  exit 1",
+      "}"
+    ];
+
+    return `${lines.join("\n")}\n${buildResultArtifactScript(resultPath, artifact)}`;
+  }
+
+  const lines = [
+    `resultPath='${escapeShellSingleQuoted(resultPath)}'`,
+    `attemptCounterPath="$(dirname "$resultPath")/${escapeShellSingleQuoted(attemptCounterFileName)}"`,
+    "attemptCount=0",
+    'if [ -f "$attemptCounterPath" ]; then',
+    '  attemptCount="$(cat "$attemptCounterPath")"',
+    "fi",
+    "attemptCount=$((attemptCount + 1))",
+    'printf "%s" "$attemptCount" > "$attemptCounterPath"',
+    'if [ "$attemptCount" -eq 1 ]; then',
+    `  printf '%s\\n' '${escapeShellSingleQuoted(transientMessage)}' >&2`,
+    "  exit 1",
+    "fi"
+  ];
+
+  return `${lines.join("\n")}\n${buildResultArtifactScript(resultPath, artifact)}`;
 }
 
 function modeForRuntime(runtimeId) {
@@ -464,7 +565,8 @@ async function runSingleDescriptorDispatchScenario({
   tempPrefix,
   runtimeId,
   launcherScript,
-  doctorOverrides = { codex: { ok: true } }
+  doctorOverrides = { codex: { ok: true } },
+  beforeDispatch = null
 }) {
   const tempDir = await mkdtemp(path.join(os.tmpdir(), tempPrefix));
   const { runResult, handoffResult, descriptor, reportPath } = await createDispatchReadyRun(
@@ -479,6 +581,10 @@ async function runSingleDescriptorDispatchScenario({
     label: runtimeId,
     mode: modeForRuntime(runtimeId)
   };
+  descriptor.execution = {
+    ...descriptor.execution,
+    idempotencyKey: computeDescriptorIdempotencyKey(descriptor)
+  };
 
   await limitDispatchToDescriptors(handoffResult.indexPath, handoffResult.runId, [descriptor]);
   const resolvedLauncherScript = bindArtifactScriptIdentity(
@@ -486,6 +592,16 @@ async function runSingleDescriptorDispatchScenario({
     descriptor
   );
   await writeFile(descriptor.launcherPath, resolvedLauncherScript, "utf8");
+
+  if (typeof beforeDispatch === "function") {
+    await beforeDispatch({
+      tempDir,
+      runResult,
+      handoffResult,
+      descriptor,
+      reportPath
+    });
+  }
 
   const dispatchResult = await dispatchHandoffs(handoffResult.indexPath, "execute");
   const runState = JSON.parse(await readFile(runResult.statePath, "utf8"));
@@ -1098,6 +1214,159 @@ async function main() {
         delete process.env.AI_FACTORY_POWERSHELL_TIMEOUT_MS;
       } else {
         process.env.AI_FACTORY_POWERSHELL_TIMEOUT_MS = previousTimeout;
+      }
+    }
+  });
+
+  await runTest("matrix: large stderr still completes with a valid artifact and stores only the tail", async () => {
+    const previousMaxBuffer = process.env.AI_FACTORY_LAUNCHER_MAX_BUFFER_BYTES;
+    const previousTailBytes = process.env.AI_FACTORY_DISPATCH_OUTPUT_TAIL_BYTES;
+    const tailLimitBytes = 64 * 1024;
+    const tailMarker = "stderr-tail-marker";
+
+    delete process.env.AI_FACTORY_LAUNCHER_MAX_BUFFER_BYTES;
+    delete process.env.AI_FACTORY_DISPATCH_OUTPUT_TAIL_BYTES;
+
+    try {
+      const scenario = await runSingleDescriptorDispatchScenario({
+        tempPrefix: "ai-factory-matrix-large-stderr-",
+        runtimeId: "codex",
+        launcherScript: buildLargeStderrArtifactScript(
+          "{{RESULT_PATH}}",
+          {
+            status: "completed",
+            summary: "large stderr does not exhaust launcher buffering",
+            changedFiles: ["src/lib/dispatch.mjs"],
+            verification: ["node tests/dispatch-matrix-tests.mjs"],
+            notes: ["large stderr path"]
+          },
+          { tailMarker }
+        )
+      });
+      const { descriptor, dispatchResult, report, task } = scenario;
+      const result = dispatchResult.results[0];
+      const persistedDispatchResult = JSON.parse(await readFile(dispatchResult.resultJsonPath, "utf8"));
+      const persistedResult = persistedDispatchResult.results[0];
+
+      assert.equal(result.status, "completed");
+      assert.equal(dispatchResult.summary.completed, 1);
+      assert.deepEqual(dispatchResult.runStateSync?.updatedTasks[0], {
+        taskId: descriptor.taskId,
+        nextStatus: "completed"
+      });
+      assert.equal(task.status, "completed");
+      assert.ok(!/maxBuffer exceeded/i.test(result.error ?? ""));
+      assert.ok(result.stderr.includes(tailMarker));
+      assert.ok(persistedResult.stderr.includes(tailMarker));
+      assert.ok(result.stderr.length <= tailLimitBytes);
+      assert.ok(persistedResult.stderr.length <= tailLimitBytes);
+      assert.match(report, new RegExp(`\\[completed\\] ${descriptor.taskId} ->`));
+    } finally {
+      if (previousMaxBuffer === undefined) {
+        delete process.env.AI_FACTORY_LAUNCHER_MAX_BUFFER_BYTES;
+      } else {
+        process.env.AI_FACTORY_LAUNCHER_MAX_BUFFER_BYTES = previousMaxBuffer;
+      }
+
+      if (previousTailBytes === undefined) {
+        delete process.env.AI_FACTORY_DISPATCH_OUTPUT_TAIL_BYTES;
+      } else {
+        process.env.AI_FACTORY_DISPATCH_OUTPUT_TAIL_BYTES = previousTailBytes;
+      }
+    }
+  });
+
+  await runTest("matrix: dead-pid execute lock is reclaimed immediately and execution still completes", async () => {
+    const deadPid = 999999;
+    const scenario = await runSingleDescriptorDispatchScenario({
+      tempPrefix: "ai-factory-matrix-dead-lock-",
+      runtimeId: "codex",
+      launcherScript: buildResultArtifactScript("{{RESULT_PATH}}", {
+        status: "completed",
+        summary: "dead lock recovery path completed",
+        changedFiles: ["src/lib/dispatch.mjs"],
+        verification: ["node tests/dispatch-matrix-tests.mjs"],
+        notes: ["dead pid execute lock recovery"]
+      }),
+      beforeDispatch: async ({ descriptor }) => {
+        const lockPath = `${descriptor.resultPath}.execute.lock`;
+        await writeFile(lockPath, `${deadPid} ${new Date().toISOString()}\n`, "utf8");
+      }
+    });
+    const { dispatchResult, task } = scenario;
+    const result = dispatchResult.results[0];
+
+    assert.equal(result.status, "completed");
+    assert.equal(dispatchResult.summary.completed, 1);
+    assert.equal(task.status, "completed");
+    assert.match(result.note ?? "", /Recovered stale orphaned execution lock/i);
+    assert.doesNotMatch(result.note ?? "", /Another dispatch process is already executing/i);
+  });
+
+  await runTest("matrix: gpt-runner transient upstream failures retry within one dispatch and then complete", async () => {
+    const previousLauncherAttempts = process.env.AI_FACTORY_GPT_RUNNER_LAUNCHER_ATTEMPTS;
+    const previousRetryBaseDelayMs = process.env.AI_FACTORY_GPT_RUNNER_RETRY_BASE_DELAY_MS;
+    const previousRetryMaxDelayMs = process.env.AI_FACTORY_GPT_RUNNER_RETRY_MAX_DELAY_MS;
+    const attemptCounterFileName = ".gpt-runner-attempt.txt";
+    process.env.AI_FACTORY_GPT_RUNNER_LAUNCHER_ATTEMPTS = "2";
+    process.env.AI_FACTORY_GPT_RUNNER_RETRY_BASE_DELAY_MS = "1";
+    process.env.AI_FACTORY_GPT_RUNNER_RETRY_MAX_DELAY_MS = "1";
+
+    try {
+      const scenario = await runSingleDescriptorDispatchScenario({
+        tempPrefix: "ai-factory-matrix-gpt-runner-transient-",
+        runtimeId: "gpt-runner",
+        doctorOverrides: { "gpt-runner": { ok: true } },
+        launcherScript: buildTransientGptRunnerRecoveryScript(
+          "{{RESULT_PATH}}",
+          {
+            status: "completed",
+            summary: "transient upstream launcher failure recovered on retry",
+            changedFiles: ["src/lib/dispatch.mjs"],
+            verification: ["node tests/dispatch-matrix-tests.mjs"],
+            notes: ["gpt-runner transient retry path"]
+          },
+          { attemptCounterFileName }
+        )
+      });
+      const { descriptor, dispatchResult, report, task } = scenario;
+      const result = dispatchResult.results[0];
+      const attemptCounterPath = path.join(path.dirname(descriptor.resultPath), attemptCounterFileName);
+      let attemptCounter = null;
+
+      try {
+        attemptCounter = await readFile(attemptCounterPath, "utf8");
+      } catch {
+        attemptCounter = null;
+      }
+
+      assert.equal(result.status, "completed");
+      assert.equal(dispatchResult.summary.completed, 1);
+      assert.equal(task.status, "completed");
+      assert.deepEqual(dispatchResult.runStateSync?.updatedTasks[0], {
+        taskId: descriptor.taskId,
+        nextStatus: "completed"
+      });
+      assert.equal(attemptCounter?.trim(), "2");
+      assert.doesNotMatch(result.error ?? "", /service unavailable|maxbuffer/i);
+      assert.match(report, new RegExp(`\\[completed\\] ${descriptor.taskId} ->`));
+    } finally {
+      if (previousLauncherAttempts === undefined) {
+        delete process.env.AI_FACTORY_GPT_RUNNER_LAUNCHER_ATTEMPTS;
+      } else {
+        process.env.AI_FACTORY_GPT_RUNNER_LAUNCHER_ATTEMPTS = previousLauncherAttempts;
+      }
+
+      if (previousRetryBaseDelayMs === undefined) {
+        delete process.env.AI_FACTORY_GPT_RUNNER_RETRY_BASE_DELAY_MS;
+      } else {
+        process.env.AI_FACTORY_GPT_RUNNER_RETRY_BASE_DELAY_MS = previousRetryBaseDelayMs;
+      }
+
+      if (previousRetryMaxDelayMs === undefined) {
+        delete process.env.AI_FACTORY_GPT_RUNNER_RETRY_MAX_DELAY_MS;
+      } else {
+        process.env.AI_FACTORY_GPT_RUNNER_RETRY_MAX_DELAY_MS = previousRetryMaxDelayMs;
       }
     }
   });

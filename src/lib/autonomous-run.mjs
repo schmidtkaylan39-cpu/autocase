@@ -45,6 +45,10 @@ function readPositiveIntegerEnv(name, fallbackValue) {
   return Number.isFinite(parsedValue) && parsedValue > 0 ? parsedValue : fallbackValue;
 }
 
+function getAutonomousNoProgressCycleLimit() {
+  return readPositiveIntegerEnv("AI_FACTORY_AUTONOMOUS_NO_PROGRESS_CYCLES", 2);
+}
+
 function getAutonomousLockTimeoutMs() {
   return readPositiveIntegerEnv("AI_FACTORY_AUTONOMOUS_LOCK_TIMEOUT_MS", 500);
 }
@@ -190,8 +194,21 @@ function appendAutonomousNote(task, note) {
   };
 }
 
-function countAutonomousRequeues(task) {
-  return safeArray(task.notes).filter((note) => /autonomous-requeue:/i.test(note)).length;
+function escapeForRegex(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function normalizePositiveInteger(value, fallbackValue) {
+  const parsedValue = Number.parseInt(value ?? "", 10);
+  return Number.isFinite(parsedValue) && parsedValue > 0 ? parsedValue : fallbackValue;
+}
+
+function countAutonomousRequeues(task, sourceTaskId = null) {
+  const sourcePattern = isNonEmptyString(sourceTaskId)
+    ? new RegExp(`autonomous-requeue:${escapeForRegex(sourceTaskId)}\\b`, "i")
+    : /autonomous-requeue:/i;
+
+  return safeArray(task.notes).filter((note) => sourcePattern.test(note)).length;
 }
 
 function extractFeatureId(taskId) {
@@ -212,6 +229,32 @@ function buildFeatureTaskIds(sourceTaskId) {
     reviewTaskId: `review-${featureId}`,
     verificationTaskId: `verify-${featureId}`
   };
+}
+
+function resolveFeatureReplanBudget(runState, sourceTaskId, ids) {
+  const retryPolicy = runState.retryPolicy ?? {};
+  const implementationTask = runState.taskLedger.find((task) => task.id === ids.implementationTaskId);
+  const reviewTask = runState.taskLedger.find((task) => task.id === ids.reviewTaskId);
+  const verificationTask = runState.taskLedger.find((task) => task.id === ids.verificationTaskId);
+
+  if (typeof sourceTaskId === "string" && sourceTaskId.startsWith("review-")) {
+    return normalizePositiveInteger(
+      reviewTask?.retriesBeforeReplan ?? retryPolicy.review,
+      normalizePositiveInteger(retryPolicy.implementation, 2)
+    );
+  }
+
+  if (typeof sourceTaskId === "string" && sourceTaskId.startsWith("verify-")) {
+    return normalizePositiveInteger(
+      verificationTask?.retriesBeforeReplan ?? retryPolicy.verification,
+      normalizePositiveInteger(retryPolicy.implementation, 2)
+    );
+  }
+
+  return normalizePositiveInteger(
+    implementationTask?.retriesBeforeReplan ?? retryPolicy.implementation,
+    3
+  );
 }
 
 function parseNoteTimestamp(note) {
@@ -267,20 +310,80 @@ function hasDispatchOutcomeAfter(task, claimTimestampMs) {
 
 async function taskExecutionLockExists(task) {
   if (typeof task.activeResultPath !== "string" || task.activeResultPath.trim().length === 0) {
-    return false;
+    return {
+      exists: false,
+      recovered: false,
+      recoveryReason: null
+    };
   }
 
   const executionLockPath = `${path.resolve(task.activeResultPath)}${descriptorExecutionLockSuffix}`;
 
   if (!(await fileExists(executionLockPath))) {
-    return false;
+    return {
+      exists: false,
+      recovered: false,
+      recoveryReason: null
+    };
   }
 
-  if (await tryRemoveStaleLockFile(executionLockPath, descriptorExecutionLockStaleMs)) {
-    return false;
+  try {
+    const [lockContent, lockStats] = await Promise.all([
+      readFile(executionLockPath, "utf8").catch(() => ""),
+      stat(executionLockPath)
+    ]);
+    const lockPid = parseLockPid(lockContent);
+    const lockAgeMs = Date.now() - lockStats.mtimeMs;
+
+    if (lockPid !== null && !isProcessAlive(lockPid)) {
+      await rm(executionLockPath, { force: true }).catch(() => undefined);
+      return {
+        exists: false,
+        recovered: true,
+        recoveryReason:
+          `recovered orphaned execution lock for task ${task.id} ` +
+          `(dead pid ${lockPid}, path ${executionLockPath})`
+      };
+    }
+
+    if (lockStats.size === 0 && lockAgeMs > autonomousLockUninitializedMs) {
+      await rm(executionLockPath, { force: true }).catch(() => undefined);
+      return {
+        exists: false,
+        recovered: true,
+        recoveryReason:
+          `recovered uninitialized execution lock for task ${task.id} ` +
+          `(age ${lockAgeMs}ms, path ${executionLockPath})`
+      };
+    }
+
+    if (lockAgeMs > descriptorExecutionLockStaleMs) {
+      await rm(executionLockPath, { force: true }).catch(() => undefined);
+      return {
+        exists: false,
+        recovered: true,
+        recoveryReason:
+          `recovered stale execution lock for task ${task.id} ` +
+          `(age ${lockAgeMs}ms, path ${executionLockPath})`
+      };
+    }
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      return {
+        exists: false,
+        recovered: false,
+        recoveryReason: null
+      };
+    }
+
+    throw error;
   }
 
-  return true;
+  return {
+    exists: true,
+    recovered: false,
+    recoveryReason: null
+  };
 }
 
 async function maybeRecoverStalledInProgress(runState) {
@@ -299,11 +402,15 @@ async function maybeRecoverStalledInProgress(runState) {
       continue;
     }
 
-    if (await taskExecutionLockExists(task)) {
+    const executionLockState = await taskExecutionLockExists(task);
+
+    if (executionLockState.exists) {
       continue;
     }
 
-    const reason = "stale in-progress task without dispatch completion note";
+    const reason = executionLockState.recovered
+      ? `stale in-progress task without dispatch completion note (${executionLockState.recoveryReason})`
+      : "stale in-progress task without dispatch completion note";
 
     if (task.role === "reviewer" || task.role === "verifier" || task.role === "executor") {
       const recovery = reopenFeatureChain(runState, task.id, reason);
@@ -350,8 +457,8 @@ function reopenFeatureChain(runState, sourceTaskId, reason) {
     };
   }
 
-  const currentRequeueCount = countAutonomousRequeues(implementationTask);
-  const maxRequeues = implementationTask.retriesBeforeReplan ?? runState.retryPolicy?.implementation ?? 3;
+  const currentRequeueCount = countAutonomousRequeues(implementationTask, sourceTaskId);
+  const maxRequeues = resolveFeatureReplanBudget(runState, sourceTaskId, ids);
 
   if (currentRequeueCount >= maxRequeues) {
     return reopenPlanningForFeature(runState, ids, reason);
@@ -541,12 +648,221 @@ function maybeRecoverRunState(runState) {
   };
 }
 
+function markSkippedDispatchTasksAsBlocked(runState, dispatchResults, reason) {
+  const skippedTaskIds = new Set(
+    safeArray(dispatchResults)
+      .filter((result) => result?.status === "skipped" && isNonEmptyString(result?.taskId))
+      .map((result) => result.taskId)
+  );
+
+  if (skippedTaskIds.size === 0) {
+    for (const task of safeArray(runState.taskLedger)) {
+      if (task?.status === "ready" && isNonEmptyString(task?.id)) {
+        skippedTaskIds.add(task.id);
+      }
+    }
+  }
+
+  if (skippedTaskIds.size === 0) {
+    return runState;
+  }
+
+  const nextTaskLedger = runState.taskLedger.map((task) => {
+    if (!skippedTaskIds.has(task.id)) {
+      return task;
+    }
+
+    if (["blocked", "failed", "completed"].includes(task.status)) {
+      return task;
+    }
+
+    return appendAutonomousNote(
+      {
+        ...clearTaskExecutionState(task),
+        status: "blocked"
+      },
+      `autonomous-runtime-unavailable:${reason}`
+    );
+  });
+
+  return refreshRunState({
+    ...runState,
+    updatedAt: new Date().toISOString(),
+    taskLedger: nextTaskLedger
+  });
+}
+
 async function writeRunReport(runDirectory, runState) {
   const planPath = path.join(runDirectory, "execution-plan.json");
   const plan = await readJson(planPath);
   const reportPath = path.join(runDirectory, "report.md");
   await writeJson(path.join(runDirectory, "run-state.json"), runState);
   await writeFile(reportPath, `${renderRunReport(runState, plan)}\n`, "utf8");
+}
+
+function findTaskStatusTransition(previousRunState, nextRunState, targetStatus) {
+  const previousStatuses = new Map(
+    safeArray(previousRunState?.taskLedger).map((task) => [task.id, task.status])
+  );
+
+  for (const task of safeArray(nextRunState?.taskLedger)) {
+    if (!isNonEmptyString(task?.id) || task?.status !== targetStatus) {
+      continue;
+    }
+
+    if (previousStatuses.get(task.id) !== targetStatus) {
+      return task.id;
+    }
+  }
+
+  return null;
+}
+
+function listTaskIdsByStatus(taskLedger, statuses) {
+  const allowedStatuses = new Set(Array.isArray(statuses) ? statuses : [statuses]);
+  return safeArray(taskLedger)
+    .filter((task) => allowedStatuses.has(task?.status) && isNonEmptyString(task?.id))
+    .map((task) => task.id);
+}
+
+function hasDegradedRuntimeSignal(runState) {
+  return safeArray(runState?.taskLedger).some((task) =>
+    safeArray(task?.notes).some((note) => /acceptance-model-degrade:/i.test(String(note)))
+  );
+}
+
+function deriveRoundProgress({ beforeRunState, afterRunState, dispatchSummary = null, recovery = null }) {
+  const beforeSummary = summarizeRunState(beforeRunState);
+  const afterSummary = summarizeRunState(afterRunState);
+  const completedTaskId = findTaskStatusTransition(beforeRunState, afterRunState, "completed");
+
+  if (afterSummary.completedTasks > beforeSummary.completedTasks || completedTaskId) {
+    return {
+      progressed: true,
+      event: "task_completed",
+      taskId: completedTaskId
+    };
+  }
+
+  const readyTaskId = findTaskStatusTransition(beforeRunState, afterRunState, "ready");
+
+  if (afterSummary.readyTasks > beforeSummary.readyTasks) {
+    return {
+      progressed: true,
+      event: recovery ? "automatic_recovery_ready" : "automatic_work_ready",
+      taskId: readyTaskId ?? recovery?.targetTaskIds?.[0] ?? null
+    };
+  }
+
+  if ((dispatchSummary?.completed ?? 0) > 0) {
+    return {
+      progressed: true,
+      event: "dispatch_completed",
+      taskId:
+        safeArray(dispatchSummary?.results)
+          .find((result) => result?.status === "completed" && isNonEmptyString(result?.taskId))
+          ?.taskId ?? null
+    };
+  }
+
+  return {
+    progressed: false,
+    event: null,
+    taskId: null
+  };
+}
+
+function shouldCountNoProgressCycle({ beforeRunState, afterRunState, dispatchSummary = null }) {
+  const beforeSummary = summarizeRunState(beforeRunState);
+  const afterSummary = summarizeRunState(afterRunState);
+  const remainingTasks = afterSummary.totalTasks - afterSummary.completedTasks;
+  const activeTaskIds = listTaskIdsByStatus(afterRunState.taskLedger, ["blocked", "waiting_retry", "in_progress"]);
+
+  if (remainingTasks <= 0) {
+    return false;
+  }
+
+  if (afterSummary.completedTasks > beforeSummary.completedTasks) {
+    return false;
+  }
+
+  if (afterSummary.readyTasks > beforeSummary.readyTasks) {
+    return false;
+  }
+
+  if ((dispatchSummary?.completed ?? 0) > 0) {
+    return false;
+  }
+
+  return afterSummary.readyTasks === 0 && activeTaskIds.length > 0;
+}
+
+function materializeNoProgressAttention(runState, reason, skippedAutomaticTaskIds = []) {
+  const targetTaskIds = new Set([
+    ...listTaskIdsByStatus(runState.taskLedger, ["in_progress", "waiting_retry", "ready"]),
+    ...safeArray(skippedAutomaticTaskIds).filter(isNonEmptyString)
+  ]);
+
+  if (targetTaskIds.size === 0) {
+    return refreshRunState(runState);
+  }
+
+  const nextTaskLedger = runState.taskLedger.map((task) => {
+    if (!targetTaskIds.has(task.id) || ["completed", "failed", "blocked"].includes(task.status)) {
+      return task;
+    }
+
+    return appendAutonomousNote(
+      {
+        ...clearTaskExecutionState(task),
+        status: "blocked"
+      },
+      `autonomous-no-progress:${reason}`
+    );
+  });
+
+  return refreshRunState({
+    ...runState,
+    updatedAt: new Date().toISOString(),
+    taskLedger: nextTaskLedger
+  });
+}
+
+function buildAutonomousProgressDiagnostics(
+  runState,
+  {
+    lastProgressAt = null,
+    lastProgressTaskId = null,
+    lastProgressEvent = null,
+    consecutiveNoProgressCycles = 0,
+    skippedAutomaticTaskIds = []
+  } = {}
+) {
+  return {
+    lastProgressAt,
+    lastProgressTaskId,
+    lastProgressEvent,
+    consecutiveNoProgressCycles,
+    blockedTaskIds: listTaskIdsByStatus(runState?.taskLedger, ["blocked"]),
+    waitingRetryTaskIds: listTaskIdsByStatus(runState?.taskLedger, ["waiting_retry"]),
+    skippedAutomaticTaskIds: Array.from(
+      new Set(safeArray(skippedAutomaticTaskIds).filter(isNonEmptyString))
+    ),
+    degradedRuntimeActive: hasDegradedRuntimeSignal(runState)
+  };
+}
+
+async function writeAutonomousSummaryArtifacts(runDirectory, summary) {
+  const summaryJsonPath = path.join(runDirectory, "autonomous-summary.json");
+  const summaryMarkdownPath = path.join(runDirectory, "autonomous-summary.md");
+
+  await writeJson(summaryJsonPath, summary);
+  await writeFile(summaryMarkdownPath, `${buildSummaryMarkdown(summary)}\n`, "utf8");
+
+  return {
+    summaryJsonPath,
+    summaryMarkdownPath
+  };
 }
 
 function buildSummaryMarkdown(summary) {
@@ -558,6 +874,16 @@ function buildSummaryMarkdown(summary) {
     `- Rounds attempted: ${summary.rounds.length}`,
     `- Doctor report: ${summary.doctorReportPath}`,
     `- Failure-feedback artifacts: ${summary.failureFeedback?.count ?? 0}`,
+    "",
+    "## Diagnostics",
+    `- Last progress at: ${summary.progressDiagnostics?.lastProgressAt ?? "n/a"}`,
+    `- Last progress task: ${summary.progressDiagnostics?.lastProgressTaskId ?? "n/a"}`,
+    `- Last progress event: ${summary.progressDiagnostics?.lastProgressEvent ?? "n/a"}`,
+    `- Consecutive no-progress cycles: ${summary.progressDiagnostics?.consecutiveNoProgressCycles ?? 0}`,
+    `- Blocked task ids: ${(summary.progressDiagnostics?.blockedTaskIds ?? []).join(", ") || "none"}`,
+    `- Waiting-retry task ids: ${(summary.progressDiagnostics?.waitingRetryTaskIds ?? []).join(", ") || "none"}`,
+    `- Skipped automatic task ids: ${(summary.progressDiagnostics?.skippedAutomaticTaskIds ?? []).join(", ") || "none"}`,
+    `- Degraded runtime active: ${summary.progressDiagnostics?.degradedRuntimeActive ? "yes" : "no"}`,
     "",
     "## Rounds",
     ...summary.rounds.map((round) => {
@@ -571,10 +897,22 @@ function buildSummaryMarkdown(summary) {
 
       if (round.recovery) {
         bits.push(`recovery=${round.recovery.type}`);
+
+        if (round.recovery.reason) {
+          bits.push(`recoveryReason=${round.recovery.reason}`);
+        }
       }
 
       if (round.stopReason) {
         bits.push(`stop=${round.stopReason}`);
+      }
+
+      if (round.progressEvent) {
+        bits.push(`progress=${round.progressEvent}${round.progressTaskId ? `:${round.progressTaskId}` : ""}`);
+      }
+
+      if (Number.isFinite(round.consecutiveNoProgressCycles)) {
+        bits.push(`noProgress=${round.consecutiveNoProgressCycles}`);
       }
 
       return bits.join(", ");
@@ -881,10 +1219,53 @@ export async function runAutonomousLoop(
       : path.join(runDirectory, "handoffs-autonomous");
     const rounds = [];
     const failureFeedbackEntries = [];
+    const noProgressCycleLimit = getAutonomousNoProgressCycleLimit();
+    let lastProgressAt = null;
+    let lastProgressTaskId = null;
+    let lastProgressEvent = null;
+    let consecutiveNoProgressCycles = 0;
+    let skippedAutomaticTaskIds = [];
     let stopReason = null;
+    const persistAutonomousSummary = async (
+      finalRunState,
+      currentFailureFeedback = {
+        count: 0,
+        directory: null,
+        indexPath: null,
+        generatedTestCasesPath: null
+      }
+    ) => {
+      const summary = {
+        runId: finalRunState.runId,
+        finalStatus: finalRunState.status,
+        doctorReportPath: effectiveDoctorReportPath,
+        rounds,
+        stopReason:
+          stopReason ?? (finalRunState.status === "completed" ? "run completed" : "maximum rounds reached"),
+        runSummary: summarizeRunState(finalRunState),
+        progressDiagnostics: buildAutonomousProgressDiagnostics(finalRunState, {
+          lastProgressAt,
+          lastProgressTaskId,
+          lastProgressEvent,
+          consecutiveNoProgressCycles,
+          skippedAutomaticTaskIds
+        }),
+        failureFeedback: currentFailureFeedback
+      };
+
+      const artifacts = await writeAutonomousSummaryArtifacts(runDirectory, summary);
+
+      return {
+        ...artifacts,
+        summary
+      };
+    };
+
+    await persistAutonomousSummary(refreshRunState(await readJson(resolvedRunStatePath)));
 
     for (let round = 1; round <= maxRounds; round += 1) {
       let currentRunState = refreshRunState(await readJson(resolvedRunStatePath));
+      const beforeRoundState = currentRunState;
       await writeRunReport(runDirectory, currentRunState);
 
       if (currentRunState.status === "completed") {
@@ -898,7 +1279,14 @@ export async function runAutonomousLoop(
         readyTaskCount: 0,
         dispatchSummary: null,
         recovery: null,
-        stopReason: null
+        stopReason: null,
+        progressEvent: null,
+        progressTaskId: null,
+        consecutiveNoProgressCycles: 0,
+        blockedTaskIds: [],
+        waitingRetryTaskIds: [],
+        skippedAutomaticTaskIds: [],
+        degradedRuntimeActive: false
       };
 
       const staleInProgressRecovery = await maybeRecoverStalledInProgress(currentRunState);
@@ -906,7 +1294,29 @@ export async function runAutonomousLoop(
       if (staleInProgressRecovery.changed) {
         await writeRunReport(runDirectory, staleInProgressRecovery.runState);
         roundRecord.recovery = staleInProgressRecovery.recovery;
+        const progress = deriveRoundProgress({
+          beforeRunState: beforeRoundState,
+          afterRunState: staleInProgressRecovery.runState,
+          recovery: staleInProgressRecovery.recovery
+        });
+        if (progress.progressed) {
+          lastProgressAt = new Date().toISOString();
+          lastProgressTaskId = progress.taskId;
+          lastProgressEvent = progress.event;
+          consecutiveNoProgressCycles = 0;
+        }
+        roundRecord.progressEvent = progress.event;
+        roundRecord.progressTaskId = progress.taskId;
+        roundRecord.consecutiveNoProgressCycles = consecutiveNoProgressCycles;
+        roundRecord.blockedTaskIds = listTaskIdsByStatus(staleInProgressRecovery.runState.taskLedger, ["blocked"]);
+        roundRecord.waitingRetryTaskIds = listTaskIdsByStatus(
+          staleInProgressRecovery.runState.taskLedger,
+          ["waiting_retry"]
+        );
+        roundRecord.skippedAutomaticTaskIds = [...skippedAutomaticTaskIds];
+        roundRecord.degradedRuntimeActive = hasDegradedRuntimeSignal(staleInProgressRecovery.runState);
         rounds.push(roundRecord);
+        await persistAutonomousSummary(staleInProgressRecovery.runState);
         continue;
       }
 
@@ -915,7 +1325,29 @@ export async function runAutonomousLoop(
       if (recoveryBeforeTick.changed) {
         await writeRunReport(runDirectory, recoveryBeforeTick.runState);
         roundRecord.recovery = recoveryBeforeTick.recovery;
+        const progress = deriveRoundProgress({
+          beforeRunState: beforeRoundState,
+          afterRunState: recoveryBeforeTick.runState,
+          recovery: recoveryBeforeTick.recovery
+        });
+        if (progress.progressed) {
+          lastProgressAt = new Date().toISOString();
+          lastProgressTaskId = progress.taskId;
+          lastProgressEvent = progress.event;
+          consecutiveNoProgressCycles = 0;
+        }
+        roundRecord.progressEvent = progress.event;
+        roundRecord.progressTaskId = progress.taskId;
+        roundRecord.consecutiveNoProgressCycles = consecutiveNoProgressCycles;
+        roundRecord.blockedTaskIds = listTaskIdsByStatus(recoveryBeforeTick.runState.taskLedger, ["blocked"]);
+        roundRecord.waitingRetryTaskIds = listTaskIdsByStatus(
+          recoveryBeforeTick.runState.taskLedger,
+          ["waiting_retry"]
+        );
+        roundRecord.skippedAutomaticTaskIds = [...skippedAutomaticTaskIds];
+        roundRecord.degradedRuntimeActive = hasDegradedRuntimeSignal(recoveryBeforeTick.runState);
         rounds.push(roundRecord);
+        await persistAutonomousSummary(recoveryBeforeTick.runState);
         continue;
       }
 
@@ -938,13 +1370,22 @@ export async function runAutonomousLoop(
         }
 
         roundRecord.stopReason = stopReason;
+        roundRecord.consecutiveNoProgressCycles = consecutiveNoProgressCycles;
+        roundRecord.blockedTaskIds = listTaskIdsByStatus(currentRunState.taskLedger, ["blocked"]);
+        roundRecord.waitingRetryTaskIds = listTaskIdsByStatus(currentRunState.taskLedger, ["waiting_retry"]);
+        roundRecord.skippedAutomaticTaskIds = [...skippedAutomaticTaskIds];
+        roundRecord.degradedRuntimeActive = hasDegradedRuntimeSignal(currentRunState);
         rounds.push(roundRecord);
+        await persistAutonomousSummary(currentRunState);
         break;
       }
 
       const dispatchResult = await dispatchOperation(tickResult.handoffIndexPath, "execute");
       roundRecord.dispatchSummary = dispatchResult.summary;
       const dispatchResults = safeArray(dispatchResult.results);
+      skippedAutomaticTaskIds = dispatchResults
+        .filter((result) => result?.status === "skipped" && isNonEmptyString(result?.taskId))
+        .map((result) => result.taskId);
 
       for (const result of dispatchResults) {
         if (!["failed", "incomplete", "continued"].includes(result?.status)) {
@@ -974,41 +1415,110 @@ export async function runAutonomousLoop(
       }
 
       if ((dispatchResult.summary?.executed ?? 0) === 0) {
-        stopReason =
-          (dispatchResult.summary?.skipped ?? 0) > 0
-            ? "dispatch skipped all ready tasks; no automatic runtime was available"
-            : "dispatch produced no executable work";
+        if ((dispatchResult.summary?.skipped ?? 0) > 0) {
+          stopReason = "dispatch skipped all ready tasks; no automatic runtime was available";
+          const blockedRunState = markSkippedDispatchTasksAsBlocked(
+            refreshRunState(await readJson(resolvedRunStatePath)),
+            dispatchResults,
+            stopReason
+          );
+          await writeRunReport(runDirectory, blockedRunState);
+          roundRecord.blockedTaskIds = listTaskIdsByStatus(blockedRunState.taskLedger, ["blocked"]);
+          roundRecord.waitingRetryTaskIds = listTaskIdsByStatus(blockedRunState.taskLedger, ["waiting_retry"]);
+          roundRecord.skippedAutomaticTaskIds = [...skippedAutomaticTaskIds];
+          roundRecord.degradedRuntimeActive = hasDegradedRuntimeSignal(blockedRunState);
+          roundRecord.consecutiveNoProgressCycles = consecutiveNoProgressCycles;
+          await persistAutonomousSummary(blockedRunState);
+        } else {
+          stopReason = "dispatch produced no executable work";
+          const nextRunState = refreshRunState(await readJson(resolvedRunStatePath));
+          roundRecord.blockedTaskIds = listTaskIdsByStatus(nextRunState.taskLedger, ["blocked"]);
+          roundRecord.waitingRetryTaskIds = listTaskIdsByStatus(nextRunState.taskLedger, ["waiting_retry"]);
+          roundRecord.skippedAutomaticTaskIds = [...skippedAutomaticTaskIds];
+          roundRecord.degradedRuntimeActive = hasDegradedRuntimeSignal(nextRunState);
+          roundRecord.consecutiveNoProgressCycles = consecutiveNoProgressCycles;
+          await persistAutonomousSummary(nextRunState);
+        }
+
         roundRecord.stopReason = stopReason;
         rounds.push(roundRecord);
         break;
       }
 
-      const recoveryAfterDispatch = maybeRecoverRunState(refreshRunState(await readJson(resolvedRunStatePath)));
+      const runStateAfterDispatch = refreshRunState(await readJson(resolvedRunStatePath));
+      const recoveryAfterDispatch = maybeRecoverRunState(runStateAfterDispatch);
+      let roundEndState = recoveryAfterDispatch.changed ? recoveryAfterDispatch.runState : runStateAfterDispatch;
 
       if (recoveryAfterDispatch.changed) {
         await writeRunReport(runDirectory, recoveryAfterDispatch.runState);
         roundRecord.recovery = recoveryAfterDispatch.recovery;
       }
 
+      const progress = deriveRoundProgress({
+        beforeRunState: beforeRoundState,
+        afterRunState: roundEndState,
+        dispatchSummary: dispatchResult.summary,
+        recovery: recoveryAfterDispatch.recovery
+      });
+
+      if (progress.progressed) {
+        lastProgressAt = new Date().toISOString();
+        lastProgressTaskId = progress.taskId;
+        lastProgressEvent = progress.event;
+        consecutiveNoProgressCycles = 0;
+      } else if (
+        shouldCountNoProgressCycle({
+          beforeRunState: beforeRoundState,
+          afterRunState: roundEndState,
+          dispatchSummary: dispatchResult.summary
+        })
+      ) {
+        consecutiveNoProgressCycles += 1;
+      } else {
+        consecutiveNoProgressCycles = 0;
+      }
+
+      roundRecord.progressEvent = progress.event;
+      roundRecord.progressTaskId = progress.taskId;
+      roundRecord.consecutiveNoProgressCycles = consecutiveNoProgressCycles;
+      roundRecord.blockedTaskIds = listTaskIdsByStatus(roundEndState.taskLedger, ["blocked"]);
+      roundRecord.waitingRetryTaskIds = listTaskIdsByStatus(roundEndState.taskLedger, ["waiting_retry"]);
+      roundRecord.skippedAutomaticTaskIds = [...skippedAutomaticTaskIds];
+      roundRecord.degradedRuntimeActive = hasDegradedRuntimeSignal(roundEndState);
+
+      if (consecutiveNoProgressCycles >= noProgressCycleLimit) {
+        stopReason =
+          `autonomous no-progress circuit opened after ${consecutiveNoProgressCycles} consecutive cycles; ` +
+          `lastProgressTaskId=${lastProgressTaskId ?? "unknown"} ` +
+          `lastProgressEvent=${lastProgressEvent ?? "unknown"} ` +
+          `blockedTasks=${roundRecord.blockedTaskIds.join(",") || "none"} ` +
+          `waitingRetryTasks=${roundRecord.waitingRetryTaskIds.join(",") || "none"} ` +
+          `skippedAutomaticTasks=${roundRecord.skippedAutomaticTaskIds.join(",") || "none"}`;
+        roundEndState = materializeNoProgressAttention(
+          roundEndState,
+          stopReason,
+          skippedAutomaticTaskIds
+        );
+        await writeRunReport(runDirectory, roundEndState);
+        roundRecord.stopReason = stopReason;
+        roundRecord.blockedTaskIds = listTaskIdsByStatus(roundEndState.taskLedger, ["blocked"]);
+        roundRecord.waitingRetryTaskIds = listTaskIdsByStatus(roundEndState.taskLedger, ["waiting_retry"]);
+      }
+
       rounds.push(roundRecord);
+      await persistAutonomousSummary(roundEndState);
+
+      if (roundRecord.stopReason) {
+        break;
+      }
     }
 
     const finalRunState = refreshRunState(await readJson(resolvedRunStatePath));
-    const summary = {
-      runId: finalRunState.runId,
-      finalStatus: finalRunState.status,
-      doctorReportPath: effectiveDoctorReportPath,
-      rounds,
-      stopReason: stopReason ?? (finalRunState.status === "completed" ? "run completed" : "maximum rounds reached"),
-      runSummary: summarizeRunState(finalRunState)
-    };
     const failureFeedback = await persistFailureFeedbackArtifacts(runDirectory, failureFeedbackEntries);
-    summary.failureFeedback = failureFeedback;
-    const summaryJsonPath = path.join(runDirectory, "autonomous-summary.json");
-    const summaryMarkdownPath = path.join(runDirectory, "autonomous-summary.md");
-
-    await writeJson(summaryJsonPath, summary);
-    await writeFile(summaryMarkdownPath, `${buildSummaryMarkdown(summary)}\n`, "utf8");
+    const { summaryJsonPath, summaryMarkdownPath, summary } = await persistAutonomousSummary(
+      finalRunState,
+      failureFeedback
+    );
 
     return {
       summaryJsonPath,

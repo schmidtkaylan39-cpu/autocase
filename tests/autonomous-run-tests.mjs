@@ -87,6 +87,64 @@ async function main() {
     );
   });
 
+  await runTest("autonomous loop reclaims dead planner execution locks and retries planning", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-autonomous-dead-lock-"));
+    const runResult = await runProject(validSpecPath, tempDir, "autonomous-dead-lock-run");
+    const doctorReportPath = path.join(tempDir, "doctor.json");
+    const activeResultPath = path.join(tempDir, "planning-brief.result.json");
+    const executionLockPath = `${activeResultPath}.execute.lock`;
+    const deadPid = 999999;
+    const currentRunState = await readJson(runResult.statePath);
+
+    await writeJson(doctorReportPath, { checks: [] });
+    await writeFile(executionLockPath, `${deadPid} ${new Date().toISOString()}\n`, "utf8");
+    await writeJson(
+      runResult.statePath,
+      refreshRunState({
+        ...currentRunState,
+        taskLedger: currentRunState.taskLedger.map((task) =>
+          task.id === "planning-brief"
+            ? {
+                ...task,
+                status: "in_progress",
+                activeHandoffId: "dead-lock-handoff",
+                activeResultPath,
+                activeHandoffOutputDir: path.join(tempDir, "handoffs"),
+                notes: [
+                  ...(Array.isArray(task.notes) ? task.notes : []),
+                  `${new Date().toISOString()} dispatch:claimed dead-lock-handoff`
+                ]
+              }
+            : task
+        )
+      })
+    );
+
+    const result = await runAutonomousLoop(runResult.statePath, {
+      maxRounds: 1,
+      operations: {
+        runRuntimeDoctor: async () => ({ jsonPath: doctorReportPath }),
+        tickProjectRun: async () => {
+          throw new Error("tickProjectRun should not be reached before dead-lock recovery");
+        },
+        dispatchHandoffs: async () => {
+          throw new Error("dispatchHandoffs should not be reached before dead-lock recovery");
+        }
+      }
+    });
+
+    const nextRunState = await readJson(runResult.statePath);
+    const planningTask = nextRunState.taskLedger.find((task) => task.id === "planning-brief");
+
+    assert.equal(result.summary.rounds[0]?.recovery?.type, "planner_retry");
+    assert.match(result.summary.rounds[0]?.recovery?.reason ?? "", /orphaned execution lock/i);
+    assert.equal(planningTask?.status, "ready");
+    assert.ok(
+      (planningTask?.notes ?? []).some((note) => /autonomous-planner-retry:.*orphaned execution lock/i.test(note)),
+      "planning task should record dead-lock recovery details"
+    );
+  });
+
   await runTest("autonomous loop retries blocked delivery packaging tasks before ticking dispatch", async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-autonomous-delivery-retry-"));
     const runResult = await runProject(validSpecPath, tempDir, "autonomous-delivery-retry-run");
@@ -131,14 +189,13 @@ async function main() {
     );
   });
 
-  await runTest("autonomous loop escalates repeated reviewer and verifier failures from rework to replan", async () => {
+  await runTest("autonomous loop uses the reviewer replan budget instead of the implementation budget", async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-autonomous-replan-"));
     const runResult = await runProject(validSpecPath, tempDir, "autonomous-replan-run");
     const doctorReportPath = path.join(tempDir, "doctor.json");
     const handoffIndexPath = path.join(tempDir, "handoffs", "index.json");
     let tickCalls = 0;
     let dispatchCalls = 0;
-    const forcedFailureTaskIds = [];
 
     await writeJson(doctorReportPath, { checks: [] });
     await mkdir(path.dirname(handoffIndexPath), { recursive: true });
@@ -151,6 +208,27 @@ async function main() {
 
     await updateRunTask(runResult.statePath, "planning-brief", "completed", "planning completed");
     await updateRunTask(runResult.statePath, "implement-spec-intake", "completed", "implementation completed");
+    const reviewBudgetRunState = await readJson(runResult.statePath);
+    await writeJson(
+      runResult.statePath,
+      refreshRunState({
+        ...reviewBudgetRunState,
+        retryPolicy: {
+          implementation: 6,
+          review: 3,
+          verification: 3,
+          replanning: 1
+        },
+        taskLedger: reviewBudgetRunState.taskLedger.map((task) =>
+          task.id === "implement-spec-intake"
+            ? {
+                ...task,
+                retriesBeforeReplan: 6
+              }
+            : task
+        )
+      })
+    );
 
     const result = await runAutonomousLoop(runResult.statePath, {
       maxRounds: 4,
@@ -166,16 +244,13 @@ async function main() {
         dispatchHandoffs: async () => {
           dispatchCalls += 1;
           const currentRunState = await readJson(runResult.statePath);
-          const failureTaskId = dispatchCalls % 2 === 1 ? "review-spec-intake" : "verify-spec-intake";
-          const failureStatus = failureTaskId === "review-spec-intake" ? "blocked" : "failed";
           const nextRunState = refreshRunState({
             ...currentRunState,
             taskLedger: currentRunState.taskLedger.map((task) =>
-              task.id === failureTaskId ? { ...task, status: failureStatus } : task
+              task.id === "review-spec-intake" ? { ...task, status: "blocked" } : task
             )
           });
 
-          forcedFailureTaskIds.push(failureTaskId);
           await writeJson(runResult.statePath, nextRunState);
 
           return {
@@ -195,15 +270,12 @@ async function main() {
     const runState = await readJson(runResult.statePath);
     const implementationTask = runState.taskLedger.find((task) => task.id === "implement-spec-intake");
     const recoveryTypes = result.summary.rounds.map((round) => round.recovery?.type).filter(Boolean);
+    const reviewerRequeues = (implementationTask?.notes ?? []).filter((note) =>
+      /autonomous-requeue:review-spec-intake/i.test(note)
+    );
 
     assert.equal(tickCalls, 4);
     assert.equal(dispatchCalls, 4);
-    assert.deepEqual(forcedFailureTaskIds, [
-      "review-spec-intake",
-      "verify-spec-intake",
-      "review-spec-intake",
-      "verify-spec-intake"
-    ]);
     assert.deepEqual(recoveryTypes, [
       "feature_rework",
       "feature_rework",
@@ -211,10 +283,108 @@ async function main() {
       "feature_replan"
     ]);
     assert.equal(result.summary.stopReason, "maximum rounds reached");
-    assert.equal(
-      (implementationTask?.notes ?? []).filter((note) => /autonomous-requeue:/i.test(note)).length,
-      3
+    assert.equal(reviewerRequeues.length, 3);
+    assert.equal(runState.taskLedger.find((task) => task.id === "planning-brief")?.status, "ready");
+    assert.equal(runState.taskLedger.find((task) => task.id === "implement-spec-intake")?.status, "pending");
+    assert.equal(runState.taskLedger.find((task) => task.id === "review-spec-intake")?.status, "pending");
+    assert.equal(runState.taskLedger.find((task) => task.id === "verify-spec-intake")?.status, "pending");
+  });
+
+  await runTest("autonomous loop uses the verifier replan budget instead of the implementation budget", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-autonomous-verify-replan-"));
+    const runResult = await runProject(validSpecPath, tempDir, "autonomous-verify-replan-run");
+    const doctorReportPath = path.join(tempDir, "doctor.json");
+    const handoffIndexPath = path.join(tempDir, "handoffs", "index.json");
+    let tickCalls = 0;
+    let dispatchCalls = 0;
+
+    await writeJson(doctorReportPath, { checks: [] });
+    await mkdir(path.dirname(handoffIndexPath), { recursive: true });
+    await writeJson(handoffIndexPath, {
+      generatedAt: new Date().toISOString(),
+      runId: "autonomous-verify-replan-run",
+      readyTaskCount: 1,
+      descriptors: []
+    });
+
+    await updateRunTask(runResult.statePath, "planning-brief", "completed", "planning completed");
+    await updateRunTask(runResult.statePath, "implement-spec-intake", "completed", "implementation completed");
+    const verificationBudgetRunState = await readJson(runResult.statePath);
+    await writeJson(
+      runResult.statePath,
+      refreshRunState({
+        ...verificationBudgetRunState,
+        retryPolicy: {
+          implementation: 6,
+          review: 3,
+          verification: 3,
+          replanning: 1
+        },
+        taskLedger: verificationBudgetRunState.taskLedger.map((task) =>
+          task.id === "implement-spec-intake"
+            ? {
+                ...task,
+                retriesBeforeReplan: 6
+              }
+            : task
+        )
+      })
     );
+
+    const result = await runAutonomousLoop(runResult.statePath, {
+      maxRounds: 4,
+      operations: {
+        runRuntimeDoctor: async () => ({ jsonPath: doctorReportPath }),
+        tickProjectRun: async () => {
+          tickCalls += 1;
+          return {
+            handoffIndexPath,
+            readyTaskCount: 1
+          };
+        },
+        dispatchHandoffs: async () => {
+          dispatchCalls += 1;
+          const currentRunState = await readJson(runResult.statePath);
+          const nextRunState = refreshRunState({
+            ...currentRunState,
+            taskLedger: currentRunState.taskLedger.map((task) =>
+              task.id === "verify-spec-intake" ? { ...task, status: "failed" } : task
+            )
+          });
+
+          await writeJson(runResult.statePath, nextRunState);
+
+          return {
+            summary: {
+              executed: 1,
+              completed: 0,
+              continued: 1,
+              incomplete: 1,
+              failed: 0,
+              skipped: 0
+            }
+          };
+        }
+      }
+    });
+
+    const runState = await readJson(runResult.statePath);
+    const implementationTask = runState.taskLedger.find((task) => task.id === "implement-spec-intake");
+    const recoveryTypes = result.summary.rounds.map((round) => round.recovery?.type).filter(Boolean);
+    const verifierRequeues = (implementationTask?.notes ?? []).filter((note) =>
+      /autonomous-requeue:verify-spec-intake/i.test(note)
+    );
+
+    assert.equal(tickCalls, 4);
+    assert.equal(dispatchCalls, 4);
+    assert.deepEqual(recoveryTypes, [
+      "feature_rework",
+      "feature_rework",
+      "feature_rework",
+      "feature_replan"
+    ]);
+    assert.equal(result.summary.stopReason, "maximum rounds reached");
+    assert.equal(verifierRequeues.length, 3);
     assert.equal(runState.taskLedger.find((task) => task.id === "planning-brief")?.status, "ready");
     assert.equal(runState.taskLedger.find((task) => task.id === "implement-spec-intake")?.status, "pending");
     assert.equal(runState.taskLedger.find((task) => task.id === "review-spec-intake")?.status, "pending");
@@ -320,7 +490,7 @@ async function main() {
       "feature_rework",
       "feature_rework",
       "feature_rework",
-      "feature_replan"
+      "feature_rework"
     ]);
     assert.ok(
       deliveryStatusBeforeDispatch.every((status) => status === "pending"),
@@ -328,10 +498,10 @@ async function main() {
     );
     assert.equal(
       (implementationTask?.notes ?? []).filter((note) => /autonomous-requeue:/i.test(note)).length,
-      3
+      4
     );
-    assert.equal(runState.taskLedger.find((task) => task.id === "planning-brief")?.status, "ready");
-    assert.equal(runState.taskLedger.find((task) => task.id === "implement-spec-intake")?.status, "pending");
+    assert.equal(runState.taskLedger.find((task) => task.id === "planning-brief")?.status, "completed");
+    assert.equal(runState.taskLedger.find((task) => task.id === "implement-spec-intake")?.status, "ready");
     assert.equal(runState.taskLedger.find((task) => task.id === "review-spec-intake")?.status, "pending");
     assert.equal(runState.taskLedger.find((task) => task.id === "verify-spec-intake")?.status, "pending");
     assert.equal(runState.taskLedger.find((task) => task.id === "delivery-package")?.status, "pending");
@@ -494,10 +664,224 @@ async function main() {
 
     assert.equal(tickCalls, 1);
     assert.equal(dispatchCalls, 1);
+    assert.equal(result.summary.finalStatus, "attention_required");
+    assert.equal(result.summary.rounds.length, 1);
+    assert.equal(result.summary.runSummary.blockedTasks, 1);
     assert.equal(
       result.summary.stopReason,
       "dispatch skipped all ready tasks; no automatic runtime was available"
     );
+  });
+
+  await runTest("autonomous loop terminates degraded no-progress cycles promptly", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-autonomous-degraded-no-progress-"));
+    const runResult = await runProject(validSpecPath, tempDir, "autonomous-degraded-no-progress-run");
+    const doctorReportPath = path.join(tempDir, "doctor.json");
+    const handoffIndexPath = path.join(tempDir, "handoffs", "index.json");
+    let dispatchCalls = 0;
+    const previousNoProgressCycles = process.env.AI_FACTORY_AUTONOMOUS_NO_PROGRESS_CYCLES;
+    const existingRunState = await readJson(runResult.statePath);
+    const seededRunState = refreshRunState({
+      ...existingRunState,
+      taskLedger: existingRunState.taskLedger.map((task) =>
+        task.id === "planning-brief"
+          ? {
+              ...task,
+              notes: [...(Array.isArray(task.notes) ? task.notes : []), `${new Date().toISOString()} acceptance-model-degrade: switched to gpt-5.4`]
+            }
+          : ["implement-workflow-plan", "review-workflow-plan", "verify-workflow-plan"].includes(task.id)
+            ? {
+                ...task,
+                status: "completed"
+              }
+            : task
+      )
+    });
+
+    await writeJson(doctorReportPath, { checks: [] });
+    await mkdir(path.dirname(handoffIndexPath), { recursive: true });
+    await writeJson(handoffIndexPath, {
+      generatedAt: new Date().toISOString(),
+      runId: "autonomous-degraded-no-progress-run",
+      readyTaskCount: 1,
+      descriptors: []
+    });
+    await writeJson(runResult.statePath, seededRunState);
+    process.env.AI_FACTORY_AUTONOMOUS_NO_PROGRESS_CYCLES = "2";
+
+    try {
+      const result = await runAutonomousLoop(runResult.statePath, {
+        maxRounds: 5,
+        operations: {
+          runRuntimeDoctor: async () => ({ jsonPath: doctorReportPath }),
+          tickProjectRun: async () => ({
+            handoffIndexPath,
+            readyTaskCount: 1
+          }),
+          dispatchHandoffs: async () => {
+            dispatchCalls += 1;
+            const currentRunState = refreshRunState(await readJson(runResult.statePath));
+            const nextRunState =
+              dispatchCalls === 1
+                ? refreshRunState({
+                    ...currentRunState,
+                    taskLedger: currentRunState.taskLedger.map((task) =>
+                      task.id === "planning-brief"
+                        ? { ...task, status: "completed" }
+                        : task.id === "implement-spec-intake"
+                          ? { ...task, status: "ready" }
+                          : task
+                    )
+                  })
+                : refreshRunState({
+                    ...currentRunState,
+                    taskLedger: currentRunState.taskLedger.map((task) =>
+                      task.id === "implement-spec-intake" ? { ...task, status: "in_progress" } : task
+                    )
+                  });
+
+            await writeJson(runResult.statePath, nextRunState);
+
+            return {
+              summary: {
+                executed: 1,
+                completed: dispatchCalls === 1 ? 1 : 0,
+                continued: dispatchCalls === 1 ? 0 : 1,
+                incomplete: dispatchCalls === 1 ? 0 : 1,
+                failed: 0,
+                skipped: 0
+              },
+              results: [
+                {
+                  taskId: dispatchCalls === 1 ? "planning-brief" : "implement-spec-intake",
+                  status: dispatchCalls === 1 ? "completed" : "continued"
+                }
+              ]
+            };
+          }
+        }
+      });
+
+      const nextRunState = await readJson(runResult.statePath);
+
+      assert.equal(dispatchCalls, 3);
+      assert.equal(result.summary.finalStatus, "attention_required");
+      assert.match(result.summary.stopReason, /no-progress circuit/i);
+      assert.equal(result.summary.progressDiagnostics.degradedRuntimeActive, true);
+      assert.equal(result.summary.progressDiagnostics.lastProgressTaskId, "planning-brief");
+      assert.equal(result.summary.progressDiagnostics.lastProgressEvent, "task_completed");
+      assert.equal(result.summary.progressDiagnostics.consecutiveNoProgressCycles, 2);
+      assert.ok(result.summary.progressDiagnostics.blockedTaskIds.includes("implement-spec-intake"));
+      assert.equal(nextRunState.taskLedger.find((task) => task.id === "implement-spec-intake")?.status, "blocked");
+    } finally {
+      if (previousNoProgressCycles === undefined) {
+        delete process.env.AI_FACTORY_AUTONOMOUS_NO_PROGRESS_CYCLES;
+      } else {
+        process.env.AI_FACTORY_AUTONOMOUS_NO_PROGRESS_CYCLES = previousNoProgressCycles;
+      }
+    }
+  });
+
+  await runTest("real progress does not trip the no-progress breaker", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-autonomous-progress-"));
+    const runResult = await runProject(validSpecPath, tempDir, "autonomous-progress-run");
+    const doctorReportPath = path.join(tempDir, "doctor.json");
+    const handoffIndexPath = path.join(tempDir, "handoffs", "index.json");
+    const completionOrder = [
+      "planning-brief",
+      "implement-spec-intake",
+      "review-spec-intake",
+      "verify-spec-intake",
+      "delivery-package"
+    ];
+    let dispatchCalls = 0;
+    const previousNoProgressCycles = process.env.AI_FACTORY_AUTONOMOUS_NO_PROGRESS_CYCLES;
+    const initialRunState = await readJson(runResult.statePath);
+
+    await writeJson(doctorReportPath, { checks: [] });
+    await mkdir(path.dirname(handoffIndexPath), { recursive: true });
+    await writeJson(handoffIndexPath, {
+      generatedAt: new Date().toISOString(),
+      runId: "autonomous-progress-run",
+      readyTaskCount: 1,
+      descriptors: []
+    });
+    await writeJson(
+      runResult.statePath,
+      refreshRunState({
+        ...initialRunState,
+        taskLedger: initialRunState.taskLedger.map((task) =>
+          task.id === "planning-brief"
+            ? {
+                ...task,
+                notes: [...(Array.isArray(task.notes) ? task.notes : []), `${new Date().toISOString()} acceptance-model-degrade: switched to gpt-5.4`]
+              }
+            : ["implement-workflow-plan", "review-workflow-plan", "verify-workflow-plan"].includes(task.id)
+              ? {
+                  ...task,
+                  status: "completed"
+                }
+            : task
+        )
+      })
+    );
+    process.env.AI_FACTORY_AUTONOMOUS_NO_PROGRESS_CYCLES = "2";
+
+    try {
+      const result = await runAutonomousLoop(runResult.statePath, {
+        maxRounds: completionOrder.length + 1,
+        operations: {
+          runRuntimeDoctor: async () => ({ jsonPath: doctorReportPath }),
+          tickProjectRun: async () => ({
+            handoffIndexPath,
+            readyTaskCount: 1
+          }),
+          dispatchHandoffs: async () => {
+            const taskId = completionOrder[dispatchCalls];
+            dispatchCalls += 1;
+            const currentRunState = refreshRunState(await readJson(runResult.statePath));
+            const nextRunState = refreshRunState({
+              ...currentRunState,
+              taskLedger: currentRunState.taskLedger.map((task) =>
+                task.id === taskId ? { ...task, status: "completed" } : task
+              )
+            });
+
+            await writeJson(runResult.statePath, nextRunState);
+
+            return {
+              summary: {
+                executed: 1,
+                completed: 1,
+                continued: 0,
+                incomplete: 0,
+                failed: 0,
+                skipped: 0
+              },
+              results: [
+                {
+                  taskId,
+                  status: "completed"
+                }
+              ]
+            };
+          }
+        }
+      });
+
+      assert.equal(dispatchCalls, completionOrder.length);
+      assert.equal(result.summary.finalStatus, "completed");
+      assert.equal(result.summary.stopReason, "run completed");
+      assert.equal(result.summary.progressDiagnostics.consecutiveNoProgressCycles, 0);
+      assert.equal(result.summary.progressDiagnostics.lastProgressTaskId, "delivery-package");
+      assert.equal(result.summary.progressDiagnostics.lastProgressEvent, "task_completed");
+    } finally {
+      if (previousNoProgressCycles === undefined) {
+        delete process.env.AI_FACTORY_AUTONOMOUS_NO_PROGRESS_CYCLES;
+      } else {
+        process.env.AI_FACTORY_AUTONOMOUS_NO_PROGRESS_CYCLES = previousNoProgressCycles;
+      }
+    }
   });
 
   await runTest("autonomous loop emits failure-feedback artifacts and generated test cases for dispatch failures", async () => {
