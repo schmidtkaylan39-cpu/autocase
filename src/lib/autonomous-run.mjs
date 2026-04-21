@@ -24,6 +24,7 @@ const descriptorExecutionLockSuffix = ".execute.lock";
 const autonomousLockStaleMs = 10 * 60 * 1000;
 const autonomousLockUninitializedMs = 5 * 1000;
 const descriptorExecutionLockStaleMs = 3 * 60 * 1000;
+const defaultAutonomousWatchdogTimeoutMs = 24 * 60 * 60 * 1000;
 
 async function fileExists(targetPath) {
   try {
@@ -55,6 +56,13 @@ function getAutonomousNoProgressCycleLimit() {
 
 function getAutonomousLockTimeoutMs() {
   return readPositiveIntegerEnv("AI_FACTORY_AUTONOMOUS_LOCK_TIMEOUT_MS", 500);
+}
+
+function getAutonomousWatchdogTimeoutMs() {
+  return readPositiveIntegerEnv(
+    "AI_FACTORY_AUTONOMOUS_WATCHDOG_TIMEOUT_MS",
+    defaultAutonomousWatchdogTimeoutMs
+  );
 }
 
 function parseLockPid(lockContent) {
@@ -213,6 +221,93 @@ function countAutonomousRequeues(task, sourceTaskId = null) {
     : /autonomous-requeue:/i;
 
   return safeArray(task.notes).filter((note) => sourcePattern.test(note)).length;
+}
+
+function countTaskNotes(task, pattern) {
+  return safeArray(task?.notes).filter((note) => pattern.test(note)).length;
+}
+
+function resolveAutonomousRecoveryBudget(runState) {
+  return normalizePositiveInteger(runState?.retryPolicy?.replanning, 1);
+}
+
+function buildBudgetExhaustedRecoveryResult(
+  runState,
+  taskId,
+  reason,
+  {
+    recoveryType,
+    recoveryNotePattern,
+    budgetExhaustedNotePrefix,
+    budgetExhaustedStopLabel
+  }
+) {
+  const task = runState.taskLedger.find((candidate) => candidate.id === taskId);
+
+  if (!task) {
+    return {
+      changed: false,
+      recovery: null,
+      runState
+    };
+  }
+
+  const attempts = countTaskNotes(task, recoveryNotePattern);
+  const budget = resolveAutonomousRecoveryBudget(runState);
+  const stopMessage =
+    `${budgetExhaustedStopLabel} retry budget exhausted for ${taskId} ` +
+    `(attempts=${attempts}, budget=${budget}); ${reason}`;
+  const budgetExhaustedPattern = new RegExp(
+    `${escapeForRegex(budgetExhaustedNotePrefix)}:budget-exhausted\\b`,
+    "i"
+  );
+  const alreadyAnnotated = safeArray(task.notes).some((note) => budgetExhaustedPattern.test(note));
+
+  if (alreadyAnnotated) {
+    return {
+      changed: true,
+      recovery: {
+        type: recoveryType,
+        sourceTaskId: taskId,
+        targetTaskIds: [taskId],
+        reason: stopMessage,
+        attempts,
+        budget,
+        terminalStopReason: stopMessage
+      },
+      runState: refreshRunState(runState)
+    };
+  }
+
+  const nextTaskLedger = runState.taskLedger.map((candidate) =>
+    candidate.id === taskId
+      ? appendAutonomousNote(
+          {
+            ...clearTaskExecutionState(candidate),
+            status: "blocked"
+          },
+          `${budgetExhaustedNotePrefix}:budget-exhausted attempts=${attempts} budget=${budget} ${reason}`
+        )
+      : candidate
+  );
+
+  return {
+    changed: true,
+    recovery: {
+      type: recoveryType,
+      sourceTaskId: taskId,
+      targetTaskIds: [taskId],
+      reason: stopMessage,
+      attempts,
+      budget,
+      terminalStopReason: stopMessage
+    },
+    runState: refreshRunState({
+      ...runState,
+      updatedAt: new Date().toISOString(),
+      taskLedger: nextTaskLedger
+    })
+  };
 }
 
 function extractFeatureId(taskId) {
@@ -564,6 +659,28 @@ function reopenPlanningForFeature(runState, ids, reason) {
 }
 
 function reopenPlannerTask(runState, taskId, reason) {
+  const task = runState.taskLedger.find((candidate) => candidate.id === taskId);
+
+  if (!task) {
+    return {
+      changed: false,
+      recovery: null,
+      runState
+    };
+  }
+
+  const currentRetryCount = countTaskNotes(task, /autonomous-planner-retry:/i);
+  const maxRetries = resolveAutonomousRecoveryBudget(runState);
+
+  if (currentRetryCount >= maxRetries) {
+    return buildBudgetExhaustedRecoveryResult(runState, taskId, reason, {
+      recoveryType: "planner_retry_budget_exhausted",
+      recoveryNotePattern: /autonomous-planner-retry:/i,
+      budgetExhaustedNotePrefix: "autonomous-planner-retry",
+      budgetExhaustedStopLabel: "Autonomous planner"
+    });
+  }
+
   const nextTaskLedger = runState.taskLedger.map((task) =>
     task.id === taskId
       ? appendAutonomousNote(
@@ -593,6 +710,28 @@ function reopenPlannerTask(runState, taskId, reason) {
 }
 
 function reopenSingleTask(runState, taskId, reason) {
+  const task = runState.taskLedger.find((candidate) => candidate.id === taskId);
+
+  if (!task) {
+    return {
+      changed: false,
+      recovery: null,
+      runState
+    };
+  }
+
+  const currentRetryCount = countTaskNotes(task, /autonomous-task-retry:/i);
+  const maxRetries = resolveAutonomousRecoveryBudget(runState);
+
+  if (currentRetryCount >= maxRetries) {
+    return buildBudgetExhaustedRecoveryResult(runState, taskId, reason, {
+      recoveryType: "task_retry_budget_exhausted",
+      recoveryNotePattern: /autonomous-task-retry:/i,
+      budgetExhaustedNotePrefix: "autonomous-task-retry",
+      budgetExhaustedStopLabel: "Autonomous task"
+    });
+  }
+
   const nextTaskLedger = runState.taskLedger.map((task) =>
     task.id === taskId
       ? appendAutonomousNote(
@@ -722,6 +861,34 @@ function findTaskStatusTransition(previousRunState, nextRunState, targetStatus) 
   return null;
 }
 
+function findNewReadyTaskId(previousRunState, nextRunState) {
+  const previousReadyIds = new Set(
+    listTaskIdsByStatus(previousRunState?.taskLedger, ["ready"])
+  );
+
+  return (
+    listTaskIdsByStatus(nextRunState?.taskLedger, ["ready"]).find(
+      (taskId) => !previousReadyIds.has(taskId)
+    ) ?? null
+  );
+}
+
+function haveStableReadyTaskIds(previousRunState, nextRunState) {
+  const previousReadyIds = listTaskIdsByStatus(previousRunState?.taskLedger, ["ready"]);
+  const nextReadyIds = listTaskIdsByStatus(nextRunState?.taskLedger, ["ready"]);
+
+  if (nextReadyIds.length === 0 || previousReadyIds.length !== nextReadyIds.length) {
+    return false;
+  }
+
+  const previousReadyIdSet = new Set(previousReadyIds);
+  return nextReadyIds.every((taskId) => previousReadyIdSet.has(taskId));
+}
+
+function shouldTreatRecoveryAsProgress(recovery) {
+  return ["feature_rework", "feature_replan"].includes(recovery?.type);
+}
+
 function listTaskIdsByStatus(taskLedger, statuses) {
   const allowedStatuses = new Set(Array.isArray(statuses) ? statuses : [statuses]);
   return safeArray(taskLedger)
@@ -739,6 +906,7 @@ function deriveRoundProgress({ beforeRunState, afterRunState, dispatchSummary = 
   const beforeSummary = summarizeRunState(beforeRunState);
   const afterSummary = summarizeRunState(afterRunState);
   const completedTaskId = findTaskStatusTransition(beforeRunState, afterRunState, "completed");
+  const newReadyTaskId = findNewReadyTaskId(beforeRunState, afterRunState);
 
   if (afterSummary.completedTasks > beforeSummary.completedTasks || completedTaskId) {
     return {
@@ -748,13 +916,21 @@ function deriveRoundProgress({ beforeRunState, afterRunState, dispatchSummary = 
     };
   }
 
+  if (shouldTreatRecoveryAsProgress(recovery)) {
+    return {
+      progressed: true,
+      event: "automatic_recovery_ready",
+      taskId: recovery?.targetTaskIds?.[0] ?? newReadyTaskId ?? null
+    };
+  }
+
   const readyTaskId = findTaskStatusTransition(beforeRunState, afterRunState, "ready");
 
-  if (afterSummary.readyTasks > beforeSummary.readyTasks) {
+  if (afterSummary.readyTasks > beforeSummary.readyTasks || newReadyTaskId) {
     return {
       progressed: true,
       event: recovery ? "automatic_recovery_ready" : "automatic_work_ready",
-      taskId: readyTaskId ?? recovery?.targetTaskIds?.[0] ?? null
+      taskId: newReadyTaskId ?? readyTaskId ?? recovery?.targetTaskIds?.[0] ?? null
     };
   }
 
@@ -781,6 +957,7 @@ function shouldCountNoProgressCycle({ beforeRunState, afterRunState, dispatchSum
   const afterSummary = summarizeRunState(afterRunState);
   const remainingTasks = afterSummary.totalTasks - afterSummary.completedTasks;
   const activeTaskIds = listTaskIdsByStatus(afterRunState.taskLedger, ["blocked", "waiting_retry", "in_progress"]);
+  const newReadyTaskId = findNewReadyTaskId(beforeRunState, afterRunState);
 
   if (remainingTasks <= 0) {
     return false;
@@ -794,14 +971,30 @@ function shouldCountNoProgressCycle({ beforeRunState, afterRunState, dispatchSum
     return false;
   }
 
+  if (newReadyTaskId) {
+    return false;
+  }
+
   if ((dispatchSummary?.completed ?? 0) > 0) {
     return false;
+  }
+
+  if (
+    (dispatchSummary?.executed ?? 0) > 0 &&
+    (haveStableReadyTaskIds(beforeRunState, afterRunState) || activeTaskIds.length > 0)
+  ) {
+    return true;
   }
 
   return afterSummary.readyTasks === 0 && activeTaskIds.length > 0;
 }
 
-function materializeNoProgressAttention(runState, reason, skippedAutomaticTaskIds = []) {
+function materializeAutonomousAttention(
+  runState,
+  reason,
+  notePrefix,
+  skippedAutomaticTaskIds = []
+) {
   const targetTaskIds = new Set([
     ...listTaskIdsByStatus(runState.taskLedger, ["in_progress", "waiting_retry", "ready"]),
     ...safeArray(skippedAutomaticTaskIds).filter(isNonEmptyString)
@@ -821,7 +1014,7 @@ function materializeNoProgressAttention(runState, reason, skippedAutomaticTaskId
         ...clearTaskExecutionState(task),
         status: "blocked"
       },
-      `autonomous-no-progress:${reason}`
+      `${notePrefix}:${reason}`
     );
   });
 
@@ -830,6 +1023,24 @@ function materializeNoProgressAttention(runState, reason, skippedAutomaticTaskId
     updatedAt: new Date().toISOString(),
     taskLedger: nextTaskLedger
   });
+}
+
+function materializeNoProgressAttention(runState, reason, skippedAutomaticTaskIds = []) {
+  return materializeAutonomousAttention(
+    runState,
+    reason,
+    "autonomous-no-progress",
+    skippedAutomaticTaskIds
+  );
+}
+
+function materializeWatchdogTimeoutAttention(runState, reason, skippedAutomaticTaskIds = []) {
+  return materializeAutonomousAttention(
+    runState,
+    reason,
+    "autonomous-watchdog-timeout",
+    skippedAutomaticTaskIds
+  );
 }
 
 function buildAutonomousProgressDiagnostics(
@@ -904,6 +1115,8 @@ function buildFailureTaxonomy(stopReason, failureFeedbackEntries = []) {
 }
 
 function buildWatchdogDiagnostics({
+  startedAt = null,
+  timeoutMs = null,
   heartbeatAt = null,
   noProgressCycleLimit = 0,
   consecutiveNoProgressCycles = 0,
@@ -912,9 +1125,18 @@ function buildWatchdogDiagnostics({
   const latestWatchdogRound = [...safeArray(rounds)]
     .reverse()
     .find((round) => isNonEmptyString(round?.watchdogEvent));
+  const normalizedTimeoutMs = normalizePositiveInteger(timeoutMs, getAutonomousWatchdogTimeoutMs());
+  const startedAtMs = Date.parse(startedAt ?? "");
+  const elapsedMs = Number.isFinite(startedAtMs) ? Math.max(Date.now() - startedAtMs, 0) : null;
 
   return {
+    startedAt,
     heartbeatAt,
+    timeoutMs: normalizedTimeoutMs,
+    elapsedMs,
+    remainingMs:
+      elapsedMs === null ? null : Math.max(normalizedTimeoutMs - elapsedMs, 0),
+    expired: elapsedMs === null ? false : elapsedMs >= normalizedTimeoutMs,
     noProgressCycleLimit,
     autonomousLockTimeoutMs: getAutonomousLockTimeoutMs(),
     autonomousLockStaleMs,
@@ -1036,7 +1258,7 @@ function classifyFailureCategory(reason = "") {
     return "rate_limit";
   }
 
-  if (/timeout|timed out|etimedout|no-progress circuit|stalled/.test(text)) {
+  if (/timeout|timed out|etimedout|watchdog timeout|no-progress circuit|stalled/.test(text)) {
     return "timeout";
   }
 
@@ -1060,7 +1282,7 @@ function classifyFailureCategory(reason = "") {
     return "verification_failed";
   }
 
-  if (/logic|state transition|stale|dependency/.test(text)) {
+  if (/logic|state transition|stale|dependency|retry budget exhausted|circuit open|attempt budget exhausted/.test(text)) {
     return "logic_bug";
   }
 
@@ -1251,6 +1473,14 @@ function deriveAutonomousReasonCode(stopReason, terminalState, runState, progres
     return "autonomous_error";
   }
 
+  if (/watchdog timeout/.test(text)) {
+    return "watchdog_timeout";
+  }
+
+  if (/retry budget exhausted/.test(text)) {
+    return "retry_budget_exhausted";
+  }
+
   if (/no automatic runtime was available|runtime was not available|runtime is not available/.test(text)) {
     return "runtime_unavailable";
   }
@@ -1415,8 +1645,11 @@ function mapReasonCodeToFailureCategory(reasonCode, stopReason) {
   switch (reasonCode) {
     case "runtime_unavailable":
       return "environment_mismatch";
+    case "watchdog_timeout":
     case "no_progress_circuit":
       return "timeout";
+    case "retry_budget_exhausted":
+      return "logic_bug";
     case "autonomous_error":
       return classifyFailureCategory(stopReason);
     case "blocked_tasks":
@@ -1535,6 +1768,24 @@ function buildAutonomousCheckpoint({
   };
 }
 
+function hasAutonomousWatchdogExpired(startedAtMs, timeoutMs) {
+  return Number.isFinite(startedAtMs) && timeoutMs > 0 && Date.now() - startedAtMs >= timeoutMs;
+}
+
+function buildAutonomousWatchdogStopReason(timeoutMs, startedAtMs, context = {}) {
+  const elapsedMs = Number.isFinite(startedAtMs) ? Math.max(Date.now() - startedAtMs, 0) : timeoutMs;
+  const blockedTaskIds = safeArray(context.blockedTaskIds).join(",") || "none";
+  const waitingRetryTaskIds = safeArray(context.waitingRetryTaskIds).join(",") || "none";
+  const skippedAutomaticTaskIds = safeArray(context.skippedAutomaticTaskIds).join(",") || "none";
+
+  return (
+    `autonomous watchdog timeout after ${elapsedMs}ms (limit=${timeoutMs}ms); ` +
+    `blockedTasks=${blockedTaskIds} ` +
+    `waitingRetryTasks=${waitingRetryTaskIds} ` +
+    `skippedAutomaticTasks=${skippedAutomaticTaskIds}`
+  );
+}
+
 function buildAutonomousDebugBundle({
   runId,
   terminalSummary,
@@ -1639,6 +1890,8 @@ export async function runAutonomousLoop(
     const previousCheckpoint = await readJson(debugPaths.checkpointPath).catch(() => null);
     const sessionId = `${Date.now()}-${process.pid}`;
     const startedAt = new Date().toISOString();
+    const startedAtMs = Date.parse(startedAt);
+    const watchdogTimeoutMs = getAutonomousWatchdogTimeoutMs();
     const rounds = [];
     const failureFeedbackEntries = [];
     const emptyFailureFeedback = {
@@ -1718,6 +1971,8 @@ export async function runAutonomousLoop(
         runSummary: summarizeRunState(finalRunState),
         progressDiagnostics,
         watchdog: buildWatchdogDiagnostics({
+          startedAt,
+          timeoutMs: watchdogTimeoutMs,
           heartbeatAt: lastHeartbeatAt,
           noProgressCycleLimit,
           consecutiveNoProgressCycles,
@@ -1795,9 +2050,9 @@ export async function runAutonomousLoop(
         break;
       }
 
-      const roundRecord = {
-        round,
-        statusBefore: currentRunState.status,
+        const roundRecord = {
+          round,
+          statusBefore: currentRunState.status,
         readyTaskCount: 0,
         dispatchSummary: null,
         recovery: null,
@@ -1809,9 +2064,36 @@ export async function runAutonomousLoop(
         waitingRetryTaskIds: [],
         skippedAutomaticTaskIds: [],
         degradedRuntimeActive: false,
-        heartbeatAt: new Date().toISOString(),
-        watchdogEvent: null
-      };
+          heartbeatAt: new Date().toISOString(),
+          watchdogEvent: null
+        };
+
+        if (hasAutonomousWatchdogExpired(startedAtMs, watchdogTimeoutMs)) {
+          stopReason = buildAutonomousWatchdogStopReason(watchdogTimeoutMs, startedAtMs, {
+            blockedTaskIds: listTaskIdsByStatus(currentRunState.taskLedger, ["blocked"]),
+            waitingRetryTaskIds: listTaskIdsByStatus(currentRunState.taskLedger, ["waiting_retry"]),
+            skippedAutomaticTaskIds
+          });
+          const watchdogRunState = materializeWatchdogTimeoutAttention(
+            currentRunState,
+            stopReason,
+            skippedAutomaticTaskIds
+          );
+          await writeRunReport(runDirectory, watchdogRunState);
+          roundRecord.stopReason = stopReason;
+          roundRecord.blockedTaskIds = listTaskIdsByStatus(watchdogRunState.taskLedger, ["blocked"]);
+          roundRecord.waitingRetryTaskIds = listTaskIdsByStatus(
+            watchdogRunState.taskLedger,
+            ["waiting_retry"]
+          );
+          roundRecord.skippedAutomaticTaskIds = [...skippedAutomaticTaskIds];
+          roundRecord.degradedRuntimeActive = hasDegradedRuntimeSignal(watchdogRunState);
+          roundRecord.watchdogEvent = "watchdog_timeout";
+          rounds.push(roundRecord);
+          roundsCompleted = round;
+          await persistAutonomousSummary(watchdogRunState);
+          break;
+        }
 
       const staleInProgressRecovery = await maybeRecoverStalledInProgress(currentRunState);
 
@@ -1840,9 +2122,16 @@ export async function runAutonomousLoop(
         roundRecord.skippedAutomaticTaskIds = [...skippedAutomaticTaskIds];
         roundRecord.degradedRuntimeActive = hasDegradedRuntimeSignal(staleInProgressRecovery.runState);
         roundRecord.watchdogEvent = "stalled_task_recovered";
+        if (isNonEmptyString(staleInProgressRecovery.recovery?.terminalStopReason)) {
+          stopReason = staleInProgressRecovery.recovery.terminalStopReason;
+          roundRecord.stopReason = stopReason;
+        }
         rounds.push(roundRecord);
         roundsCompleted = round;
         await persistAutonomousSummary(staleInProgressRecovery.runState);
+        if (roundRecord.stopReason) {
+          break;
+        }
         continue;
       }
 
@@ -1872,9 +2161,16 @@ export async function runAutonomousLoop(
         );
         roundRecord.skippedAutomaticTaskIds = [...skippedAutomaticTaskIds];
         roundRecord.degradedRuntimeActive = hasDegradedRuntimeSignal(recoveryBeforeTick.runState);
+        if (isNonEmptyString(recoveryBeforeTick.recovery?.terminalStopReason)) {
+          stopReason = recoveryBeforeTick.recovery.terminalStopReason;
+          roundRecord.stopReason = stopReason;
+        }
         rounds.push(roundRecord);
         roundsCompleted = round;
         await persistAutonomousSummary(recoveryBeforeTick.runState);
+        if (roundRecord.stopReason) {
+          break;
+        }
         continue;
       }
 
@@ -1886,8 +2182,40 @@ export async function runAutonomousLoop(
       lastHandoffIndexPath = tickResult.handoffIndexPath ?? lastHandoffIndexPath;
       roundRecord.readyTaskCount = tickResult.readyTaskCount;
 
+      const runStateAfterTick = refreshRunState(await readJson(resolvedRunStatePath));
+
+      if (
+        runStateAfterTick.status !== "completed" &&
+        hasAutonomousWatchdogExpired(startedAtMs, watchdogTimeoutMs)
+      ) {
+        stopReason = buildAutonomousWatchdogStopReason(watchdogTimeoutMs, startedAtMs, {
+          blockedTaskIds: listTaskIdsByStatus(runStateAfterTick.taskLedger, ["blocked"]),
+          waitingRetryTaskIds: listTaskIdsByStatus(runStateAfterTick.taskLedger, ["waiting_retry"]),
+          skippedAutomaticTaskIds
+        });
+        const watchdogRunState = materializeWatchdogTimeoutAttention(
+          runStateAfterTick,
+          stopReason,
+          skippedAutomaticTaskIds
+        );
+        await writeRunReport(runDirectory, watchdogRunState);
+        roundRecord.stopReason = stopReason;
+        roundRecord.blockedTaskIds = listTaskIdsByStatus(watchdogRunState.taskLedger, ["blocked"]);
+        roundRecord.waitingRetryTaskIds = listTaskIdsByStatus(
+          watchdogRunState.taskLedger,
+          ["waiting_retry"]
+        );
+        roundRecord.skippedAutomaticTaskIds = [...skippedAutomaticTaskIds];
+        roundRecord.degradedRuntimeActive = hasDegradedRuntimeSignal(watchdogRunState);
+        roundRecord.watchdogEvent = "watchdog_timeout";
+        rounds.push(roundRecord);
+        roundsCompleted = round;
+        await persistAutonomousSummary(watchdogRunState);
+        break;
+      }
+
       if (tickResult.readyTaskCount === 0) {
-        currentRunState = refreshRunState(await readJson(resolvedRunStatePath));
+        currentRunState = runStateAfterTick;
 
         if (currentRunState.status === "completed") {
           stopReason = "run completed";
@@ -2022,8 +2350,12 @@ export async function runAutonomousLoop(
       roundRecord.waitingRetryTaskIds = listTaskIdsByStatus(roundEndState.taskLedger, ["waiting_retry"]);
       roundRecord.skippedAutomaticTaskIds = [...skippedAutomaticTaskIds];
       roundRecord.degradedRuntimeActive = hasDegradedRuntimeSignal(roundEndState);
+      if (isNonEmptyString(recoveryAfterDispatch.recovery?.terminalStopReason)) {
+        stopReason = recoveryAfterDispatch.recovery.terminalStopReason;
+        roundRecord.stopReason = stopReason;
+      }
 
-      if (consecutiveNoProgressCycles >= noProgressCycleLimit) {
+      if (!roundRecord.stopReason && consecutiveNoProgressCycles >= noProgressCycleLimit) {
         stopReason =
           `autonomous no-progress circuit opened after ${consecutiveNoProgressCycles} consecutive cycles; ` +
           `lastProgressTaskId=${lastProgressTaskId ?? "unknown"} ` +
@@ -2041,6 +2373,28 @@ export async function runAutonomousLoop(
         roundRecord.blockedTaskIds = listTaskIdsByStatus(roundEndState.taskLedger, ["blocked"]);
         roundRecord.waitingRetryTaskIds = listTaskIdsByStatus(roundEndState.taskLedger, ["waiting_retry"]);
         roundRecord.watchdogEvent = "no_progress_circuit_opened";
+      }
+
+      if (
+        !roundRecord.stopReason &&
+        roundEndState.status !== "completed" &&
+        hasAutonomousWatchdogExpired(startedAtMs, watchdogTimeoutMs)
+      ) {
+        stopReason = buildAutonomousWatchdogStopReason(watchdogTimeoutMs, startedAtMs, {
+          blockedTaskIds: roundRecord.blockedTaskIds,
+          waitingRetryTaskIds: roundRecord.waitingRetryTaskIds,
+          skippedAutomaticTaskIds
+        });
+        roundEndState = materializeWatchdogTimeoutAttention(
+          roundEndState,
+          stopReason,
+          skippedAutomaticTaskIds
+        );
+        await writeRunReport(runDirectory, roundEndState);
+        roundRecord.stopReason = stopReason;
+        roundRecord.blockedTaskIds = listTaskIdsByStatus(roundEndState.taskLedger, ["blocked"]);
+        roundRecord.waitingRetryTaskIds = listTaskIdsByStatus(roundEndState.taskLedger, ["waiting_retry"]);
+        roundRecord.watchdogEvent = "watchdog_timeout";
       }
 
       rounds.push(roundRecord);

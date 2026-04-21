@@ -189,6 +189,261 @@ async function main() {
     );
   });
 
+  await runTest("autonomous loop stops when the planner autonomous retry budget is exhausted", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-autonomous-planner-budget-"));
+    const runResult = await runProject(validSpecPath, tempDir, "autonomous-planner-budget-run");
+    const doctorReportPath = path.join(tempDir, "doctor.json");
+    const handoffIndexPath = path.join(tempDir, "handoffs", "index.json");
+    let dispatchCalls = 0;
+    const initialRunState = await readJson(runResult.statePath);
+
+    await writeJson(doctorReportPath, { checks: [] });
+    await mkdir(path.dirname(handoffIndexPath), { recursive: true });
+    await writeJson(handoffIndexPath, {
+      generatedAt: new Date().toISOString(),
+      runId: "autonomous-planner-budget-run",
+      readyTaskCount: 1,
+      descriptors: []
+    });
+    await writeJson(
+      runResult.statePath,
+      refreshRunState({
+        ...initialRunState,
+        retryPolicy: {
+          ...initialRunState.retryPolicy,
+          replanning: 1
+        }
+      })
+    );
+
+    const result = await runAutonomousLoop(runResult.statePath, {
+      maxRounds: 5,
+      operations: {
+        runRuntimeDoctor: async () => ({ jsonPath: doctorReportPath }),
+        tickProjectRun: async () => ({
+          handoffIndexPath,
+          readyTaskCount: 1
+        }),
+        dispatchHandoffs: async () => {
+          dispatchCalls += 1;
+          const currentRunState = refreshRunState(await readJson(runResult.statePath));
+          const nextRunState = refreshRunState({
+            ...currentRunState,
+            taskLedger: currentRunState.taskLedger.map((task) =>
+              task.id === "planning-brief" ? { ...task, status: "blocked" } : task
+            )
+          });
+
+          await writeJson(runResult.statePath, nextRunState);
+
+          return {
+            summary: {
+              executed: 1,
+              completed: 0,
+              continued: 1,
+              incomplete: 1,
+              failed: 0,
+              skipped: 0
+            },
+            results: [
+              {
+                taskId: "planning-brief",
+                status: "incomplete"
+              }
+            ]
+          };
+        }
+      }
+    });
+
+    const nextRunState = await readJson(runResult.statePath);
+    const planningTask = nextRunState.taskLedger.find((task) => task.id === "planning-brief");
+
+    assert.equal(dispatchCalls, 2);
+    assert.equal(result.summary.finalStatus, "attention_required");
+    assert.equal(result.summary.terminalState, "blocked");
+    assert.equal(result.summary.failureTaxonomy.stopCategory, "logic_bug");
+    assert.match(result.summary.stopReason ?? "", /planner retry budget exhausted/i);
+    assert.equal(planningTask?.status, "blocked");
+    assert.ok(
+      (planningTask?.notes ?? []).some((note) => /autonomous-planner-retry:budget-exhausted/i.test(note)),
+      "planner task should record autonomous retry budget exhaustion"
+    );
+  });
+
+  await runTest("autonomous loop stops when the delivery autonomous retry budget is exhausted", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-autonomous-delivery-budget-"));
+    const runResult = await runProject(validSpecPath, tempDir, "autonomous-delivery-budget-run");
+    const doctorReportPath = path.join(tempDir, "doctor.json");
+    const handoffIndexPath = path.join(tempDir, "handoffs", "index.json");
+    let dispatchCalls = 0;
+    const initialRunState = await readJson(runResult.statePath);
+
+    await writeJson(doctorReportPath, { checks: [] });
+    await mkdir(path.dirname(handoffIndexPath), { recursive: true });
+    await writeJson(handoffIndexPath, {
+      generatedAt: new Date().toISOString(),
+      runId: "autonomous-delivery-budget-run",
+      readyTaskCount: 1,
+      descriptors: []
+    });
+    await writeJson(
+      runResult.statePath,
+      refreshRunState({
+        ...initialRunState,
+        retryPolicy: {
+          ...initialRunState.retryPolicy,
+          replanning: 1
+        },
+        taskLedger: initialRunState.taskLedger.map((task) => ({
+          ...task,
+          status: task.id === "delivery-package" ? "ready" : "completed"
+        }))
+      })
+    );
+
+    const result = await runAutonomousLoop(runResult.statePath, {
+      maxRounds: 5,
+      operations: {
+        runRuntimeDoctor: async () => ({ jsonPath: doctorReportPath }),
+        tickProjectRun: async () => ({
+          handoffIndexPath,
+          readyTaskCount: 1
+        }),
+        dispatchHandoffs: async () => {
+          dispatchCalls += 1;
+          const currentRunState = refreshRunState(await readJson(runResult.statePath));
+          const nextRunState = refreshRunState({
+            ...currentRunState,
+            taskLedger: currentRunState.taskLedger.map((task) =>
+              task.id === "delivery-package" ? { ...task, status: "blocked" } : task
+            )
+          });
+
+          await writeJson(runResult.statePath, nextRunState);
+
+          return {
+            summary: {
+              executed: 1,
+              completed: 0,
+              continued: 1,
+              incomplete: 1,
+              failed: 0,
+              skipped: 0
+            },
+            results: [
+              {
+                taskId: "delivery-package",
+                status: "incomplete"
+              }
+            ]
+          };
+        }
+      }
+    });
+
+    const nextRunState = await readJson(runResult.statePath);
+    const deliveryTask = nextRunState.taskLedger.find((task) => task.id === "delivery-package");
+
+    assert.equal(dispatchCalls, 2);
+    assert.equal(result.summary.finalStatus, "attention_required");
+    assert.equal(result.summary.terminalState, "blocked");
+    assert.equal(result.summary.failureTaxonomy.stopCategory, "logic_bug");
+    assert.match(result.summary.stopReason ?? "", /task retry budget exhausted/i);
+    assert.equal(deliveryTask?.status, "blocked");
+    assert.ok(
+      (deliveryTask?.notes ?? []).some((note) => /autonomous-task-retry:budget-exhausted/i.test(note)),
+      "delivery task should record autonomous retry budget exhaustion"
+    );
+  });
+
+  await runTest("autonomous loop preserves retry-budget exhaustion across reruns", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-autonomous-planner-budget-rerun-"));
+    const runResult = await runProject(validSpecPath, tempDir, "autonomous-planner-budget-rerun");
+    const doctorReportPath = path.join(tempDir, "doctor.json");
+    const handoffIndexPath = path.join(tempDir, "handoffs", "index.json");
+    let dispatchCalls = 0;
+    const initialRunState = await readJson(runResult.statePath);
+
+    await writeJson(doctorReportPath, { checks: [] });
+    await mkdir(path.dirname(handoffIndexPath), { recursive: true });
+    await writeJson(handoffIndexPath, {
+      generatedAt: new Date().toISOString(),
+      runId: "autonomous-planner-budget-rerun",
+      readyTaskCount: 1,
+      descriptors: []
+    });
+    await writeJson(
+      runResult.statePath,
+      refreshRunState({
+        ...initialRunState,
+        retryPolicy: {
+          ...initialRunState.retryPolicy,
+          replanning: 1
+        }
+      })
+    );
+
+    const firstResult = await runAutonomousLoop(runResult.statePath, {
+      maxRounds: 5,
+      operations: {
+        runRuntimeDoctor: async () => ({ jsonPath: doctorReportPath }),
+        tickProjectRun: async () => ({
+          handoffIndexPath,
+          readyTaskCount: 1
+        }),
+        dispatchHandoffs: async () => {
+          dispatchCalls += 1;
+          const currentRunState = refreshRunState(await readJson(runResult.statePath));
+          const nextRunState = refreshRunState({
+            ...currentRunState,
+            taskLedger: currentRunState.taskLedger.map((task) =>
+              task.id === "planning-brief" ? { ...task, status: "blocked" } : task
+            )
+          });
+
+          await writeJson(runResult.statePath, nextRunState);
+
+          return {
+            summary: {
+              executed: 1,
+              completed: 0,
+              continued: 1,
+              incomplete: 1,
+              failed: 0,
+              skipped: 0
+            },
+            results: [
+              {
+                taskId: "planning-brief",
+                status: "incomplete"
+              }
+            ]
+          };
+        }
+      }
+    });
+
+    const secondResult = await runAutonomousLoop(runResult.statePath, {
+      maxRounds: 1,
+      operations: {
+        runRuntimeDoctor: async () => ({ jsonPath: doctorReportPath }),
+        tickProjectRun: async () => {
+          throw new Error("tickProjectRun should not run after retry budget exhaustion is recorded");
+        },
+        dispatchHandoffs: async () => {
+          throw new Error("dispatchHandoffs should not run after retry budget exhaustion is recorded");
+        }
+      }
+    });
+
+    assert.equal(dispatchCalls, 2);
+    assert.match(firstResult.summary.stopReason ?? "", /planner retry budget exhausted/i);
+    assert.match(secondResult.summary.stopReason ?? "", /planner retry budget exhausted/i);
+    assert.equal(secondResult.summary.terminalState, "blocked");
+    assert.equal(secondResult.summary.failureTaxonomy.stopCategory, "logic_bug");
+  });
+
   await runTest("autonomous loop uses the reviewer replan budget instead of the implementation budget", async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-autonomous-replan-"));
     const runResult = await runProject(validSpecPath, tempDir, "autonomous-replan-run");
@@ -818,6 +1073,96 @@ async function main() {
     }
   });
 
+  await runTest("autonomous loop treats recycled ready work as no-progress", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-autonomous-recycled-ready-"));
+    const runResult = await runProject(validSpecPath, tempDir, "autonomous-recycled-ready-run");
+    const doctorReportPath = path.join(tempDir, "doctor.json");
+    const handoffIndexPath = path.join(tempDir, "handoffs", "index.json");
+    let dispatchCalls = 0;
+    const previousNoProgressCycles = process.env.AI_FACTORY_AUTONOMOUS_NO_PROGRESS_CYCLES;
+    const initialRunState = await readJson(runResult.statePath);
+
+    await writeJson(doctorReportPath, { checks: [] });
+    await mkdir(path.dirname(handoffIndexPath), { recursive: true });
+    await writeJson(handoffIndexPath, {
+      generatedAt: new Date().toISOString(),
+      runId: "autonomous-recycled-ready-run",
+      readyTaskCount: 1,
+      descriptors: []
+    });
+    await writeJson(
+      runResult.statePath,
+      refreshRunState({
+        ...initialRunState,
+        retryPolicy: {
+          ...initialRunState.retryPolicy,
+          replanning: 10
+        }
+      })
+    );
+    process.env.AI_FACTORY_AUTONOMOUS_NO_PROGRESS_CYCLES = "2";
+
+    try {
+      const result = await runAutonomousLoop(runResult.statePath, {
+        maxRounds: 5,
+        operations: {
+          runRuntimeDoctor: async () => ({ jsonPath: doctorReportPath }),
+          tickProjectRun: async () => ({
+            handoffIndexPath,
+            readyTaskCount: 1
+          }),
+          dispatchHandoffs: async () => {
+            dispatchCalls += 1;
+            const currentRunState = refreshRunState(await readJson(runResult.statePath));
+            const nextRunState = refreshRunState({
+              ...currentRunState,
+              taskLedger: currentRunState.taskLedger.map((task) =>
+                task.id === "planning-brief" ? { ...task, status: "blocked" } : task
+              )
+            });
+
+            await writeJson(runResult.statePath, nextRunState);
+
+            return {
+              summary: {
+                executed: 1,
+                completed: 0,
+                continued: 1,
+                incomplete: 1,
+                failed: 0,
+                skipped: 0
+              },
+              results: [
+                {
+                  taskId: "planning-brief",
+                  status: "incomplete"
+                }
+              ]
+            };
+          }
+        }
+      });
+
+      const nextRunState = await readJson(runResult.statePath);
+
+      assert.equal(dispatchCalls, 2);
+      assert.equal(result.summary.finalStatus, "attention_required");
+      assert.equal(result.summary.terminalState, "blocked");
+      assert.equal(result.summary.failureTaxonomy.stopCategory, "timeout");
+      assert.match(result.summary.stopReason ?? "", /no-progress circuit/i);
+      assert.equal(result.summary.progressDiagnostics.consecutiveNoProgressCycles, 2);
+      assert.equal(result.summary.watchdog.triggered, true);
+      assert.equal(result.summary.watchdog.lastEvent, "no_progress_circuit_opened");
+      assert.equal(nextRunState.taskLedger.find((task) => task.id === "planning-brief")?.status, "blocked");
+    } finally {
+      if (previousNoProgressCycles === undefined) {
+        delete process.env.AI_FACTORY_AUTONOMOUS_NO_PROGRESS_CYCLES;
+      } else {
+        process.env.AI_FACTORY_AUTONOMOUS_NO_PROGRESS_CYCLES = previousNoProgressCycles;
+      }
+    }
+  });
+
   await runTest("real progress does not trip the no-progress breaker", async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-autonomous-progress-"));
     const runResult = await runProject(validSpecPath, tempDir, "autonomous-progress-run");
@@ -1432,6 +1777,120 @@ async function main() {
     assert.equal(checkpoint.checkpointStatus, "failed");
     assert.match(checkpoint.errorMessage ?? "", /Injected doctor failure/);
     assert.equal(debugBundle.terminalState, terminalSummary.state);
+  });
+
+  await runTest("autonomous loop stops safely when the session watchdog expires", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-autonomous-watchdog-timeout-"));
+    const runResult = await runProject(validSpecPath, tempDir, "autonomous-watchdog-timeout-run");
+    const doctorReportPath = path.join(tempDir, "doctor.json");
+    const previousWatchdogTimeout = process.env.AI_FACTORY_AUTONOMOUS_WATCHDOG_TIMEOUT_MS;
+    let tickCalls = 0;
+
+    process.env.AI_FACTORY_AUTONOMOUS_WATCHDOG_TIMEOUT_MS = "10";
+
+    try {
+      const result = await runAutonomousLoop(runResult.statePath, {
+        maxRounds: 5,
+        operations: {
+          runRuntimeDoctor: async () => {
+            await new Promise((resolve) => setTimeout(resolve, 30));
+            await writeJson(doctorReportPath, { checks: [] });
+            return { jsonPath: doctorReportPath };
+          },
+          tickProjectRun: async () => {
+            tickCalls += 1;
+            return {
+              handoffIndexPath: path.join(tempDir, "handoffs", "index.json"),
+              readyTaskCount: 1
+            };
+          },
+          dispatchHandoffs: async () => {
+            throw new Error("dispatchHandoffs should not run after the watchdog expires");
+          }
+        }
+      });
+
+      const nextRunState = await readJson(runResult.statePath);
+      const planningTask = nextRunState.taskLedger.find((task) => task.id === "planning-brief");
+
+      assert.equal(tickCalls, 0);
+      assert.equal(result.summary.finalStatus, "attention_required");
+      assert.equal(result.summary.terminalState, "blocked");
+      assert.equal(result.summary.failureTaxonomy.stopCategory, "timeout");
+      assert.match(result.summary.stopReason ?? "", /watchdog timeout/i);
+      assert.equal(result.summary.watchdog.triggered, true);
+      assert.equal(result.summary.watchdog.lastEvent, "watchdog_timeout");
+      assert.equal(result.summary.watchdog.expired, true);
+      assert.equal(planningTask?.status, "blocked");
+      assert.ok(
+        (planningTask?.notes ?? []).some((note) => /autonomous-watchdog-timeout:/i.test(note)),
+        "planning task should record the watchdog timeout"
+      );
+    } finally {
+      if (previousWatchdogTimeout === undefined) {
+        delete process.env.AI_FACTORY_AUTONOMOUS_WATCHDOG_TIMEOUT_MS;
+      } else {
+        process.env.AI_FACTORY_AUTONOMOUS_WATCHDOG_TIMEOUT_MS = previousWatchdogTimeout;
+      }
+    }
+  });
+
+  await runTest("autonomous watchdog does not override a run that completed during tick", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-autonomous-watchdog-complete-"));
+    const runResult = await runProject(validSpecPath, tempDir, "autonomous-watchdog-complete-run");
+    const doctorReportPath = path.join(tempDir, "doctor.json");
+    const handoffIndexPath = path.join(tempDir, "handoffs", "index.json");
+    const previousWatchdogTimeout = process.env.AI_FACTORY_AUTONOMOUS_WATCHDOG_TIMEOUT_MS;
+    let tickCalls = 0;
+
+    process.env.AI_FACTORY_AUTONOMOUS_WATCHDOG_TIMEOUT_MS = "10";
+
+    try {
+      const result = await runAutonomousLoop(runResult.statePath, {
+        maxRounds: 5,
+        operations: {
+          runRuntimeDoctor: async () => {
+            await writeJson(doctorReportPath, { checks: [] });
+            return { jsonPath: doctorReportPath };
+          },
+          tickProjectRun: async () => {
+            tickCalls += 1;
+            await new Promise((resolve) => setTimeout(resolve, 30));
+            const currentRunState = refreshRunState(await readJson(runResult.statePath));
+            const completedRunState = refreshRunState({
+              ...currentRunState,
+              taskLedger: currentRunState.taskLedger.map((task) => ({
+                ...task,
+                status: "completed"
+              }))
+            });
+
+            await writeJson(runResult.statePath, completedRunState);
+
+            return {
+              handoffIndexPath,
+              readyTaskCount: 0
+            };
+          },
+          dispatchHandoffs: async () => {
+            throw new Error("dispatchHandoffs should not run after tick completes the run");
+          }
+        }
+      });
+
+      assert.equal(tickCalls, 1);
+      assert.equal(result.summary.finalStatus, "completed");
+      assert.equal(result.summary.terminalState, "done");
+      assert.equal(result.summary.stopReason, "run completed");
+      assert.equal(result.summary.terminalSummary.reasonCode, "completed");
+      assert.equal(result.summary.watchdog.lastEvent, null);
+    } finally {
+      if (previousWatchdogTimeout === undefined) {
+        delete process.env.AI_FACTORY_AUTONOMOUS_WATCHDOG_TIMEOUT_MS;
+      } else {
+        process.env.AI_FACTORY_AUTONOMOUS_WATCHDOG_TIMEOUT_MS = previousWatchdogTimeout;
+      }
+    }
   });
 
   console.log("Autonomous run tests passed.");
