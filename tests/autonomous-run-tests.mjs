@@ -1636,6 +1636,105 @@ async function main() {
     );
   });
 
+  await runTest("autonomous loop records active checkpoint phase details before tick starts", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-autonomous-active-checkpoint-"));
+    const runResult = await runProject(validSpecPath, tempDir, "autonomous-active-checkpoint-run");
+    const doctorReportPath = path.join(tempDir, "doctor.json");
+    const handoffIndexPath = path.join(tempDir, "handoffs", "index.json");
+    const checkpointPath = path.join(
+      path.dirname(runResult.statePath),
+      "artifacts",
+      "autonomous-debug",
+      "checkpoint.json"
+    );
+    /** @type {{ checkpointStatus?: string, activity?: { phase?: string, round?: number, detail?: string } } | null} */
+    let checkpointDuringTick = null;
+
+    await writeJson(doctorReportPath, { checks: [] });
+    await mkdir(path.dirname(handoffIndexPath), { recursive: true });
+    await writeJson(handoffIndexPath, {
+      generatedAt: new Date().toISOString(),
+      runId: "autonomous-active-checkpoint-run",
+      readyTaskCount: 0,
+      descriptors: []
+    });
+
+    await runAutonomousLoop(runResult.statePath, {
+      maxRounds: 1,
+      operations: {
+        runRuntimeDoctor: async () => ({ jsonPath: doctorReportPath }),
+        tickProjectRun: async () => {
+          checkpointDuringTick = await readJson(checkpointPath);
+          return {
+            handoffIndexPath,
+            readyTaskCount: 0
+          };
+        },
+        dispatchHandoffs: async () => {
+          throw new Error("dispatchHandoffs should not run when readyTaskCount is 0");
+        }
+      }
+    });
+
+    assert.ok(checkpointDuringTick, "active checkpoint should exist during tick");
+    assert.equal(checkpointDuringTick.checkpointStatus, "active");
+    assert.equal(checkpointDuringTick.activity?.phase, "tick");
+    assert.equal(checkpointDuringTick.activity?.round, 1);
+    assert.equal(checkpointDuringTick.activity?.detail, "generate-handoffs");
+  });
+
+  await runTest("autonomous loop records resume context from a prior checkpoint without changing control flow", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-autonomous-resume-context-"));
+    const runResult = await runProject(validSpecPath, tempDir, "autonomous-resume-context-run");
+    const doctorReportPath = path.join(tempDir, "doctor.json");
+    const checkpointPath = path.join(
+      path.dirname(runResult.statePath),
+      "artifacts",
+      "autonomous-debug",
+      "checkpoint.json"
+    );
+
+    await writeJson(doctorReportPath, { checks: [] });
+    await mkdir(path.dirname(checkpointPath), { recursive: true });
+    await writeJson(checkpointPath, {
+      schemaVersion: 1,
+      sessionId: "previous-session",
+      checkpointStatus: "active",
+      updatedAt: new Date(Date.now() - 60_000).toISOString(),
+      activity: {
+        phase: "dispatch",
+        round: 1,
+        detail: "resume-pending",
+        enteredAt: new Date(Date.now() - 120_000).toISOString(),
+        heartbeatAt: new Date(Date.now() - 60_000).toISOString()
+      }
+    });
+
+    const result = await runAutonomousLoop(runResult.statePath, {
+      maxRounds: 0,
+      operations: {
+        runRuntimeDoctor: async () => ({ jsonPath: doctorReportPath }),
+        tickProjectRun: async () => {
+          throw new Error("tickProjectRun should not run when maxRounds is 0");
+        },
+        dispatchHandoffs: async () => {
+          throw new Error("dispatchHandoffs should not run when maxRounds is 0");
+        }
+      }
+    });
+
+    const finalCheckpoint = await readJson(checkpointPath);
+
+    assert.equal(result.summary.terminalState, "exhausted");
+    assert.equal(finalCheckpoint.resumeContext?.resumed, true);
+    assert.equal(finalCheckpoint.resumeContext?.previousSessionId, "previous-session");
+    assert.equal(finalCheckpoint.resumeContext?.interruptedActiveSession, true);
+    assert.equal(finalCheckpoint.resumeContext?.previousCheckpointStatus, "active");
+    assert.equal(finalCheckpoint.resumeContext?.previousActivity?.phase, "dispatch");
+    assert.equal(finalCheckpoint.resumeContext?.previousActivity?.round, 1);
+    assert.equal(finalCheckpoint.resumeContext?.previousActivity?.detail, "resume-pending");
+  });
+
   await runTest("autonomous loop writes debug bundle, terminal summary, checkpoint, and hypothesis ledger for blocked runs", async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-autonomous-debug-blocked-"));
     const runResult = await runProject(validSpecPath, tempDir, "autonomous-debug-blocked-run");

@@ -65,6 +65,19 @@ function getAutonomousWatchdogTimeoutMs() {
   );
 }
 
+function getAutonomousCheckpointStaleMs() {
+  return readPositiveIntegerEnv("AI_FACTORY_AUTONOMOUS_CHECKPOINT_STALE_MS", 15 * 60 * 1000);
+}
+
+function normalizeTimestampOrNull(value) {
+  if (!isNonEmptyString(value)) {
+    return null;
+  }
+
+  const timestampMs = Date.parse(value);
+  return Number.isFinite(timestampMs) ? new Date(timestampMs).toISOString() : null;
+}
+
 function parseLockPid(lockContent) {
   const match = /^(\d+)/.exec(String(lockContent).trim());
 
@@ -354,6 +367,67 @@ function resolveFeatureReplanBudget(runState, sourceTaskId, ids) {
     implementationTask?.retriesBeforeReplan ?? retryPolicy.implementation,
     3
   );
+}
+
+function buildAutonomousResumeContext(previousCheckpoint) {
+  const previousUpdatedAt = normalizeTimestampOrNull(previousCheckpoint?.updatedAt);
+  const checkpointStaleMs = getAutonomousCheckpointStaleMs();
+  const previousAgeMs =
+    previousUpdatedAt === null ? null : Math.max(Date.now() - Date.parse(previousUpdatedAt), 0);
+  const previousActivity =
+    previousCheckpoint?.activity && typeof previousCheckpoint.activity === "object"
+      ? {
+          phase: isNonEmptyString(previousCheckpoint.activity.phase)
+            ? previousCheckpoint.activity.phase
+            : null,
+          round: Number.isInteger(previousCheckpoint.activity.round)
+            ? previousCheckpoint.activity.round
+            : null,
+          detail: isNonEmptyString(previousCheckpoint.activity.detail)
+            ? previousCheckpoint.activity.detail
+            : null,
+          enteredAt: normalizeTimestampOrNull(previousCheckpoint.activity.enteredAt),
+          heartbeatAt: normalizeTimestampOrNull(previousCheckpoint.activity.heartbeatAt)
+        }
+      : null;
+
+  return {
+    resumed: Boolean(previousCheckpoint),
+    previousSessionId: isNonEmptyString(previousCheckpoint?.sessionId) ? previousCheckpoint.sessionId : null,
+    previousCheckpointStatus: isNonEmptyString(previousCheckpoint?.checkpointStatus)
+      ? previousCheckpoint.checkpointStatus
+      : null,
+    previousUpdatedAt,
+    previousAgeMs,
+    previousRoundsCompleted: Number.isInteger(previousCheckpoint?.roundsCompleted)
+      ? previousCheckpoint.roundsCompleted
+      : 0,
+    previousLastRoundAttempted: Number.isInteger(previousCheckpoint?.lastRoundAttempted)
+      ? previousCheckpoint.lastRoundAttempted
+      : 0,
+    interruptedActiveSession: previousCheckpoint?.checkpointStatus === "active",
+    staleInterruptedSession:
+      previousCheckpoint?.checkpointStatus === "active" &&
+      Number.isFinite(previousAgeMs) &&
+      previousAgeMs >= checkpointStaleMs,
+    carriedForwardProgressDiagnostics:
+      Boolean(previousCheckpoint) && previousCheckpoint?.checkpointStatus !== "completed",
+    checkpointStaleAfterMs: checkpointStaleMs,
+    previousActivity
+  };
+}
+
+function buildCheckpointActivity({ phase = null, round = null, detail = null } = {}) {
+  const now = new Date().toISOString();
+
+  return {
+    phase: isNonEmptyString(phase) ? phase : null,
+    round: Number.isInteger(round) ? round : null,
+    detail: isNonEmptyString(detail) ? detail : null,
+    enteredAt: now,
+    heartbeatAt: now,
+    checkpointStaleAfterMs: getAutonomousCheckpointStaleMs()
+  };
 }
 
 function parseNoteTimestamp(note) {
@@ -1740,7 +1814,9 @@ function buildAutonomousCheckpoint({
   resume,
   progressDiagnostics,
   debugEvidence,
-  errorMessage
+  errorMessage,
+  activity = null,
+  resumeContext = null
 }) {
   return {
     schemaVersion: 1,
@@ -1763,6 +1839,8 @@ function buildAutonomousCheckpoint({
     resume,
     runSummary: summarizeRunState(runState),
     progressDiagnostics,
+    activity,
+    resumeContext: resumeContext && typeof resumeContext === "object" ? resumeContext : null,
     debugEvidence,
     errorMessage: errorMessage ?? null
   };
@@ -1816,6 +1894,11 @@ async function writeAutonomousDebugArtifacts(debugPaths, artifacts) {
   await writeJson(debugPaths.hypothesisLedgerPath, artifacts.hypothesisLedger);
   await writeJson(debugPaths.checkpointPath, artifacts.checkpoint);
   await writeJson(debugPaths.debugBundlePath, artifacts.debugBundle);
+}
+
+async function writeAutonomousCheckpoint(debugPaths, checkpoint) {
+  await ensureDirectory(debugPaths.debugDirectory);
+  await writeJson(debugPaths.checkpointPath, checkpoint);
 }
 
 /**
@@ -1888,6 +1971,7 @@ export async function runAutonomousLoop(
       : path.join(runDirectory, "handoffs-autonomous");
     const debugPaths = getAutonomousDebugPaths(runDirectory);
     const previousCheckpoint = await readJson(debugPaths.checkpointPath).catch(() => null);
+    const resumeContext = buildAutonomousResumeContext(previousCheckpoint);
     const sessionId = `${Date.now()}-${process.pid}`;
     const startedAt = new Date().toISOString();
     const startedAtMs = Date.parse(startedAt);
@@ -1919,7 +2003,8 @@ export async function runAutonomousLoop(
       currentFailureFeedback = emptyFailureFeedback,
       {
         checkpointStatus = "active",
-        errorMessage = null
+        errorMessage = null,
+        activity = null
       } = {}
     ) => {
       const effectiveStopReason =
@@ -2004,7 +2089,9 @@ export async function runAutonomousLoop(
         resume,
         progressDiagnostics,
         debugEvidence,
-        errorMessage
+        errorMessage,
+        activity,
+        resumeContext
       });
       const debugBundle = buildAutonomousDebugBundle({
         runId: finalRunState.runId,
@@ -2030,7 +2117,64 @@ export async function runAutonomousLoop(
       };
     };
 
+    const persistActiveCheckpoint = async (
+      activeRunState,
+      {
+        phase = null,
+        round = null,
+        detail = null,
+        errorMessage = null
+      } = {}
+    ) => {
+      const progressDiagnostics = buildAutonomousProgressDiagnostics(activeRunState, {
+        lastProgressAt,
+        lastProgressTaskId,
+        lastProgressEvent,
+        consecutiveNoProgressCycles,
+        skippedAutomaticTaskIds
+      });
+      const debugEvidence = buildAutonomousDebugEvidence({
+        runDirectory,
+        runStatePath: resolvedRunStatePath,
+        doctorReportPath: effectiveDoctorReportPath,
+        handoffOutputDir: resolvedHandoffOutputDir,
+        lastHandoffIndexPath,
+        lastDispatchResultJsonPath,
+        lastDispatchResultMarkdownPath,
+        failureFeedback: emptyFailureFeedback
+      });
+      const checkpoint = buildAutonomousCheckpoint({
+        runState: activeRunState,
+        runStatePath: resolvedRunStatePath,
+        sessionId,
+        previousCheckpoint,
+        checkpointStatus: "active",
+        startedAt,
+        lastRoundAttempted,
+        roundsCompleted,
+        stopReason,
+        terminalSummary: null,
+        resume: null,
+        progressDiagnostics,
+        debugEvidence,
+        errorMessage,
+        activity: buildCheckpointActivity({
+          phase,
+          round,
+          detail
+        }),
+        resumeContext
+      });
+
+      await writeAutonomousCheckpoint(debugPaths, checkpoint);
+      return checkpoint;
+    };
+
     try {
+      await persistActiveCheckpoint(runState, {
+        phase: "doctor",
+        detail: "runtime-doctor"
+      });
       const doctorResult = await runDoctorOperation(resolvedDoctorOutputDir, workspaceRoot);
       effectiveDoctorReportPath =
         requestedDoctorReportPath && (await jsonFileExists(requestedDoctorReportPath))
@@ -2044,26 +2188,31 @@ export async function runAutonomousLoop(
         let currentRunState = refreshRunState(await readJson(resolvedRunStatePath));
         const beforeRoundState = currentRunState;
         await writeRunReport(runDirectory, currentRunState);
+        await persistActiveCheckpoint(currentRunState, {
+          phase: "round_preflight",
+          round,
+          detail: currentRunState.status
+        });
 
-      if (currentRunState.status === "completed") {
-        stopReason = "run completed";
-        break;
-      }
+        if (currentRunState.status === "completed") {
+          stopReason = "run completed";
+          break;
+        }
 
         const roundRecord = {
           round,
           statusBefore: currentRunState.status,
-        readyTaskCount: 0,
-        dispatchSummary: null,
-        recovery: null,
-        stopReason: null,
-        progressEvent: null,
-        progressTaskId: null,
-        consecutiveNoProgressCycles: 0,
-        blockedTaskIds: [],
-        waitingRetryTaskIds: [],
-        skippedAutomaticTaskIds: [],
-        degradedRuntimeActive: false,
+          readyTaskCount: 0,
+          dispatchSummary: null,
+          recovery: null,
+          stopReason: null,
+          progressEvent: null,
+          progressTaskId: null,
+          consecutiveNoProgressCycles: 0,
+          blockedTaskIds: [],
+          waitingRetryTaskIds: [],
+          skippedAutomaticTaskIds: [],
+          degradedRuntimeActive: false,
           heartbeatAt: new Date().toISOString(),
           watchdogEvent: null
         };
@@ -2095,99 +2244,122 @@ export async function runAutonomousLoop(
           break;
         }
 
-      const staleInProgressRecovery = await maybeRecoverStalledInProgress(currentRunState);
+        const staleInProgressRecovery = await maybeRecoverStalledInProgress(currentRunState);
 
-      if (staleInProgressRecovery.changed) {
-        await writeRunReport(runDirectory, staleInProgressRecovery.runState);
-        roundRecord.recovery = staleInProgressRecovery.recovery;
-        const progress = deriveRoundProgress({
-          beforeRunState: beforeRoundState,
-          afterRunState: staleInProgressRecovery.runState,
-          recovery: staleInProgressRecovery.recovery
+        if (staleInProgressRecovery.changed) {
+          await writeRunReport(runDirectory, staleInProgressRecovery.runState);
+          roundRecord.recovery = staleInProgressRecovery.recovery;
+          const progress = deriveRoundProgress({
+            beforeRunState: beforeRoundState,
+            afterRunState: staleInProgressRecovery.runState,
+            recovery: staleInProgressRecovery.recovery
+          });
+          if (progress.progressed) {
+            lastProgressAt = new Date().toISOString();
+            lastProgressTaskId = progress.taskId;
+            lastProgressEvent = progress.event;
+            consecutiveNoProgressCycles = 0;
+          }
+          roundRecord.progressEvent = progress.event;
+          roundRecord.progressTaskId = progress.taskId;
+          roundRecord.consecutiveNoProgressCycles = consecutiveNoProgressCycles;
+          roundRecord.blockedTaskIds = listTaskIdsByStatus(
+            staleInProgressRecovery.runState.taskLedger,
+            ["blocked"]
+          );
+          roundRecord.waitingRetryTaskIds = listTaskIdsByStatus(
+            staleInProgressRecovery.runState.taskLedger,
+            ["waiting_retry"]
+          );
+          roundRecord.skippedAutomaticTaskIds = [...skippedAutomaticTaskIds];
+          roundRecord.degradedRuntimeActive = hasDegradedRuntimeSignal(
+            staleInProgressRecovery.runState
+          );
+          roundRecord.watchdogEvent = "stalled_task_recovered";
+          if (isNonEmptyString(staleInProgressRecovery.recovery?.terminalStopReason)) {
+            stopReason = staleInProgressRecovery.recovery.terminalStopReason;
+            roundRecord.stopReason = stopReason;
+          }
+          rounds.push(roundRecord);
+          roundsCompleted = round;
+          await persistAutonomousSummary(staleInProgressRecovery.runState);
+          if (roundRecord.stopReason) {
+            break;
+          }
+          await persistActiveCheckpoint(staleInProgressRecovery.runState, {
+            phase: "recovery",
+            round,
+            detail: staleInProgressRecovery.recovery?.type ?? "stale_recovery"
+          });
+          continue;
+        }
+
+        const recoveryBeforeTick = maybeRecoverRunState(currentRunState);
+
+        if (recoveryBeforeTick.changed) {
+          await writeRunReport(runDirectory, recoveryBeforeTick.runState);
+          roundRecord.recovery = recoveryBeforeTick.recovery;
+          const progress = deriveRoundProgress({
+            beforeRunState: beforeRoundState,
+            afterRunState: recoveryBeforeTick.runState,
+            recovery: recoveryBeforeTick.recovery
+          });
+          if (progress.progressed) {
+            lastProgressAt = new Date().toISOString();
+            lastProgressTaskId = progress.taskId;
+            lastProgressEvent = progress.event;
+            consecutiveNoProgressCycles = 0;
+          }
+          roundRecord.progressEvent = progress.event;
+          roundRecord.progressTaskId = progress.taskId;
+          roundRecord.consecutiveNoProgressCycles = consecutiveNoProgressCycles;
+          roundRecord.blockedTaskIds = listTaskIdsByStatus(
+            recoveryBeforeTick.runState.taskLedger,
+            ["blocked"]
+          );
+          roundRecord.waitingRetryTaskIds = listTaskIdsByStatus(
+            recoveryBeforeTick.runState.taskLedger,
+            ["waiting_retry"]
+          );
+          roundRecord.skippedAutomaticTaskIds = [...skippedAutomaticTaskIds];
+          roundRecord.degradedRuntimeActive = hasDegradedRuntimeSignal(recoveryBeforeTick.runState);
+          if (isNonEmptyString(recoveryBeforeTick.recovery?.terminalStopReason)) {
+            stopReason = recoveryBeforeTick.recovery.terminalStopReason;
+            roundRecord.stopReason = stopReason;
+          }
+          rounds.push(roundRecord);
+          roundsCompleted = round;
+          await persistAutonomousSummary(recoveryBeforeTick.runState);
+          if (roundRecord.stopReason) {
+            break;
+          }
+          await persistActiveCheckpoint(recoveryBeforeTick.runState, {
+            phase: "recovery",
+            round,
+            detail: recoveryBeforeTick.recovery?.type ?? "blocked_recovery"
+          });
+          continue;
+        }
+
+        await persistActiveCheckpoint(currentRunState, {
+          phase: "tick",
+          round,
+          detail: "generate-handoffs"
         });
-        if (progress.progressed) {
-          lastProgressAt = new Date().toISOString();
-          lastProgressTaskId = progress.taskId;
-          lastProgressEvent = progress.event;
-          consecutiveNoProgressCycles = 0;
-        }
-        roundRecord.progressEvent = progress.event;
-        roundRecord.progressTaskId = progress.taskId;
-        roundRecord.consecutiveNoProgressCycles = consecutiveNoProgressCycles;
-        roundRecord.blockedTaskIds = listTaskIdsByStatus(staleInProgressRecovery.runState.taskLedger, ["blocked"]);
-        roundRecord.waitingRetryTaskIds = listTaskIdsByStatus(
-          staleInProgressRecovery.runState.taskLedger,
-          ["waiting_retry"]
+        const tickResult = await tickOperation(
+          resolvedRunStatePath,
+          effectiveDoctorReportPath,
+          resolvedHandoffOutputDir
         );
-        roundRecord.skippedAutomaticTaskIds = [...skippedAutomaticTaskIds];
-        roundRecord.degradedRuntimeActive = hasDegradedRuntimeSignal(staleInProgressRecovery.runState);
-        roundRecord.watchdogEvent = "stalled_task_recovered";
-        if (isNonEmptyString(staleInProgressRecovery.recovery?.terminalStopReason)) {
-          stopReason = staleInProgressRecovery.recovery.terminalStopReason;
-          roundRecord.stopReason = stopReason;
-        }
-        rounds.push(roundRecord);
-        roundsCompleted = round;
-        await persistAutonomousSummary(staleInProgressRecovery.runState);
-        if (roundRecord.stopReason) {
-          break;
-        }
-        continue;
-      }
+        lastHandoffIndexPath = tickResult.handoffIndexPath ?? lastHandoffIndexPath;
+        roundRecord.readyTaskCount = tickResult.readyTaskCount;
 
-      const recoveryBeforeTick = maybeRecoverRunState(currentRunState);
+        const runStateAfterTick = refreshRunState(await readJson(resolvedRunStatePath));
 
-      if (recoveryBeforeTick.changed) {
-        await writeRunReport(runDirectory, recoveryBeforeTick.runState);
-        roundRecord.recovery = recoveryBeforeTick.recovery;
-        const progress = deriveRoundProgress({
-          beforeRunState: beforeRoundState,
-          afterRunState: recoveryBeforeTick.runState,
-          recovery: recoveryBeforeTick.recovery
-        });
-        if (progress.progressed) {
-          lastProgressAt = new Date().toISOString();
-          lastProgressTaskId = progress.taskId;
-          lastProgressEvent = progress.event;
-          consecutiveNoProgressCycles = 0;
-        }
-        roundRecord.progressEvent = progress.event;
-        roundRecord.progressTaskId = progress.taskId;
-        roundRecord.consecutiveNoProgressCycles = consecutiveNoProgressCycles;
-        roundRecord.blockedTaskIds = listTaskIdsByStatus(recoveryBeforeTick.runState.taskLedger, ["blocked"]);
-        roundRecord.waitingRetryTaskIds = listTaskIdsByStatus(
-          recoveryBeforeTick.runState.taskLedger,
-          ["waiting_retry"]
-        );
-        roundRecord.skippedAutomaticTaskIds = [...skippedAutomaticTaskIds];
-        roundRecord.degradedRuntimeActive = hasDegradedRuntimeSignal(recoveryBeforeTick.runState);
-        if (isNonEmptyString(recoveryBeforeTick.recovery?.terminalStopReason)) {
-          stopReason = recoveryBeforeTick.recovery.terminalStopReason;
-          roundRecord.stopReason = stopReason;
-        }
-        rounds.push(roundRecord);
-        roundsCompleted = round;
-        await persistAutonomousSummary(recoveryBeforeTick.runState);
-        if (roundRecord.stopReason) {
-          break;
-        }
-        continue;
-      }
-
-      const tickResult = await tickOperation(
-        resolvedRunStatePath,
-        effectiveDoctorReportPath,
-        resolvedHandoffOutputDir
-      );
-      lastHandoffIndexPath = tickResult.handoffIndexPath ?? lastHandoffIndexPath;
-      roundRecord.readyTaskCount = tickResult.readyTaskCount;
-
-      const runStateAfterTick = refreshRunState(await readJson(resolvedRunStatePath));
-
-      if (
-        runStateAfterTick.status !== "completed" &&
-        hasAutonomousWatchdogExpired(startedAtMs, watchdogTimeoutMs)
-      ) {
+        if (
+          runStateAfterTick.status !== "completed" &&
+          hasAutonomousWatchdogExpired(startedAtMs, watchdogTimeoutMs)
+        ) {
         stopReason = buildAutonomousWatchdogStopReason(watchdogTimeoutMs, startedAtMs, {
           blockedTaskIds: listTaskIdsByStatus(runStateAfterTick.taskLedger, ["blocked"]),
           waitingRetryTaskIds: listTaskIdsByStatus(runStateAfterTick.taskLedger, ["waiting_retry"]),
@@ -2211,11 +2383,11 @@ export async function runAutonomousLoop(
         rounds.push(roundRecord);
         roundsCompleted = round;
         await persistAutonomousSummary(watchdogRunState);
-        break;
-      }
+          break;
+        }
 
-      if (tickResult.readyTaskCount === 0) {
-        currentRunState = runStateAfterTick;
+        if (tickResult.readyTaskCount === 0) {
+          currentRunState = runStateAfterTick;
 
         if (currentRunState.status === "completed") {
           stopReason = "run completed";
@@ -2234,18 +2406,24 @@ export async function runAutonomousLoop(
         rounds.push(roundRecord);
         roundsCompleted = round;
         await persistAutonomousSummary(currentRunState);
-        break;
-      }
+          break;
+        }
 
-      const dispatchResult = await dispatchOperation(tickResult.handoffIndexPath, "execute");
-      lastDispatchResultJsonPath = dispatchResult.resultJsonPath ?? lastDispatchResultJsonPath;
-      lastDispatchResultMarkdownPath =
-        dispatchResult.resultMarkdownPath ?? lastDispatchResultMarkdownPath;
-      roundRecord.dispatchSummary = dispatchResult.summary;
-      const dispatchResults = safeArray(dispatchResult.results);
-      skippedAutomaticTaskIds = dispatchResults
-        .filter((result) => result?.status === "skipped" && isNonEmptyString(result?.taskId))
-        .map((result) => result.taskId);
+        await persistActiveCheckpoint(refreshRunState(await readJson(resolvedRunStatePath)), {
+          phase: "dispatch",
+          round,
+          detail: tickResult.handoffIndexPath ?? "execute"
+        });
+
+        const dispatchResult = await dispatchOperation(tickResult.handoffIndexPath, "execute");
+        lastDispatchResultJsonPath = dispatchResult.resultJsonPath ?? lastDispatchResultJsonPath;
+        lastDispatchResultMarkdownPath =
+          dispatchResult.resultMarkdownPath ?? lastDispatchResultMarkdownPath;
+        roundRecord.dispatchSummary = dispatchResult.summary;
+        const dispatchResults = safeArray(dispatchResult.results);
+        skippedAutomaticTaskIds = dispatchResults
+          .filter((result) => result?.status === "skipped" && isNonEmptyString(result?.taskId))
+          .map((result) => result.taskId);
 
       for (const result of dispatchResults) {
         if (!["failed", "incomplete", "continued"].includes(result?.status)) {
@@ -2404,6 +2582,12 @@ export async function runAutonomousLoop(
       if (roundRecord.stopReason) {
         break;
       }
+
+      await persistActiveCheckpoint(roundEndState, {
+        phase: "round_complete",
+        round,
+        detail: roundRecord.progressEvent ?? "await-next-round"
+      });
     }
 
     const finalRunState = refreshRunState(await readJson(resolvedRunStatePath));
