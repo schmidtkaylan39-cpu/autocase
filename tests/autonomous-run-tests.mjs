@@ -665,12 +665,44 @@ async function main() {
     assert.equal(tickCalls, 1);
     assert.equal(dispatchCalls, 1);
     assert.equal(result.summary.finalStatus, "attention_required");
+    assert.equal(result.summary.terminalState, "blocked");
     assert.equal(result.summary.rounds.length, 1);
     assert.equal(result.summary.runSummary.blockedTasks, 1);
+    assert.equal(result.summary.failureTaxonomy.stopCategory, "environment_mismatch");
+    assert.equal(result.summary.watchdog.triggered, false);
+    assert.match(result.summary.watchdog.heartbeatAt ?? "", /^\d{4}-\d{2}-\d{2}T/);
     assert.equal(
       result.summary.stopReason,
       "dispatch skipped all ready tasks; no automatic runtime was available"
     );
+  });
+
+  await runTest("autonomous loop classifies exhausted terminal state when the round budget is consumed", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-autonomous-exhausted-"));
+    const runResult = await runProject(validSpecPath, tempDir, "autonomous-exhausted-run");
+    const doctorReportPath = path.join(tempDir, "doctor.json");
+
+    await writeJson(doctorReportPath, { checks: [] });
+
+    const result = await runAutonomousLoop(runResult.statePath, {
+      maxRounds: 0,
+      operations: {
+        runRuntimeDoctor: async () => ({ jsonPath: doctorReportPath }),
+        tickProjectRun: async () => {
+          throw new Error("tickProjectRun should not run when maxRounds is 0");
+        },
+        dispatchHandoffs: async () => {
+          throw new Error("dispatchHandoffs should not run when maxRounds is 0");
+        }
+      }
+    });
+
+    assert.equal(result.summary.finalStatus, "planned");
+    assert.equal(result.summary.terminalState, "exhausted");
+    assert.equal(result.summary.stopReason, "maximum rounds reached");
+    assert.equal(result.summary.failureTaxonomy.stopCategory, "unknown");
+    assert.equal(result.summary.watchdog.triggered, false);
+    assert.match(result.summary.watchdog.heartbeatAt ?? "", /^\d{4}-\d{2}-\d{2}T/);
   });
 
   await runTest("autonomous loop terminates degraded no-progress cycles promptly", async () => {
@@ -766,11 +798,15 @@ async function main() {
 
       assert.equal(dispatchCalls, 3);
       assert.equal(result.summary.finalStatus, "attention_required");
+      assert.equal(result.summary.terminalState, "blocked");
       assert.match(result.summary.stopReason, /no-progress circuit/i);
+      assert.equal(result.summary.failureTaxonomy.stopCategory, "timeout");
       assert.equal(result.summary.progressDiagnostics.degradedRuntimeActive, true);
       assert.equal(result.summary.progressDiagnostics.lastProgressTaskId, "planning-brief");
       assert.equal(result.summary.progressDiagnostics.lastProgressEvent, "task_completed");
       assert.equal(result.summary.progressDiagnostics.consecutiveNoProgressCycles, 2);
+      assert.equal(result.summary.watchdog.triggered, true);
+      assert.equal(result.summary.watchdog.lastEvent, "no_progress_circuit_opened");
       assert.ok(result.summary.progressDiagnostics.blockedTaskIds.includes("implement-spec-intake"));
       assert.equal(nextRunState.taskLedger.find((task) => task.id === "implement-spec-intake")?.status, "blocked");
     } finally {
@@ -1253,6 +1289,149 @@ async function main() {
       (planningTask?.notes ?? []).some((note) => /autonomous-planner-retry:/i.test(note)),
       "planning task should record autonomous stale in-progress recovery note"
     );
+  });
+
+  await runTest("autonomous loop writes debug bundle, terminal summary, checkpoint, and hypothesis ledger for blocked runs", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-autonomous-debug-blocked-"));
+    const runResult = await runProject(validSpecPath, tempDir, "autonomous-debug-blocked-run");
+    const doctorReportPath = path.join(tempDir, "doctor.json");
+    const handoffIndexPath = path.join(tempDir, "handoffs", "index.json");
+
+    await writeJson(doctorReportPath, { checks: [] });
+    await mkdir(path.dirname(handoffIndexPath), { recursive: true });
+    await writeJson(handoffIndexPath, {
+      generatedAt: new Date().toISOString(),
+      runId: "autonomous-debug-blocked-run",
+      readyTaskCount: 1,
+      descriptors: []
+    });
+
+    const result = await runAutonomousLoop(runResult.statePath, {
+      maxRounds: 1,
+      operations: {
+        runRuntimeDoctor: async () => ({ jsonPath: doctorReportPath }),
+        tickProjectRun: async () => ({
+          handoffIndexPath,
+          readyTaskCount: 1
+        }),
+        dispatchHandoffs: async () => ({
+          summary: {
+            executed: 0,
+            completed: 0,
+            continued: 0,
+            incomplete: 0,
+            failed: 0,
+            skipped: 1
+          },
+          resultJsonPath: path.join(tempDir, "handoffs", "dispatch-results.json"),
+          resultMarkdownPath: path.join(tempDir, "handoffs", "dispatch-results.md"),
+          results: [
+            {
+              taskId: "planning-brief",
+              status: "skipped",
+              runtime: "manual",
+              launcherPath: path.join(tempDir, "handoffs", "planning-brief.launch.ps1"),
+              resultPath: path.join(tempDir, "handoffs", "results", "planning-brief.result.json"),
+              note: "No automatic runtime was available."
+            }
+          ]
+        })
+      }
+    });
+
+    const debugDirectory = path.join(path.dirname(runResult.statePath), "artifacts", "autonomous-debug");
+    const terminalSummary = await readJson(path.join(debugDirectory, "terminal-summary.json"));
+    const checkpoint = await readJson(path.join(debugDirectory, "checkpoint.json"));
+    const hypothesisLedger = await readJson(path.join(debugDirectory, "hypothesis-ledger.json"));
+    const debugBundle = await readJson(path.join(debugDirectory, "debug-bundle.json"));
+
+    assert.equal(result.summary.terminalSummary.state, "blocked");
+    assert.equal(terminalSummary.state, "blocked");
+    assert.equal(terminalSummary.reasonCode, "runtime_unavailable");
+    assert.equal(checkpoint.checkpointStatus, "halted");
+    assert.equal(checkpoint.resume.mode, "manual");
+    assert.ok(hypothesisLedger.entries.some((entry) => entry.id === "runtime_unavailable"));
+    assert.equal(debugBundle.terminalState, "blocked");
+    assert.equal(debugBundle.terminalSummaryPath, path.join(debugDirectory, "terminal-summary.json"));
+  });
+
+  await runTest("autonomous loop records exhausted terminal summaries with immediate resume guidance", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-autonomous-debug-exhausted-"));
+    const runResult = await runProject(validSpecPath, tempDir, "autonomous-debug-exhausted-run");
+    const doctorReportPath = path.join(tempDir, "doctor.json");
+    const handoffIndexPath = path.join(tempDir, "handoffs", "index.json");
+
+    await writeJson(doctorReportPath, { checks: [] });
+    await mkdir(path.dirname(handoffIndexPath), { recursive: true });
+    await writeJson(handoffIndexPath, {
+      generatedAt: new Date().toISOString(),
+      runId: "autonomous-debug-exhausted-run",
+      readyTaskCount: 1,
+      descriptors: []
+    });
+
+    const result = await runAutonomousLoop(runResult.statePath, {
+      maxRounds: 1,
+      operations: {
+        runRuntimeDoctor: async () => ({ jsonPath: doctorReportPath }),
+        tickProjectRun: async () => ({
+          handoffIndexPath,
+          readyTaskCount: 1
+        }),
+        dispatchHandoffs: async () => ({
+          summary: {
+            executed: 1,
+            completed: 0,
+            continued: 0,
+            incomplete: 1,
+            failed: 0,
+            skipped: 0
+          },
+          resultJsonPath: path.join(tempDir, "handoffs", "dispatch-results.json"),
+          resultMarkdownPath: path.join(tempDir, "handoffs", "dispatch-results.md"),
+          results: []
+        })
+      }
+    });
+
+    const debugDirectory = path.join(path.dirname(runResult.statePath), "artifacts", "autonomous-debug");
+    const terminalSummary = await readJson(path.join(debugDirectory, "terminal-summary.json"));
+    const checkpoint = await readJson(path.join(debugDirectory, "checkpoint.json"));
+
+    assert.equal(result.summary.terminalSummary.state, "exhausted");
+    assert.equal(result.summary.stopReason, "maximum rounds reached");
+    assert.equal(terminalSummary.state, "exhausted");
+    assert.equal(terminalSummary.reasonCode, "max_rounds_reached");
+    assert.equal(checkpoint.resume.canResume, true);
+    assert.equal(checkpoint.resume.mode, "immediate");
+  });
+
+  await runTest("autonomous loop persists failed checkpoints and debug evidence when the loop throws", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-autonomous-debug-error-"));
+    const runResult = await runProject(validSpecPath, tempDir, "autonomous-debug-error-run");
+
+    await assert.rejects(
+      () =>
+        runAutonomousLoop(runResult.statePath, {
+          maxRounds: 1,
+          operations: {
+            runRuntimeDoctor: async () => {
+              throw new Error("Injected doctor failure");
+            }
+          }
+        }),
+      /Injected doctor failure/
+    );
+
+    const debugDirectory = path.join(path.dirname(runResult.statePath), "artifacts", "autonomous-debug");
+    const terminalSummary = await readJson(path.join(debugDirectory, "terminal-summary.json"));
+    const checkpoint = await readJson(path.join(debugDirectory, "checkpoint.json"));
+    const debugBundle = await readJson(path.join(debugDirectory, "debug-bundle.json"));
+
+    assert.equal(terminalSummary.reasonCode, "autonomous_error");
+    assert.equal(checkpoint.checkpointStatus, "failed");
+    assert.match(checkpoint.errorMessage ?? "", /Injected doctor failure/);
+    assert.equal(debugBundle.terminalState, terminalSummary.state);
   });
 
   console.log("Autonomous run tests passed.");

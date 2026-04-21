@@ -234,6 +234,23 @@ function summarizeWaitingRetryTasks(runState) {
   };
 }
 
+async function loadAutonomousDebugSnapshot(runDirectory) {
+  const debugDirectory = path.join(runDirectory, "artifacts", "autonomous-debug");
+  const terminalSummaryPath = path.join(debugDirectory, "terminal-summary.json");
+  const checkpointPath = path.join(debugDirectory, "checkpoint.json");
+  const hypothesisLedgerPath = path.join(debugDirectory, "hypothesis-ledger.json");
+  const debugBundlePath = path.join(debugDirectory, "debug-bundle.json");
+
+  return {
+    terminalSummaryPath: (await pathExists(terminalSummaryPath)) ? terminalSummaryPath : null,
+    checkpointPath: (await pathExists(checkpointPath)) ? checkpointPath : null,
+    hypothesisLedgerPath: (await pathExists(hypothesisLedgerPath)) ? hypothesisLedgerPath : null,
+    debugBundlePath: (await pathExists(debugBundlePath)) ? debugBundlePath : null,
+    terminalSummary: (await pathExists(terminalSummaryPath)) ? await readJson(terminalSummaryPath).catch(() => null) : null,
+    checkpoint: (await pathExists(checkpointPath)) ? await readJson(checkpointPath).catch(() => null) : null
+  };
+}
+
 export function normalizePanelPort(portInput, fallbackPort = DEFAULT_PANEL_PORT) {
   if (portInput === undefined || portInput === null || String(portInput).trim().length === 0) {
     return fallbackPort;
@@ -270,6 +287,7 @@ async function buildWorkspaceOverview(workspaceRoot) {
       const runDirectory = path.dirname(latestRunStatePath);
       const reportPath = path.join(runDirectory, "report.md");
       const defaultHandoffIndexPath = await resolveDefaultHandoffIndexPath(latestRunStatePath).catch(() => null);
+      const autonomousDebug = await loadAutonomousDebugSnapshot(runDirectory);
 
       latestRun = {
         runDirectory,
@@ -277,7 +295,8 @@ async function buildWorkspaceOverview(workspaceRoot) {
         reportPath,
         handoffIndexPath: defaultHandoffIndexPath,
         summary: summarizeRunState(runState),
-        waitingRetry: summarizeWaitingRetryTasks(runState)
+        waitingRetry: summarizeWaitingRetryTasks(runState),
+        autonomousDebug
       };
     }
   }

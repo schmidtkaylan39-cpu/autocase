@@ -278,6 +278,18 @@ function countDispatchFailureNotes(task) {
     : 0;
 }
 
+function countRetryBudgetConsumption(task) {
+  const attempts = normalizePositiveInteger(task?.attempts, 0);
+  const retryCount = normalizePositiveInteger(task?.retryCount, 0);
+  const automaticRetriesConsumed = Math.max(0, retryCount - 1);
+
+  return {
+    attempts,
+    retryCount,
+    consumed: Math.max(attempts, automaticRetriesConsumed)
+  };
+}
+
 function buildLauncherExecutionError(message, code, cause) {
   const error = /** @type {Error & { code?: string, stdout?: string, stderr?: string }} */ (
     new Error(message, { cause })
@@ -1116,9 +1128,9 @@ async function prepareTaskForExecution(
       };
     }
 
-    const attempts = normalizePositiveInteger(task.attempts, 0);
+    const retryBudgetState = countRetryBudgetConsumption(task);
 
-    if (attempts >= executionGuardrails.retryBudget) {
+    if (retryBudgetState.consumed >= executionGuardrails.retryBudget) {
       const guardedRunState = updateTaskInRunState(
         {
           ...runState,
@@ -1128,7 +1140,8 @@ async function prepareTaskForExecution(
         },
         descriptor.taskId,
         "blocked",
-        `dispatch:retry-budget-exhausted attempts=${attempts} budget=${executionGuardrails.retryBudget}`
+        `dispatch:retry-budget-exhausted attempts=${retryBudgetState.attempts} ` +
+          `retryCount=${retryBudgetState.retryCount} budget=${executionGuardrails.retryBudget}`
       );
 
       await writeJson(runStatePath, guardedRunState);
@@ -1140,7 +1153,10 @@ async function prepareTaskForExecution(
 
       return {
         shouldExecute: false,
-        note: `Retry budget exhausted for task ${descriptor.taskId} (${attempts}/${executionGuardrails.retryBudget}).`
+        note:
+          `Retry budget exhausted for task ${descriptor.taskId} ` +
+          `(attempts=${retryBudgetState.attempts}, retryCount=${retryBudgetState.retryCount}, ` +
+          `budget=${executionGuardrails.retryBudget}).`
       };
     }
 
