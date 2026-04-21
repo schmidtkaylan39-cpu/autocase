@@ -46,6 +46,7 @@
     "tick:example": "node src/index.mjs tick runs/example-run/run-state.json",
     "review:bundle": "node src/index.mjs review-bundle",
     "review:share": "node scripts/review-share-package.mjs",
+    "review:debug:panel": "node scripts/gpt-debug-share-package.mjs",
     "doctor": "node src/index.mjs doctor",
     "test:panel:browser": "node tests/panel-browser-smoke-tests.mjs",
     "handoff:example": "node src/index.mjs handoff runs/example-run/run-state.json",
