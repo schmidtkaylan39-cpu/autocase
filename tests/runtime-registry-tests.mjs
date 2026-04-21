@@ -272,7 +272,7 @@ async function main() {
     );
   });
 
-  await runTest("buildHandoffDescriptor automatically fails planner retries over to codex after transient gpt-runner failures", async () => {
+  await runTest("buildHandoffDescriptor keeps planner retries on gpt-runner after transient gpt-runner failures", async () => {
     const descriptor = createDescriptorFixture({
       role: "planner",
       taskId: "planning-brief",
@@ -300,18 +300,18 @@ async function main() {
       platform: "win32"
     });
 
-    assert.equal(descriptor.runtime.id, "codex");
+    assert.equal(descriptor.runtime.id, "gpt-runner");
     assert.equal(descriptor.runtime.mode, "automated");
     assert.equal(descriptor.runtime.selectionStatus, "ready");
-    assert.match(descriptor.runtime.selectionReason, /selected automatically after a transient GPT Runner upstream failure/i);
-    assert.equal(descriptor.launcher.metadata.runtimeId, "codex");
+    assert.match(descriptor.runtime.selectionReason, /GPT Runner is ready for this role/i);
+    assert.equal(descriptor.launcher.metadata.runtimeId, "gpt-runner");
     assert.match(
       descriptor.launcherScript,
-      /\$prompt \| & codex -a never exec --skip-git-repo-check -C \. -s workspace-write -/i
+      /\$prompt \| & codex -m 'gpt-5\.4' -a never exec --skip-git-repo-check -C \. -s workspace-write -/i
     );
   });
 
-  await runTest("buildHandoffDescriptor also fails planner retries over to codex when the transient GPT-runner signal only survives in notes", async () => {
+  await runTest("buildHandoffDescriptor also keeps planner retries on gpt-runner when the transient signal only survives in notes", async () => {
     const descriptor = createDescriptorFixture({
       role: "planner",
       taskId: "planning-brief",
@@ -341,11 +341,55 @@ async function main() {
       platform: "win32"
     });
 
-    assert.equal(descriptor.runtime.id, "codex");
+    assert.equal(descriptor.runtime.id, "gpt-runner");
     assert.equal(descriptor.runtime.mode, "automated");
     assert.equal(descriptor.runtime.selectionStatus, "ready");
-    assert.match(descriptor.runtime.selectionReason, /selected automatically after a transient GPT Runner upstream failure/i);
-    assert.equal(descriptor.launcher.metadata.runtimeId, "codex");
+    assert.match(descriptor.runtime.selectionReason, /GPT Runner is ready for this role/i);
+    assert.equal(descriptor.launcher.metadata.runtimeId, "gpt-runner");
+    assert.match(
+      descriptor.launcherScript,
+      /\$prompt \| & codex -m 'gpt-5\.4-pro' -a never exec --skip-git-repo-check -C \. -s workspace-write -/i
+    );
+  });
+
+  await runTest("buildHandoffDescriptor preserves escalated reviewer model while reviewer retries stay on gpt-runner", async () => {
+    const descriptor = createDescriptorFixture({
+      role: "reviewer",
+      taskId: "review-feature",
+      runState: {
+        status: "attention_required"
+      },
+      taskOverrides: {
+        retryCount: 1,
+        lastRetryReason:
+          "Transient GPT Runner upstream failure; automatically retrying the same task. Observed transient provider or transport symptoms in launcher output."
+      },
+      doctorReport: {
+        checks: [
+          {
+            id: "gpt-runner",
+            installed: true,
+            ok: true,
+            source: "C:/tools/codex.cmd"
+          },
+          {
+            id: "codex",
+            installed: true,
+            ok: true,
+            source: "C:/tools/codex.cmd"
+          }
+        ]
+      },
+      platform: "win32"
+    });
+
+    assert.equal(descriptor.runtime.id, "gpt-runner");
+    assert.equal(descriptor.model.preferredModel, "gpt-5.4-pro");
+    assert.match(descriptor.runtime.selectionReason, /GPT Runner is ready for this role/i);
+    assert.match(
+      descriptor.launcherScript,
+      /\$prompt \| & codex -m 'gpt-5\.4-pro' -a never exec --skip-git-repo-check -C \. -s workspace-write -/i
+    );
   });
 
   await runTest("manual planner or reviewer surfaces are skipped by dispatch execute when explicitly forced", async () => {

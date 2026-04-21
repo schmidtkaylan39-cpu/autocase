@@ -718,7 +718,7 @@ async function main() {
     assert.ok(typeof planningTask?.nextRetryAt === "string");
   });
 
-  await runTest("planner retries fail over to codex after transient gpt-runner upstream failures", async () => {
+  await runTest("planner retries stay on gpt-runner after transient gpt-runner upstream failures", async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-planner-failover-run-"));
     const runResult = await runProject(validSpecPath, tempDir, "planner-failover-run");
     const initialHandoffs = await createRunHandoffs(runResult.statePath);
@@ -767,9 +767,12 @@ async function main() {
     }
 
     const retryDescriptorArtifact = JSON.parse(await readFile(retryDescriptor.handoffJsonPath, "utf8"));
-    assert.equal(retryDescriptor.runtime.id, "codex");
-    assert.match(retryDescriptor.runtime.selectionReason, /transient GPT Runner upstream failure/i);
-    assert.match(retryDescriptorArtifact.launcherScript, /codex -a never exec --skip-git-repo-check -C \. -s workspace-write -/i);
+    assert.equal(retryDescriptor.runtime.id, "gpt-runner");
+    assert.match(retryDescriptor.runtime.selectionReason, /GPT Runner is ready for this role/i);
+    assert.match(
+      retryDescriptorArtifact.launcherScript,
+      /codex -m 'gpt-5\.4-pro' -a never exec --skip-git-repo-check -C \. -s workspace-write -/i
+    );
   });
 
   await runTest("manual or hybrid result artifacts require an active handoff", async () => {
