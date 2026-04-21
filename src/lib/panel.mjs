@@ -26,6 +26,13 @@ import { summarizeRunState } from "./run-state.mjs";
 const DEFAULT_PANEL_HOST = "127.0.0.1";
 const DEFAULT_PANEL_PORT = 4310;
 const MAX_REQUEST_BYTES = 1_000_000;
+const DEFAULT_PANEL_REQUEST_TEXT = [
+  "Start: Local workspace contains sales.json and artifacts/reports is writable.",
+  "End point: Create artifacts/reports/summary.md from local sales.json without changing sales.json.",
+  "Success criteria: artifacts/reports/summary.md exists; summary.md includes daily totals; summary.md includes anomaly notes; summary.md stays inside the local workspace.",
+  "Input source: sales.json.",
+  "Out of scope: do not modify sales.json; do not send email; do not call external APIs."
+].join("\n");
 const QUICK_START_CONFIRMATION_TOKEN_SAFE = "我確認起點與終點";
 
 const quickStartContractFields = [
@@ -357,6 +364,88 @@ function dedupeTextList(items) {
   return results;
 }
 
+function buildOutOfScopePolicy(outOfScopeValues) {
+  const normalizedValues = dedupeTextList(outOfScopeValues).map((item) => item.toLowerCase());
+  const matchesAny = (patterns) =>
+    normalizedValues.some((value) => patterns.some((pattern) => pattern.test(value)));
+  const disallowEmail = matchesAny([
+    /\bdo not send email\b/,
+    /\bdon't send email\b/,
+    /\bno email\b/,
+    /不寄信/,
+    /不要寄信/,
+    /不要发送邮件/,
+    /不要發送郵件/
+  ]);
+  const disallowExternalApi = matchesAny([
+    /\bdo not call external apis?\b/,
+    /\bdon't call external apis?\b/,
+    /\bno external apis?\b/,
+    /\bno webhooks?\b/,
+    /不要呼叫外部 api/,
+    /不要调用外部 api/
+  ]);
+  const disallowNotifications = matchesAny([
+    /\bdo not send notifications?\b/,
+    /\bno notifications?\b/,
+    /不要發通知/,
+    /不要发送通知/
+  ]);
+
+  return {
+    disallowEmail,
+    disallowExternalApi,
+    disallowOutbound: disallowEmail || disallowExternalApi || disallowNotifications
+  };
+}
+
+function textMatchesOutOfScopePolicy(value, outOfScopePolicy) {
+  const normalizedValue = String(value ?? "").toLowerCase();
+
+  if (!normalizedValue) {
+    return false;
+  }
+
+  if (
+    outOfScopePolicy.disallowEmail &&
+    (/\bemail\b/.test(normalizedValue) || normalizedValue.includes("郵件") || normalizedValue.includes("邮件"))
+  ) {
+    return true;
+  }
+
+  if (
+    outOfScopePolicy.disallowExternalApi &&
+    (/\bapi\b/.test(normalizedValue) || normalizedValue.includes("webhook"))
+  ) {
+    return true;
+  }
+
+  if (
+    outOfScopePolicy.disallowOutbound &&
+    (normalizedValue.includes("outbound") ||
+      normalizedValue.includes("public-facing") ||
+      normalizedValue.includes("public facing") ||
+      normalizedValue.includes("notification") ||
+      normalizedValue.includes("通知"))
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+function filterStringArrayForOutOfScope(values, outOfScopePolicy) {
+  return dedupeTextList(values).filter((item) => !textMatchesOutOfScopePolicy(item, outOfScopePolicy));
+}
+
+function filterStructuredArrayForOutOfScope(items, outOfScopePolicy, toText) {
+  if (!Array.isArray(items)) {
+    return [];
+  }
+
+  return items.filter((item) => !textMatchesOutOfScopePolicy(toText(item), outOfScopePolicy));
+}
+
 function parseQuickStartExecutionContract(requestText) {
   const normalizedRequest = typeof requestText === "string" ? requestText.trim() : "";
   const requestForMatching = normalizedRequest.replace(
@@ -406,6 +495,7 @@ function applyExecutionContractToIntakeSpec(spec, executionContract, now = new D
   const inputValues = contractValues(executionContract, "inputSource");
   const successValues = contractValues(executionContract, "successCriteria");
   const outOfScopeValues = contractValues(executionContract, "outOfScope");
+  const outOfScopePolicy = buildOutOfScopePolicy(outOfScopeValues);
   const openQuestions = Array.isArray(spec.openQuestions)
     ? spec.openQuestions.filter((question) => {
         if (question?.category === "goal" && nonEmptyText(goalValue)) {
@@ -421,6 +511,10 @@ function applyExecutionContractToIntakeSpec(spec, executionContract, now = new D
         }
 
         if (question?.category === "scope" && outOfScopeValues.length > 0) {
+          return false;
+        }
+
+        if (question?.category === "permissions" && textMatchesOutOfScopePolicy(question?.question, outOfScopePolicy)) {
           return false;
         }
 
@@ -443,18 +537,39 @@ function applyExecutionContractToIntakeSpec(spec, executionContract, now = new D
           status: "needs_confirmation"
         }))
       : spec.successCriteria;
+  const requiredAccountsAndPermissions = filterStructuredArrayForOutOfScope(
+    spec.requiredAccountsAndPermissions,
+    outOfScopePolicy,
+    (item) => [item?.system, item?.accessLevel, item?.reason].filter(nonEmptyText).join(" ")
+  );
+  const externalDependencies = filterStructuredArrayForOutOfScope(
+    spec.externalDependencies,
+    outOfScopePolicy,
+    (item) => [item?.name, item?.type, item?.status].filter(nonEmptyText).join(" ")
+  );
+  const humanStepsRequired = filterStringArrayForOutOfScope(
+    spec.automationAssessment?.humanStepsRequired,
+    outOfScopePolicy
+  );
+  const risks = filterStringArrayForOutOfScope(spec.risks, outOfScopePolicy);
+  const rationale = filterStringArrayForOutOfScope(spec.automationAssessment?.rationale, outOfScopePolicy);
+  const approvalRequired = humanStepsRequired.length > 0 && spec.approvalRequired === true;
 
   return {
     ...spec,
     clarifiedGoal: goalValue || spec.clarifiedGoal,
     inScope: dedupeTextList([
-      ...(Array.isArray(spec.inScope) ? spec.inScope : []),
+      ...filterStringArrayForOutOfScope(spec.inScope, outOfScopePolicy),
       goalValue ? `Deliver the confirmed end point: ${goalValue}.` : null
     ]),
     outOfScope: outOfScopeValues.length > 0 ? outOfScopeValues : spec.outOfScope,
     requiredInputs,
+    requiredAccountsAndPermissions,
+    externalDependencies,
+    risks,
     successCriteria,
     openQuestions,
+    approvalRequired,
     clarificationStatus: blockers.length === 0 ? "awaiting_confirmation" : spec.clarificationStatus,
     recommendedNextStep:
       blockers.length === 0
@@ -462,18 +577,23 @@ function applyExecutionContractToIntakeSpec(spec, executionContract, now = new D
         : spec.recommendedNextStep,
     automationAssessment: {
       ...spec.automationAssessment,
+      humanStepsRequired,
       blockers,
       canFullyAutomate:
         blockers.length === 0 &&
-        !(Array.isArray(spec.requiredAccountsAndPermissions)
-          ? spec.requiredAccountsAndPermissions.some((item) => item?.status === "missing" || item?.status === "needs_clarification")
-          : false),
+        humanStepsRequired.length === 0 &&
+        !requiredAccountsAndPermissions.some(
+          (item) => item?.status === "missing" || item?.status === "needs_clarification"
+        ),
       estimatedAutomatablePercent:
         blockers.length === 0
-          ? Math.max(Number(spec.automationAssessment?.estimatedAutomatablePercent ?? 0) || 0, 90)
+          ? Math.max(
+              Number(spec.automationAssessment?.estimatedAutomatablePercent ?? 0) || 0,
+              humanStepsRequired.length === 0 ? 100 : 90
+            )
           : spec.automationAssessment?.estimatedAutomatablePercent ?? 25,
       rationale: dedupeTextList([
-        ...(Array.isArray(spec.automationAssessment?.rationale) ? spec.automationAssessment.rationale : []),
+        ...rationale,
         blockers.length === 0
           ? "The structured execution contract supplied the missing goal, input, success, and scope details."
           : null
@@ -1199,7 +1319,7 @@ function renderPanelHtml(workspaceRoot) {
       <label for="workspaceInput">工作區路徑</label>
       <input id="workspaceInput" value="${escapedWorkspace}" />
       <label for="requestInput" style="margin-top:10px">需求內容</label>
-      <textarea id="requestInput">Read local sales.json and write summary.md to artifacts/reports; do not send email and do not call external APIs.</textarea>
+      <textarea id="requestInput">${escapeHtml(DEFAULT_PANEL_REQUEST_TEXT)}</textarea>
       <div class="grid-2" style="margin-top:10px">
         <div>
           <label for="runIdInput">Run ID（可留空）</label>
@@ -1207,7 +1327,7 @@ function renderPanelHtml(workspaceRoot) {
         </div>
         <div>
           <label for="maxRoundsInput">最大自動輪數</label>
-          <input id="maxRoundsInput" value="8" />
+          <input id="maxRoundsInput" value="20" />
         </div>
       </div>
       <label for="confirmationInput" style="margin-top:10px">人工確認語句（建議先按「分析起點/終點」再貼上）</label>
@@ -1663,11 +1783,27 @@ function renderPanelHtml(workspaceRoot) {
 
         const confirmationToken = preview.confirmationToken || "我確認起點與終點";
         const previewDigest = typeof preview.previewDigest === "string" ? preview.previewDigest : "";
+        const successCriteriaSummary = Array.isArray(preview.endPoint?.successTargets)
+          ? preview.endPoint.successTargets
+              .map((item) => String(item ?? "").trim())
+              .filter((item) => item.length > 0)
+              .join("; ")
+          : "";
+        const outOfScopeSummary = Array.isArray(preview.endPoint?.outOfScope)
+          ? preview.endPoint.outOfScope
+              .map((item) => String(item ?? "").trim())
+              .filter((item) => item.length > 0)
+              .join("; ")
+          : "";
         const confirmationPrompt =
           "Please review this before execution.\\n\\nStart: " +
           (preview.startPoint?.request || "(not provided)") +
           "\\nEnd: " +
           (preview.endPoint?.goal || "(not provided)") +
+          "\\nSuccess criteria: " +
+          (successCriteriaSummary || "(not provided)") +
+          "\\nOut of scope: " +
+          (outOfScopeSummary || "(not provided)") +
           "\\n\\nType exactly: " +
           confirmationToken;
         const typedConfirmation = (confirmationInput?.value?.trim() || window.prompt(

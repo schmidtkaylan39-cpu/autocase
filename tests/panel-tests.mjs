@@ -188,8 +188,13 @@ async function main() {
 
       assert.match(pageHtml, /id="workspaceInput"/);
       assert.match(pageHtml, /id="requestInput"/);
+      assert.match(pageHtml, /Start: Local workspace contains sales\.json and artifacts\/reports is writable\./);
+      assert.match(pageHtml, /End point: Create artifacts\/reports\/summary\.md from local sales\.json without changing sales\.json\./);
+      assert.match(pageHtml, /Success criteria:/);
+      assert.match(pageHtml, /Input source: sales\.json\./);
+      assert.match(pageHtml, /Out of scope: do not modify sales\.json; do not send email; do not call external APIs\./);
       assert.match(pageHtml, /id="runIdInput"/);
-      assert.match(pageHtml, /id="maxRoundsInput"/);
+      assert.match(pageHtml, /id="maxRoundsInput" value="20"/);
       assert.match(pageHtml, /id="confirmationInput"/);
       assert.match(pageHtml, /id="applyWorkspaceBtn"/);
       assert.match(pageHtml, /id="previewIntakeBtn"/);
@@ -211,6 +216,10 @@ async function main() {
       assert.match(pageHtml, /Quick start failed/);
       assert.match(pageHtml, /window\.prompt\(/);
       assert.match(pageHtml, /confirmationInput\?\.value\?\.trim\(\)/);
+      assert.match(pageHtml, /const successCriteriaSummary = Array\.isArray\(preview\.endPoint\?\.successTargets\)/);
+      assert.match(pageHtml, /const outOfScopeSummary = Array\.isArray\(preview\.endPoint\?\.outOfScope\)/);
+      assert.match(pageHtml, /\\nSuccess criteria: /);
+      assert.match(pageHtml, /\\nOut of scope: /);
       assert.match(pageHtml, /document\.getElementById\("quickStartBtn"\)\.addEventListener\("click", runQuickStartSafe\)/);
       assert.match(pageHtml, /runAction\("intake-preview", \{ request: requestInput\.value \}/);
       assert.match(pageHtml, /invokeAction\(\s*"quick-start-safe"/);
@@ -275,6 +284,11 @@ async function main() {
         assert.match(preview.previewDigest, /^[a-f0-9]{64}$/i);
         assert.ok(Array.isArray(preview.processSteps));
         assert.ok(preview.processSteps.length >= 3);
+        assert.deepEqual(preview.startPoint.permissions, []);
+        assert.equal(
+          preview.humanCheckpoints.some((item) => /email|api|webhook|outbound|public-facing/i.test(item)),
+          false
+        );
 
         const digestMismatchMessage = await postActionExpectError(panel.url, "quick-start-safe", {
           request: requestText,
@@ -335,6 +349,7 @@ async function main() {
         assert.notEqual(generatedSpec.projectName, "AI Factory Demo");
         assert.equal(generatedSpec.projectGoal.oneLine, endPoint);
         assert.deepEqual(generatedSpec.acceptanceCriteria, successCriteria);
+        assert.deepEqual(generatedSpec.integrations, []);
         assert.equal(runState.intake?.clarificationStatus, "confirmed");
         assert.equal(runState.projectName, generatedSpec.projectName);
         assert.equal(runState.runId, runId);

@@ -4,6 +4,8 @@ import os from "node:os";
 import path from "node:path";
 
 import {
+  buildRunConsistencyVerification,
+  captureSmokeInputSnapshots,
   isMainModule,
   parseArgs,
   verifyGeneratedSummaryArtifact
@@ -49,8 +51,12 @@ async function main() {
   await runTest("panel one-click smoke verifies generated summary requirements", async () => {
     const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "ai-factory-panel-one-click-smoke-"));
     const generatedDirectory = path.join(workspaceRoot, "artifacts", "generated");
+    const dataDirectory = path.join(workspaceRoot, "data");
 
     await mkdir(generatedDirectory, { recursive: true });
+    await mkdir(dataDirectory, { recursive: true });
+    await writeFile(path.join(dataDirectory, "brief.txt"), "Brief token: BRIEF-PANEL-SMOKE-20260421-A\n", "utf8");
+    await writeFile(path.join(dataDirectory, "details.txt"), "Details token: DETAIL-PANEL-SMOKE-20260421-B\n", "utf8");
     await writeFile(
       path.join(generatedDirectory, "summary.md"),
       [
@@ -70,6 +76,47 @@ async function main() {
     assert.equal(verification.checks.every((check) => check.passed), true);
   });
 
+  await runTest("panel one-click smoke fails when input files change after snapshot capture", async () => {
+    const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "ai-factory-panel-one-click-smoke-inputs-"));
+    const generatedDirectory = path.join(workspaceRoot, "artifacts", "generated");
+    const dataDirectory = path.join(workspaceRoot, "data");
+
+    await mkdir(generatedDirectory, { recursive: true });
+    await mkdir(dataDirectory, { recursive: true });
+    await writeFile(path.join(dataDirectory, "brief.txt"), "Brief token: BRIEF-PANEL-SMOKE-20260421-A\n", "utf8");
+    await writeFile(path.join(dataDirectory, "details.txt"), "Details token: DETAIL-PANEL-SMOKE-20260421-B\n", "utf8");
+    const immutableInputSnapshots = await captureSmokeInputSnapshots(workspaceRoot);
+    await writeFile(
+      path.join(dataDirectory, "details.txt"),
+      "Details token: DETAIL-PANEL-SMOKE-20260421-B\nUnexpected mutation\n",
+      "utf8"
+    );
+    await writeFile(
+      path.join(generatedDirectory, "summary.md"),
+      [
+        "# Combined Notes",
+        "",
+        "Brief token: BRIEF-PANEL-SMOKE-20260421-A",
+        "Details token: DETAIL-PANEL-SMOKE-20260421-B",
+        "",
+        "\u4e2d\u6587\u6458\u8981\uff1a\u8f38\u51fa\u4e4d\u7136\u6b63\u78ba\uff0c\u4f46 input \u5df2\u88ab\u7be1\u6539\u3002"
+      ].join("\n"),
+      "utf8"
+    );
+
+    const verification = await verifyGeneratedSummaryArtifact(workspaceRoot, {
+      immutableInputSnapshots
+    });
+
+    assert.equal(verification.passed, false);
+    assert.equal(
+      verification.checks.some(
+        (check) => check.id === "input-immutable-data-details-txt" && check.passed === false
+      ),
+      true
+    );
+  });
+
   await runTest("panel one-click smoke reports missing generated summary", async () => {
     const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "ai-factory-panel-one-click-smoke-missing-"));
     const verification = await verifyGeneratedSummaryArtifact(workspaceRoot);
@@ -77,6 +124,78 @@ async function main() {
     assert.equal(verification.passed, false);
     assert.equal(verification.checks[0]?.id, "summary-exists");
     assert.equal(verification.checks[0]?.passed, false);
+  });
+
+  await runTest("panel one-click smoke requires matching run ids and statuses across artifacts", async () => {
+    const verification = buildRunConsistencyVerification({
+      runId: "panel-live-smoke-001",
+      quickStartResponse: {
+        result: {
+          run: { runId: "panel-live-smoke-001" },
+          autonomous: {
+            finalStatus: "completed",
+            runSummary: { status: "completed" }
+          }
+        }
+      },
+      statusAfter: {
+        overview: {
+          latestRun: {
+            summary: {
+              runId: "panel-live-smoke-001",
+              status: "completed"
+            }
+          }
+        }
+      },
+      runState: {
+        runId: "panel-live-smoke-001",
+        status: "completed"
+      },
+      autonomousSummary: {
+        runId: "panel-live-smoke-001",
+        finalStatus: "completed"
+      }
+    });
+
+    assert.equal(verification.passed, true);
+    assert.equal(verification.checks.every((check) => check.passed), true);
+  });
+
+  await runTest("panel one-click smoke fails closed when autonomous summary is missing", async () => {
+    const verification = buildRunConsistencyVerification({
+      runId: "panel-live-smoke-002",
+      quickStartResponse: {
+        result: {
+          run: { runId: "panel-live-smoke-002" },
+          autonomous: {
+            finalStatus: "completed",
+            runSummary: { status: "completed" }
+          }
+        }
+      },
+      statusAfter: {
+        overview: {
+          latestRun: {
+            summary: {
+              runId: "panel-live-smoke-002",
+              status: "completed"
+            }
+          }
+        }
+      },
+      runState: {
+        runId: "panel-live-smoke-002",
+        status: "completed"
+      },
+      autonomousSummary: null
+    });
+
+    assert.equal(verification.passed, false);
+    assert.equal(
+      verification.checks.some((check) => check.id === "autonomous-summary-exists" && check.passed === false),
+      true
+    );
   });
 
   console.log("Panel one-click smoke tests passed.");

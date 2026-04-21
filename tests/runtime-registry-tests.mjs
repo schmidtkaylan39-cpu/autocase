@@ -27,6 +27,7 @@ function createDescriptorFixture({
   role,
   taskId,
   doctorReport,
+  spec = {},
   runState = {},
   taskOverrides = {},
   platform = process.platform
@@ -41,7 +42,8 @@ function createDescriptorFixture({
     workspacePath,
     spec: {
       projectName: "Runtime Routing Demo",
-      summary: "Validate runtime routing behavior."
+      summary: "Validate runtime routing behavior.",
+      ...spec
     },
     runState: {
       runId: "routing-run",
@@ -307,6 +309,43 @@ async function main() {
       descriptor.launcherScript,
       /\$prompt \| & codex -a never exec --skip-git-repo-check -C \. -s workspace-write -/i
     );
+  });
+
+  await runTest("buildHandoffDescriptor also fails planner retries over to codex when the transient GPT-runner signal only survives in notes", async () => {
+    const descriptor = createDescriptorFixture({
+      role: "planner",
+      taskId: "planning-brief",
+      taskOverrides: {
+        retryCount: 1,
+        lastRetryReason: null,
+        notes: [
+          "2026-04-21T01:34:50.974Z dispatch:automation:retry_task:planning-brief Transient GPT Runner upstream failure; automatically retrying the same task. Observed transient provider or transport symptoms in launcher output."
+        ]
+      },
+      doctorReport: {
+        checks: [
+          {
+            id: "gpt-runner",
+            installed: true,
+            ok: true,
+            source: "C:/tools/codex.cmd"
+          },
+          {
+            id: "codex",
+            installed: true,
+            ok: true,
+            source: "C:/tools/codex.cmd"
+          }
+        ]
+      },
+      platform: "win32"
+    });
+
+    assert.equal(descriptor.runtime.id, "codex");
+    assert.equal(descriptor.runtime.mode, "automated");
+    assert.equal(descriptor.runtime.selectionStatus, "ready");
+    assert.match(descriptor.runtime.selectionReason, /selected automatically after a transient GPT Runner upstream failure/i);
+    assert.equal(descriptor.launcher.metadata.runtimeId, "codex");
   });
 
   await runTest("manual planner or reviewer surfaces are skipped by dispatch execute when explicitly forced", async () => {
@@ -655,6 +694,64 @@ async function main() {
       linuxDescriptor.launcherScript,
       /cat > 'C:[\\/]workspace[\\/]demo[\\/]runs[\\/]example[\\/]handoffs[\\/]results[\\/]verify-spec-intake\.result\.json' <<'JSON'/
     );
+  });
+
+  await runTest("quick-start verifier descriptors force reserved output verification even with full local-ci gates", async () => {
+    const descriptorFixture = {
+      role: "verifier",
+      taskId: "verify-generated-summary",
+      spec: {
+        projectName: "Quick Start Runtime Routing Demo",
+        summary: "Validate reserved quick-start verifier routing.",
+        factoryMetadata: {
+          quickStartVerifierContract: {
+            artifactPath: "artifacts/generated/summary.md",
+            requiredExactTokens: ["BRIEF-TOKEN-1", "DETAIL-TOKEN-2"]
+          }
+        }
+      },
+      runState: {
+        runId: "routing-run",
+        mandatoryGates: ["build", "lint", "typecheck", "unit test", "integration test", "e2e test"]
+      },
+      doctorReport: {
+        checks: [
+          {
+            id: "local-ci",
+            installed: true,
+            ok: true,
+            source: "C:/tools/node.exe"
+          }
+        ]
+      }
+    };
+    const windowsDescriptor = createDescriptorFixture({
+      ...descriptorFixture,
+      platform: "win32"
+    });
+    const linuxDescriptor = createDescriptorFixture({
+      ...descriptorFixture,
+      platform: "linux"
+    });
+
+    for (const descriptor of [windowsDescriptor, linuxDescriptor]) {
+      assert.equal(descriptor.runtime.id, "local-ci");
+      assert.match(
+        descriptor.launcherScript,
+        /\bnpm run quick-start:verify-output\b/,
+        "Expected local-ci launcher to append the reserved quick-start verification command."
+      );
+      assert.match(
+        descriptor.launcherScript,
+        /\bnpm run test:e2e\b[\s\S]*\bnpm run quick-start:verify-output\b/,
+        "Expected reserved quick-start verification command to run after the standard local-ci gates."
+      );
+      assert.match(
+        descriptor.launcherScript,
+        /quick-start output verification/,
+        "Expected result artifact notes to include the dedicated quick-start verification gate."
+      );
+    }
   });
 
   await runTest("manual launcher text stays platform-explicit when reviewer is forced to manual", async () => {

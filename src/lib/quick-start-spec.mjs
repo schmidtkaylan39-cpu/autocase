@@ -1,18 +1,21 @@
-import { access, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { access, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import { ensureDirectory, writeJson } from "./fs-utils.mjs";
+import { ensureDirectory, readJson, writeJson } from "./fs-utils.mjs";
 import { validateProjectSpec } from "./spec.mjs";
 
 const quickStartVerifierScriptRelativePath = path.join("scripts", "verify-summary.mjs");
 const quickStartVerifierCommand = "node scripts/verify-summary.mjs";
+const quickStartReservedVerifyScriptName = "quick-start:verify-output";
 const quickStartLocalCiScripts = Object.freeze({
   build: 'node -e "console.log(\'quick-start build bootstrap ok\')"',
   lint: 'node -e "console.log(\'quick-start lint bootstrap ok\')"',
   typecheck: 'node -e "console.log(\'quick-start typecheck bootstrap ok\')"',
   test: quickStartVerifierCommand,
   "test:integration": quickStartVerifierCommand,
-  "test:e2e": quickStartVerifierCommand
+  "test:e2e": quickStartVerifierCommand,
+  [quickStartReservedVerifyScriptName]: quickStartVerifierCommand
 });
 
 function isNonEmptyString(value) {
@@ -92,10 +95,249 @@ function buildQuickStartVerifierPackageJson(projectName) {
   };
 }
 
-function buildQuickStartVerifierScript() {
+function mergeQuickStartVerifierPackageJson(existingPackageJson, projectName) {
+  if (!existingPackageJson || typeof existingPackageJson !== "object" || Array.isArray(existingPackageJson)) {
+    return buildQuickStartVerifierPackageJson(projectName);
+  }
+
+  const existingScripts =
+    existingPackageJson.scripts &&
+    typeof existingPackageJson.scripts === "object" &&
+    !Array.isArray(existingPackageJson.scripts)
+      ? existingPackageJson.scripts
+      : {};
+
+  return {
+    ...existingPackageJson,
+    private: typeof existingPackageJson.private === "boolean" ? existingPackageJson.private : true,
+    scripts: {
+      ...quickStartLocalCiScripts,
+      ...existingScripts,
+      [quickStartReservedVerifyScriptName]: quickStartVerifierCommand
+    }
+  };
+}
+
+function hashTextSha256(value) {
+  return createHash("sha256").update(String(value ?? ""), "utf8").digest("hex");
+}
+
+function normalizeRelativePathString(value) {
+  if (!isNonEmptyString(value)) {
+    return null;
+  }
+
+  const normalized = value
+    .trim()
+    .replace(/^['"`]+|['"`]+$/g, "")
+    .replace(/[),.;:!?]+$/g, "")
+    .replace(/[。；：，）】》」』！？]+$/u, "")
+    .replace(/\\/g, "/");
+
+  if (!normalized || normalized.startsWith("/") || normalized.startsWith("../") || normalized.includes("..\\")) {
+    return null;
+  }
+
+  if (path.isAbsolute(normalized)) {
+    return null;
+  }
+
+  return normalized;
+}
+
+function collectPathCandidatesFromText(text) {
+  const candidates = [];
+  const pattern = /(?:^|[\s("'`])((?:[a-z0-9._-]+[\\/])+[a-z0-9._-]+\.[a-z0-9._-]+)(?=$|[\s)"'`,.;:])/gi;
+
+  for (const match of String(text ?? "").matchAll(pattern)) {
+    const normalized = normalizeRelativePathString(match[1]);
+    if (normalized) {
+      candidates.push(normalized);
+    }
+  }
+
+  return dedupeStrings(candidates);
+}
+
+function extractImmutableInputPaths(dataSources, artifactPath) {
+  const dataSourceCandidates = dedupeStrings(
+    (dataSources ?? []).flatMap((dataSource) => collectPathCandidatesFromText(dataSource))
+  );
+
+  return dataSourceCandidates.filter((candidate) => candidate !== artifactPath);
+}
+
+function extractRequestedArtifactPath(acceptanceCriteria, deliverables) {
+  const criteriaCandidates = dedupeStrings(
+    (acceptanceCriteria ?? []).flatMap((criterion) => collectPathCandidatesFromText(criterion))
+  );
+  const deliverableCandidates = dedupeStrings(
+    (deliverables ?? []).flatMap((deliverable) => collectPathCandidatesFromText(deliverable))
+  );
+  const allCandidates = dedupeStrings([...criteriaCandidates, ...deliverableCandidates]);
+  const artifactCandidate = allCandidates.find((candidate) => /(^|\/)artifacts\//i.test(candidate));
+  const markdownCandidate =
+    artifactCandidate && /\.md$/i.test(artifactCandidate)
+      ? artifactCandidate
+      : allCandidates.find((candidate) => /\.md$/i.test(candidate));
+
+  return normalizeRelativePathString(markdownCandidate ?? artifactCandidate ?? allCandidates[0] ?? "");
+}
+
+function extractTokenSourcePaths(acceptanceCriteria, artifactPath) {
+  const sources = [];
+
+  for (const criterion of acceptanceCriteria ?? []) {
+    if (!/\btoken\b/i.test(criterion)) {
+      continue;
+    }
+
+    const explicitFromMatches = String(criterion).matchAll(
+      /\bfrom\s+([`"'a-z0-9._\-\\/]+(?:\.[a-z0-9._-]+)?)/gi
+    );
+    let matchedExplicitSource = false;
+
+    for (const match of explicitFromMatches) {
+      const normalized = normalizeRelativePathString(match[1]);
+      if (normalized && normalized !== artifactPath) {
+        sources.push(normalized);
+        matchedExplicitSource = true;
+      }
+    }
+
+    if (matchedExplicitSource) {
+      continue;
+    }
+
+    const fallbackCandidates = collectPathCandidatesFromText(criterion);
+    for (const candidate of fallbackCandidates) {
+      if (candidate !== artifactPath) {
+        sources.push(candidate);
+      }
+    }
+  }
+
+  return dedupeStrings(sources);
+}
+
+function extractExactTokens(acceptanceCriteria) {
+  const tokens = [];
+
+  for (const criterion of acceptanceCriteria ?? []) {
+    for (const match of String(criterion).matchAll(/\bexact token\s+([^\s;,.]+)/gi)) {
+      tokens.push(match[1]);
+    }
+  }
+
+  return dedupeStrings(tokens);
+}
+
+function extractRequiredHeading(acceptanceCriteria) {
+  for (const criterion of acceptanceCriteria ?? []) {
+    const namedMatch = /\bheading\s+(?:named|called)\s+["'`]?([^"'`.;:]+)["'`]?/i.exec(String(criterion));
+
+    if (namedMatch) {
+      const heading = normalizeWhitespace(namedMatch[1]);
+      if (heading) {
+        return heading;
+      }
+    }
+
+    if (/\bcombined notes\b/i.test(String(criterion))) {
+      return "Combined Notes";
+    }
+  }
+
+  return null;
+}
+
+function extractRequiresChineseText(acceptanceCriteria) {
+  return (acceptanceCriteria ?? []).some((criterion) =>
+    /\bchinese\b|中文|汉字|漢字|\bhan\b/i.test(String(criterion))
+  );
+}
+
+function extractRequiresChineseTextFromCriteria(acceptanceCriteria) {
+  if (extractRequiresChineseText(acceptanceCriteria)) {
+    return true;
+  }
+
+  return (acceptanceCriteria ?? []).some((criterion) =>
+    /\bchinese\b|\u4e2d\u6587|\u6c49\u5b57|\u6f22\u5b57|\bhan\b/i.test(String(criterion))
+  );
+}
+
+function buildQuickStartVerifierContract(spec) {
+  const acceptanceCriteria = dedupeStrings(
+    Array.isArray(spec?.acceptanceCriteria) ? spec.acceptanceCriteria : []
+  );
+  const deliverables = dedupeStrings(Array.isArray(spec?.deliverables) ? spec.deliverables : []);
+  const dataSources = dedupeStrings(Array.isArray(spec?.dataSources) ? spec.dataSources : []);
+  const artifactPath =
+    extractRequestedArtifactPath(acceptanceCriteria, deliverables) ??
+    path.posix.join("artifacts", "generated", "summary.md");
+
+  return {
+    artifactPath,
+    requiredExactTokens: extractExactTokens(acceptanceCriteria),
+    requiredTokenSourcePaths: extractTokenSourcePaths(acceptanceCriteria, artifactPath),
+    requiredHeading: extractRequiredHeading(acceptanceCriteria),
+    requireChineseText: extractRequiresChineseTextFromCriteria(acceptanceCriteria),
+    immutableInputPaths: extractImmutableInputPaths(dataSources, artifactPath),
+    immutableInputSnapshots: []
+  };
+}
+
+async function captureImmutableInputSnapshots(workspaceRoot, inputPaths) {
+  const snapshots = [];
+
+  for (const relativePath of inputPaths ?? []) {
+    const normalizedPath = normalizeRelativePathString(relativePath);
+
+    if (!normalizedPath) {
+      continue;
+    }
+
+    const absolutePath = path.join(workspaceRoot, normalizedPath);
+    const exists = await pathExists(absolutePath);
+
+    if (!exists) {
+      continue;
+    }
+
+    const contents = await readFile(absolutePath, "utf8");
+    snapshots.push({
+      relativePath: normalizedPath,
+      exists: true,
+      sha256: hashTextSha256(contents)
+    });
+  }
+
+  return snapshots;
+}
+
+async function buildQuickStartVerifierContractForWorkspace(workspaceRoot, spec) {
+  const baseContract = buildQuickStartVerifierContract(spec);
+  const immutableInputSnapshots = await captureImmutableInputSnapshots(
+    workspaceRoot,
+    baseContract.immutableInputPaths
+  );
+
+  return {
+    ...baseContract,
+    immutableInputSnapshots
+  };
+}
+
+function buildQuickStartVerifierScript(verifierContract) {
+  const serializedContract = JSON.stringify(verifierContract ?? {}, null, 2);
+
   return `import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { access, readFile } from "node:fs/promises";
 import path from "node:path";
+
+const verifierContract = ${serializedContract};
 
 async function fileExists(targetPath) {
   try {
@@ -121,6 +363,24 @@ async function resolveSpecPath(workspaceRoot) {
   return null;
 }
 
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^\\\${}()|[\\]\\\\]/g, "\\\\$&");
+}
+
+function extractTokenFromInput(content, inputPath) {
+  const tokenMatch =
+    /\\btoken\\s*:\\s*(\\S+)/i.exec(content) ??
+    /\\bbrief token\\s*:\\s*(\\S+)/i.exec(content) ??
+    /\\bdetails token\\s*:\\s*(\\S+)/i.exec(content);
+
+  assert.ok(tokenMatch?.[1], \`Expected token marker in \${inputPath}\`);
+  return tokenMatch[1];
+}
+
+function hashTextSha256(value) {
+  return createHash("sha256").update(String(value ?? ""), "utf8").digest("hex");
+}
+
 async function main() {
   const workspaceRoot = process.cwd();
   const packageJsonPath = path.join(workspaceRoot, "package.json");
@@ -136,8 +396,68 @@ async function main() {
     Array.isArray(spec?.acceptanceCriteria) && spec.acceptanceCriteria.length > 0,
     "acceptanceCriteria are required"
   );
+  assert.ok(
+    typeof verifierContract?.artifactPath === "string" && verifierContract.artifactPath.length > 0,
+    "artifactPath is required in quick-start verifier contract"
+  );
 
-  console.log(\`quick-start verifier scaffold ok for \${spec.projectName}\`);
+  const artifactPath = path.join(workspaceRoot, verifierContract.artifactPath);
+  const artifactContent = await readFile(artifactPath, "utf8");
+
+  for (const token of verifierContract.requiredExactTokens ?? []) {
+    assert.match(
+      artifactContent,
+      new RegExp(escapeRegExp(token)),
+      \`Expected output artifact to include exact token \${token}\`
+    );
+  }
+
+  for (const snapshot of verifierContract.immutableInputSnapshots ?? []) {
+    const inputPath = path.join(workspaceRoot, snapshot.relativePath);
+    const stillExists = await fileExists(inputPath);
+
+    assert.equal(
+      stillExists,
+      snapshot.exists === true,
+      \`Expected input source existence to stay unchanged for \${snapshot.relativePath}\`
+    );
+
+    if (snapshot.exists !== true) {
+      continue;
+    }
+
+    const currentContents = await readFile(inputPath, "utf8");
+    assert.equal(
+      hashTextSha256(currentContents),
+      snapshot.sha256,
+      \`Input source changed unexpectedly: \${snapshot.relativePath}\`
+    );
+  }
+
+  for (const sourcePath of verifierContract.requiredTokenSourcePaths ?? []) {
+    const resolvedSourcePath = path.join(workspaceRoot, sourcePath);
+    const sourceContent = await readFile(resolvedSourcePath, "utf8");
+    const token = extractTokenFromInput(sourceContent, sourcePath);
+    assert.match(
+      artifactContent,
+      new RegExp(escapeRegExp(token)),
+      \`Expected output artifact to include token from \${sourcePath}\`
+    );
+  }
+
+  if (typeof verifierContract.requiredHeading === "string" && verifierContract.requiredHeading.trim().length > 0) {
+    assert.match(
+      artifactContent,
+      new RegExp(\`^#{1,6}\\\\s+\${escapeRegExp(verifierContract.requiredHeading)}\\\\b\`, "m"),
+      \`Expected output artifact to include heading "\${verifierContract.requiredHeading}"\`
+    );
+  }
+
+  if (verifierContract.requireChineseText === true) {
+    assert.match(artifactContent, /\\p{Script=Han}/u, "output artifact should contain Chinese text");
+  }
+
+  console.log(\`quick-start verifier checks passed for \${spec.projectName}\`);
 }
 
 main().catch((error) => {
@@ -151,19 +471,24 @@ async function provisionQuickStartVerifierRuntime(workspaceRoot, spec) {
   const resolvedWorkspaceRoot = path.resolve(workspaceRoot);
   const packageJsonPath = path.join(resolvedWorkspaceRoot, "package.json");
   const verifierScriptPath = path.join(resolvedWorkspaceRoot, quickStartVerifierScriptRelativePath);
+  const verifierContract = await buildQuickStartVerifierContractForWorkspace(resolvedWorkspaceRoot, spec);
 
   if (!(await pathExists(packageJsonPath))) {
     await writeJson(packageJsonPath, buildQuickStartVerifierPackageJson(spec.projectName));
+  } else {
+    const existingPackageJson = await readJson(packageJsonPath);
+    const mergedPackageJson = mergeQuickStartVerifierPackageJson(existingPackageJson, spec.projectName);
+
+    await writeJson(packageJsonPath, mergedPackageJson);
   }
 
-  if (!(await pathExists(verifierScriptPath))) {
-    await ensureDirectory(path.dirname(verifierScriptPath));
-    await writeFile(verifierScriptPath, buildQuickStartVerifierScript(), "utf8");
-  }
+  await ensureDirectory(path.dirname(verifierScriptPath));
+  await writeFile(verifierScriptPath, buildQuickStartVerifierScript(verifierContract), "utf8");
 
   return {
     packageJsonPath,
-    verifierScriptPath
+    verifierScriptPath,
+    verifierContract
   };
 }
 
@@ -300,7 +625,12 @@ export function createQuickStartProjectSpec(confirmedIntakeSpec, executionContra
     factoryMetadata: {
       generatedBy: "panel-quick-start-safe",
       requestId: confirmedIntakeSpec.requestId,
-      generatedAt: new Date().toISOString()
+      generatedAt: new Date().toISOString(),
+      quickStartVerifierContract: buildQuickStartVerifierContract({
+        acceptanceCriteria,
+        deliverables: [normalizeWhitespace(endPoint || projectName)],
+        dataSources: inputSources
+      })
     }
   };
 }

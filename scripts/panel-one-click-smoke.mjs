@@ -1,5 +1,6 @@
 import http from "node:http";
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
@@ -10,6 +11,7 @@ const defaultOutputRoot = path.join(projectRoot, "reports", "panel-smoke");
 const defaultWatchdogMs = 45 * 60 * 1000;
 const defaultPollIntervalMs = 15 * 1000;
 const defaultMaxRounds = 20;
+const defaultImmutableInputPaths = Object.freeze(["data/brief.txt", "data/details.txt"]);
 const briefToken = "BRIEF-PANEL-SMOKE-20260421-A";
 const detailToken = "DETAIL-PANEL-SMOKE-20260421-B";
 const defaultRequestText = [
@@ -108,9 +110,43 @@ async function writeText(filePath, value) {
   await writeFile(filePath, value, "utf8");
 }
 
-async function verifyGeneratedSummaryArtifact(workspaceRoot) {
+function hashTextSha256(value) {
+  return createHash("sha256").update(String(value ?? ""), "utf8").digest("hex");
+}
+
+function resolveWorkspaceRelativePath(workspaceRoot, relativePath) {
+  return path.join(workspaceRoot, ...String(relativePath ?? "").split(/[\\/]+/).filter(Boolean));
+}
+
+function sanitizeCheckIdSegment(value) {
+  return (
+    String(value ?? "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "input"
+  );
+}
+
+async function captureSmokeInputSnapshots(workspaceRoot, relativePaths = defaultImmutableInputPaths) {
+  const snapshots = [];
+
+  for (const relativePath of relativePaths ?? []) {
+    const absolutePath = resolveWorkspaceRelativePath(workspaceRoot, relativePath);
+    const contents = await readFile(absolutePath, "utf8");
+    snapshots.push({
+      relativePath,
+      exists: true,
+      sha256: hashTextSha256(contents)
+    });
+  }
+
+  return snapshots;
+}
+
+async function verifyGeneratedSummaryArtifact(workspaceRoot, options = {}) {
+  const { immutableInputSnapshots = [] } = options;
   const summaryPath = path.join(workspaceRoot, "artifacts", "generated", "summary.md");
-  let contents = null;
+  let contents;
 
   try {
     contents = await readFile(summaryPath, "utf8");
@@ -158,9 +194,28 @@ async function verifyGeneratedSummaryArtifact(workspaceRoot) {
     }
   ];
 
+  for (const snapshot of immutableInputSnapshots) {
+    const inputPath = resolveWorkspaceRelativePath(workspaceRoot, snapshot.relativePath);
+    let message = `Input file ${snapshot.relativePath} must remain unchanged.`;
+    const passed = await readFile(inputPath, "utf8")
+      .then((currentContents) => snapshot.exists === true && hashTextSha256(currentContents) === snapshot.sha256)
+      .catch((error) => {
+        const details = error instanceof Error ? error.message : String(error);
+        message = `Input file ${snapshot.relativePath} must remain unchanged and readable: ${details}`;
+        return snapshot.exists === false;
+      });
+
+    checks.push({
+      id: `input-immutable-${sanitizeCheckIdSegment(snapshot.relativePath)}`,
+      passed,
+      message
+    });
+  }
+
   return {
     passed: checks.every((check) => check.passed),
     summaryPath,
+    immutableInputSnapshots,
     checks
   };
 }
@@ -184,6 +239,107 @@ function buildRunStatusFailureMessage(finalRunStatus) {
   }
 
   return `Panel quick-start run did not finish successfully. finalRunStatus=${finalRunStatus}`;
+}
+
+function readQuickStartTerminalStatus(quickStartResponse) {
+  return (
+    quickStartResponse?.result?.autonomous?.runSummary?.status ??
+    quickStartResponse?.result?.autonomous?.finalStatus ??
+    null
+  );
+}
+
+function readStatusAfterTerminalStatus(statusAfter) {
+  return statusAfter?.overview?.latestRun?.summary?.status ?? null;
+}
+
+function readAutonomousSummaryTerminalStatus(autonomousSummary) {
+  return autonomousSummary?.finalStatus ?? autonomousSummary?.runSummary?.status ?? null;
+}
+
+function buildRunConsistencyVerification({
+  runId,
+  quickStartResponse,
+  statusAfter,
+  runState,
+  autonomousSummary
+}) {
+  const quickStartRunId = quickStartResponse?.result?.run?.runId ?? null;
+  const statusAfterRunId = statusAfter?.overview?.latestRun?.summary?.runId ?? null;
+  const runStateRunId = runState?.runId ?? null;
+  const autonomousSummaryRunId = autonomousSummary?.runId ?? null;
+  const quickStartStatus = readQuickStartTerminalStatus(quickStartResponse);
+  const statusAfterStatus = readStatusAfterTerminalStatus(statusAfter);
+  const runStateStatus = runState?.status ?? null;
+  const autonomousSummaryStatus = readAutonomousSummaryTerminalStatus(autonomousSummary);
+  const checks = [
+    {
+      id: "quick-start-response-run-id",
+      passed: quickStartRunId === runId,
+      message: "quick-start response must report the expected runId."
+    },
+    {
+      id: "status-after-run-id",
+      passed: statusAfterRunId === runId,
+      message: "/api/status must report the expected runId."
+    },
+    {
+      id: "run-state-exists",
+      passed: Boolean(runState),
+      message: "run-state.json must exist."
+    },
+    {
+      id: "run-state-run-id",
+      passed: runStateRunId === runId,
+      message: "run-state.json must report the expected runId."
+    },
+    {
+      id: "autonomous-summary-exists",
+      passed: Boolean(autonomousSummary),
+      message: "autonomous-summary.json must exist."
+    },
+    {
+      id: "autonomous-summary-run-id",
+      passed: autonomousSummaryRunId === runId,
+      message: "autonomous-summary.json must report the expected runId."
+    },
+    {
+      id: "terminal-status-agreement",
+      passed:
+        [quickStartStatus, statusAfterStatus, runStateStatus, autonomousSummaryStatus].every((value) => value !== null) &&
+        new Set([quickStartStatus, statusAfterStatus, runStateStatus, autonomousSummaryStatus]).size === 1,
+      message: "quick-start response, /api/status, run-state.json, and autonomous-summary.json must agree on terminal status."
+    }
+  ];
+
+  return {
+    passed: checks.every((check) => check.passed),
+    runId,
+    observed: {
+      quickStartRunId,
+      statusAfterRunId,
+      runStateRunId,
+      autonomousSummaryRunId,
+      quickStartStatus,
+      statusAfterStatus,
+      runStateStatus,
+      autonomousSummaryStatus
+    },
+    checks
+  };
+}
+
+function buildConsistencyFailureMessage(consistencyVerification) {
+  const failedChecks = (consistencyVerification?.checks ?? []).filter((check) => !check.passed);
+
+  if (failedChecks.length === 0) {
+    return "Panel smoke evidence did not stay consistent across artifacts.";
+  }
+
+  return [
+    "Panel smoke evidence did not stay consistent across artifacts.",
+    ...failedChecks.map((check) => `- ${check.message}`)
+  ].join("\n");
 }
 
 function requestJson(baseUrl, method, pathname, payload) {
@@ -313,6 +469,14 @@ async function copyFileIfPresent(sourcePath, destinationPath) {
   }
 }
 
+async function readJsonIfPresent(filePath) {
+  try {
+    return JSON.parse(await readFile(filePath, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
 async function stopPanelProcess(panelChild) {
   if (panelChild.exitCode !== null || panelChild.signalCode !== null) {
     return;
@@ -364,19 +528,26 @@ async function runPanelOneClickSmoke(options) {
   const stdoutPath = path.join(evidenceRoot, "panel.stdout.log");
   const stderrPath = path.join(evidenceRoot, "panel.stderr.log");
 
+  await ensureDirectory(evidenceRoot);
   await seedWorkspace(workspaceRoot);
+  const immutableInputSnapshots = await captureSmokeInputSnapshots(workspaceRoot);
+  await writeJson(path.join(evidenceRoot, "input-snapshots.json"), immutableInputSnapshots);
   const { panelChild, panelReady } = await startPanelProcess(workspaceRoot, stdoutPath, stderrPath);
 
   let panelUrl = null;
   let statusBefore = null;
   let intakePreview = null;
+  /** @type {any} */
   let quickStartResponse = null;
   let latestStatus = null;
   let quickStartSettled = false;
+  /** @type {unknown} */
   let quickStartError = null;
   const pollSnapshots = [];
-  let summary = null;
-  let artifactVerification = null;
+  /** @type {any} */
+  let summary;
+  let artifactVerification;
+  let consistencyVerification;
 
   try {
     panelUrl = await Promise.race([
@@ -440,13 +611,37 @@ async function runPanelOneClickSmoke(options) {
       await quickStartPromise.catch(() => undefined);
     }
 
+    const runRoot = path.join(workspaceRoot, "runs", runId);
+    const runState = await readJsonIfPresent(path.join(runRoot, "run-state.json"));
+    const autonomousSummary = await readJsonIfPresent(path.join(runRoot, "autonomous-summary.json"));
     const finalRunStatus =
       quickStartResponse?.result?.autonomous?.runSummary?.status ??
       latestStatus?.overview?.latestRun?.summary?.status ??
       "unknown";
-    artifactVerification = await verifyGeneratedSummaryArtifact(workspaceRoot);
+    artifactVerification = await verifyGeneratedSummaryArtifact(workspaceRoot, {
+      immutableInputSnapshots
+    });
+    consistencyVerification = buildRunConsistencyVerification({
+      runId,
+      quickStartResponse,
+      statusAfter: latestStatus,
+      runState,
+      autonomousSummary
+    });
     const completed = finalRunStatus === "completed";
-    const harnessPassed = completed && artifactVerification.passed;
+    const harnessPassed = completed && artifactVerification.passed && consistencyVerification.passed;
+    const summaryError =
+      !completed || !artifactVerification.passed || !consistencyVerification.passed
+        ? quickStartError
+          ? quickStartError instanceof Error
+            ? quickStartError.message
+            : String(quickStartError)
+          : !completed
+            ? buildRunStatusFailureMessage(finalRunStatus)
+            : !artifactVerification.passed
+              ? buildArtifactFailureMessage(artifactVerification)
+              : buildConsistencyFailureMessage(consistencyVerification)
+        : null;
 
     summary = {
       generatedAt: new Date().toISOString(),
@@ -465,17 +660,11 @@ async function runPanelOneClickSmoke(options) {
       harnessPassed,
       quickStartOutcome: quickStartResponse?.result?.outcome ?? null,
       artifactVerification,
+      consistencyVerification,
       panelStdoutPath: stdoutPath,
-      panelStderrPath: stderrPath
+      panelStderrPath: stderrPath,
+      ...(summaryError ? { error: summaryError } : {})
     };
-
-    if (!completed || !artifactVerification.passed) {
-      summary.error = quickStartError
-        ? quickStartError.message
-        : !completed
-          ? buildRunStatusFailureMessage(finalRunStatus)
-          : buildArtifactFailureMessage(artifactVerification);
-    }
   } catch (error) {
     summary = {
       generatedAt: new Date().toISOString(),
@@ -557,6 +746,8 @@ async function main() {
 }
 
 export {
+  buildRunConsistencyVerification,
+  captureSmokeInputSnapshots,
   isMainModule,
   parseArgs,
   runPanelOneClickSmoke,

@@ -357,6 +357,32 @@ function buildLocalCiResultArtifact(runId, taskId, handoffId, verificationComman
   );
 }
 
+function dedupeCommands(values) {
+  const seen = new Set();
+  const results = [];
+
+  for (const value of values ?? []) {
+    const normalized = typeof value === "string" ? value.trim() : "";
+
+    if (!normalized || seen.has(normalized)) {
+      continue;
+    }
+
+    seen.add(normalized);
+    results.push(normalized);
+  }
+
+  return results;
+}
+
+function getQuickStartVerificationCommands(spec) {
+  if (!spec?.factoryMetadata?.quickStartVerifierContract) {
+    return [];
+  }
+
+  return ["npm run quick-start:verify-output"];
+}
+
 function buildLocalCiLauncher(
   workspacePath,
   modelSelection,
@@ -370,7 +396,9 @@ function buildLocalCiLauncher(
     taskId,
     handoffId,
     resultPath,
-    mandatoryGates = []
+    mandatoryGates = [],
+    additionalVerificationCommands = [],
+    additionalVerificationGates = []
   } = options;
   const gateToCommand = {
     build: "npm run build",
@@ -384,12 +412,20 @@ function buildLocalCiLauncher(
   const commands = mandatoryGates
     .map((gate) => gateToCommand[gate])
     .filter(Boolean);
+  const effectiveCommands = dedupeCommands([
+    ...(commands.length > 0 ? commands : ["npm test"]),
+    ...additionalVerificationCommands
+  ]);
+  const effectiveGates = dedupeCommands([
+    ...(mandatoryGates.length > 0 ? mandatoryGates : ["default npm test"]),
+    ...additionalVerificationGates
+  ]);
   const artifactJson = buildLocalCiResultArtifact(
     runId,
     taskId,
     handoffId,
-    commands,
-    mandatoryGates
+    effectiveCommands,
+    effectiveGates
   );
 
   if (platform === "win32") {
@@ -398,7 +434,7 @@ function buildLocalCiLauncher(
     return [
       `Set-Location -LiteralPath ${workspaceLiteral}`,
       ...buildLauncherOutputLines(modelSelection, launcherMetadata, promptMetadata, platform),
-      ...(commands.length > 0 ? commands : ["npm test"]),
+      ...effectiveCommands,
       `$resultDirectory = Split-Path -Parent ${resultPathLiteral}`,
       "if (![string]::IsNullOrWhiteSpace($resultDirectory)) {",
       "  New-Item -ItemType Directory -Force -Path $resultDirectory | Out-Null",
@@ -415,7 +451,7 @@ function buildLocalCiLauncher(
   return [
     `cd ${workspaceLiteral}`,
     ...buildLauncherOutputLines(modelSelection, launcherMetadata, promptMetadata, platform),
-    ...(commands.length > 0 ? commands : ["npm test"]),
+    ...effectiveCommands,
     `mkdir -p "$(dirname -- ${resultPathLiteral})"`,
     `cat > ${resultPathLiteral} <<'JSON'`,
     artifactJson,
@@ -527,6 +563,15 @@ function hasExplicitRoleRuntimeOverride(runState, role) {
   return Array.isArray(configuredPreferences) && configuredPreferences.length > 0;
 }
 
+function hasTransientGptRunnerRetrySignal(task) {
+  const retrySignals = [
+    task?.lastRetryReason,
+    ...(Array.isArray(task?.notes) ? task.notes : [])
+  ];
+
+  return retrySignals.some((value) => /transient gpt runner upstream failure/i.test(String(value ?? "")));
+}
+
 function shouldAutoFailoverPlannerOrReviewerToCodex(task, runState, runtimeChecks, selectedRuntimeId) {
   if (!task || (task.role !== "planner" && task.role !== "reviewer")) {
     return false;
@@ -544,7 +589,7 @@ function shouldAutoFailoverPlannerOrReviewerToCodex(task, runState, runtimeCheck
     return false;
   }
 
-  return /transient gpt runner upstream failure/i.test(String(task.lastRetryReason ?? ""));
+  return hasTransientGptRunnerRetrySignal(task);
 }
 
 function resolveTaskRuntimeSelection(task, runState, runtimeChecks) {
@@ -681,6 +726,7 @@ export function buildHandoffDescriptor({
       platform
     );
   } else if (selected.runtimeId === "local-ci") {
+    const additionalVerificationCommands = getQuickStartVerificationCommands(spec);
     launcherScript = buildLocalCiLauncher(
       workspacePath,
       modelSelection,
@@ -691,7 +737,10 @@ export function buildHandoffDescriptor({
         taskId: task.id,
         handoffId,
         resultPath,
-        mandatoryGates: runState.mandatoryGates
+        mandatoryGates: runState.mandatoryGates,
+        additionalVerificationCommands,
+        additionalVerificationGates:
+          additionalVerificationCommands.length > 0 ? ["quick-start output verification"] : []
       },
       platform
     );

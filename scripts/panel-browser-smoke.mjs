@@ -6,7 +6,7 @@ import process from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { startPanelServer } from "../src/lib/panel.mjs";
-import { verifyGeneratedSummaryArtifact } from "./panel-one-click-smoke.mjs";
+import { captureSmokeInputSnapshots, verifyGeneratedSummaryArtifact } from "./panel-one-click-smoke.mjs";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const defaultOutputRoot = path.join(projectRoot, "reports", "panel-browser-smoke");
@@ -23,6 +23,19 @@ const defaultRequestText = [
   "Input source: data/brief.txt; data/details.txt.",
   "Out of scope: do not modify input files; do not call external APIs; do not send email."
 ].join("\n");
+const completedStatusPillMarkers = ["已完成", "completed"];
+const incompleteStatusPillMarkers = [
+  "進行中",
+  "等待重試",
+  "需要人工處理",
+  "已阻塞",
+  "已失敗",
+  "in progress",
+  "waiting retry",
+  "attention required",
+  "blocked",
+  "failed"
+];
 
 function timestampLabel() {
   const now = new Date();
@@ -85,17 +98,19 @@ function dedupeList(values) {
 
 function listCandidateBrowserPaths(platform = process.platform, env = process.env) {
   if (platform === "win32") {
+    const join = path.win32.join;
     const programFiles = env.ProgramFiles ?? "C:\\Program Files";
     const programFilesX86 = env["ProgramFiles(x86)"] ?? "C:\\Program Files (x86)";
-    const localAppData = env.LocalAppData ?? path.join(os.homedir(), "AppData", "Local");
+    const userProfile = env.USERPROFILE ?? "C:\\Users\\Default";
+    const localAppData = env.LocalAppData ?? join(userProfile, "AppData", "Local");
 
     return dedupeList([
-      path.join(programFiles, "Google", "Chrome", "Application", "chrome.exe"),
-      path.join(programFilesX86, "Google", "Chrome", "Application", "chrome.exe"),
-      path.join(localAppData, "Google", "Chrome", "Application", "chrome.exe"),
-      path.join(programFiles, "Microsoft", "Edge", "Application", "msedge.exe"),
-      path.join(programFilesX86, "Microsoft", "Edge", "Application", "msedge.exe"),
-      path.join(localAppData, "Microsoft", "Edge", "Application", "msedge.exe")
+      join(programFiles, "Google", "Chrome", "Application", "chrome.exe"),
+      join(programFilesX86, "Google", "Chrome", "Application", "chrome.exe"),
+      join(localAppData, "Google", "Chrome", "Application", "chrome.exe"),
+      join(programFiles, "Microsoft", "Edge", "Application", "msedge.exe"),
+      join(programFilesX86, "Microsoft", "Edge", "Application", "msedge.exe"),
+      join(localAppData, "Microsoft", "Edge", "Application", "msedge.exe")
     ]);
   }
 
@@ -224,6 +239,91 @@ function extractConfirmationTokenFromPrompt(promptText) {
   return lines.at(-1) ?? "";
 }
 
+function normalizeInlineText(value) {
+  return String(value ?? "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function buildStatusPillCompletionVerification(statusPillText) {
+  const normalizedStatusPillText = normalizeInlineText(statusPillText);
+  const lowerStatusPillText = normalizedStatusPillText.toLowerCase();
+  const matchedCompletedMarkers = completedStatusPillMarkers.filter((marker) =>
+    lowerStatusPillText.includes(marker.toLowerCase())
+  );
+  const matchedIncompleteMarkers = incompleteStatusPillMarkers.filter((marker) =>
+    lowerStatusPillText.includes(marker.toLowerCase())
+  );
+
+  return {
+    passed:
+      matchedCompletedMarkers.length > 0 &&
+      matchedIncompleteMarkers.length === 0,
+    normalizedStatusPillText,
+    matchedCompletedMarkers,
+    matchedIncompleteMarkers
+  };
+}
+
+function buildMaxRoundsPreparationEvidence({
+  pageDefaultMaxRounds,
+  preparedMaxRounds,
+  requestedMaxRounds
+}) {
+  const normalizedPageDefaultMaxRounds = normalizeInlineText(pageDefaultMaxRounds);
+  const normalizedPreparedMaxRounds = normalizeInlineText(preparedMaxRounds);
+  const normalizedRequestedMaxRounds = normalizeInlineText(requestedMaxRounds);
+  const overrideApplied =
+    normalizedRequestedMaxRounds.length > 0 &&
+    normalizedPreparedMaxRounds === normalizedRequestedMaxRounds &&
+    normalizedPageDefaultMaxRounds.length > 0 &&
+    normalizedPageDefaultMaxRounds !== normalizedPreparedMaxRounds;
+
+  return {
+    pageDefaultMaxRounds:
+      normalizedPageDefaultMaxRounds.length > 0 ? normalizedPageDefaultMaxRounds : null,
+    preparedMaxRounds:
+      normalizedPreparedMaxRounds.length > 0 ? normalizedPreparedMaxRounds : null,
+    requestedMaxRounds:
+      normalizedRequestedMaxRounds.length > 0 ? normalizedRequestedMaxRounds : null,
+    overrideApplied,
+    capturedPageDefault: normalizedPageDefaultMaxRounds.length > 0
+  };
+}
+
+function buildPageReadinessEvidence({
+  initialPageReadiness = null,
+  finalPageReadiness = null
+}) {
+  const artifacts = [];
+
+  if (initialPageReadiness) {
+    artifacts.push(
+      {
+        fileName: "page-readiness.json",
+        value: initialPageReadiness
+      },
+      {
+        fileName: "page-readiness.initial.json",
+        value: initialPageReadiness
+      }
+    );
+  }
+
+  if (finalPageReadiness) {
+    artifacts.push({
+      fileName: "page-readiness.final.json",
+      value: finalPageReadiness
+    });
+  }
+
+  return {
+    pageReadiness: initialPageReadiness,
+    finalPageReadiness,
+    artifacts
+  };
+}
+
 function serializeForExpression(value) {
   return JSON.stringify(value);
 }
@@ -255,6 +355,14 @@ async function writeJson(filePath, value) {
 
 async function writeBase64(filePath, data) {
   await writeFile(filePath, Buffer.from(data, "base64"));
+}
+
+async function writePageReadinessArtifacts(evidenceRoot, pageReadinessEvidence) {
+  await Promise.all(
+    pageReadinessEvidence.artifacts.map(({ fileName, value }) =>
+      writeJson(path.join(evidenceRoot, fileName), value)
+    )
+  );
 }
 
 async function copyFileIfPresent(sourcePath, destinationPath) {
@@ -773,6 +881,72 @@ async function waitForUiState(session, runId, timeoutMs) {
   });
 }
 
+function readAutonomousSummaryTerminalStatus(autonomousSummary) {
+  return autonomousSummary?.finalStatus ?? autonomousSummary?.runSummary?.status ?? null;
+}
+
+function buildBrowserRunConsistencyVerification({
+  runId,
+  statusAfter,
+  runState,
+  autonomousSummary,
+  requireCompleted
+}) {
+  const statusAfterRunId = statusAfter?.overview?.latestRun?.summary?.runId ?? null;
+  const statusAfterStatus = statusAfter?.overview?.latestRun?.summary?.status ?? null;
+  const runStateRunId = runState?.runId ?? null;
+  const runStateStatus = runState?.status ?? null;
+  const autonomousSummaryRunId = autonomousSummary?.runId ?? null;
+  const autonomousSummaryStatus = readAutonomousSummaryTerminalStatus(autonomousSummary);
+  const checks = [
+    {
+      id: "status-after-run-id",
+      passed: statusAfterRunId === runId,
+      message: "/api/status reports the expected browser-triggered run id."
+    },
+    {
+      id: "run-state-run-id",
+      passed: runStateRunId === runId,
+      message: "run-state.json reports the expected browser-triggered run id."
+    }
+  ];
+
+  if (requireCompleted) {
+    checks.push(
+      {
+        id: "autonomous-summary-exists",
+        passed: Boolean(autonomousSummary),
+        message: "autonomous-summary.json exists for the browser-triggered run."
+      },
+      {
+        id: "autonomous-summary-run-id",
+        passed: autonomousSummaryRunId === runId,
+        message: "autonomous-summary.json reports the expected browser-triggered run id."
+      },
+      {
+        id: "terminal-status-agreement",
+        passed:
+          [statusAfterStatus, runStateStatus, autonomousSummaryStatus].every((value) => value !== null) &&
+          new Set([statusAfterStatus, runStateStatus, autonomousSummaryStatus]).size === 1,
+        message: "/api/status, run-state.json, and autonomous-summary.json agree on terminal status."
+      }
+    );
+  }
+
+  return {
+    passed: checks.every((check) => check.passed),
+    observed: {
+      statusAfterRunId,
+      statusAfterStatus,
+      runStateRunId,
+      runStateStatus,
+      autonomousSummaryRunId,
+      autonomousSummaryStatus
+    },
+    checks
+  };
+}
+
 async function collectPageReadiness(session) {
   return evaluateExpression(
     session,
@@ -791,11 +965,13 @@ function buildVerification({
   browserPath,
   browserWebSocketUrl,
   requireCompleted,
+  preparedFields,
   runState,
   autonomousSummary,
   specSnapshotExists,
   uiState,
   statusAfter,
+  consistencyVerification,
   artifactVerification,
   runId
 }) {
@@ -843,13 +1019,36 @@ function buildVerification({
   ];
 
   const finalRunStatus = statusAfter?.overview?.latestRun?.summary?.status ?? null;
+  const statusPillVerification = buildStatusPillCompletionVerification(uiState?.statusPillText);
+  const maxRoundsPreparation = buildMaxRoundsPreparationEvidence({
+    pageDefaultMaxRounds: preparedFields?.pageDefaultMaxRounds,
+    preparedMaxRounds: preparedFields?.maxRounds,
+    requestedMaxRounds: preparedFields?.requestedMaxRounds
+  });
 
   if (requireCompleted) {
-    checks.push({
-      id: "final-run-completed",
-      passed: finalRunStatus === "completed",
-      message: "The browser-triggered run reached completed status."
-    });
+    checks.push(
+      {
+        id: "final-run-completed",
+        passed: finalRunStatus === "completed",
+        message: "The browser-triggered run reached completed status."
+      },
+      {
+        id: "ui-status-pill-completed",
+        passed: statusPillVerification.passed,
+        message:
+          "After backend completion, the rendered status pill shows a completed state instead of an in-progress, retry, or attention-needed state."
+      }
+    );
+
+    if (maxRoundsPreparation.requestedMaxRounds !== null) {
+      checks.push({
+        id: "page-default-max-rounds-captured",
+        passed: maxRoundsPreparation.capturedPageDefault,
+        message:
+          "The browser smoke evidence captures the page's original maxRounds default before any harness override."
+      });
+    }
   }
 
   if (artifactVerification) {
@@ -860,12 +1059,16 @@ function buildVerification({
     });
   }
 
-  if (autonomousSummary) {
+  if (requireCompleted) {
     checks.push({
       id: "autonomous-summary-completed",
-      passed: autonomousSummary.finalStatus === "completed",
+      passed: autonomousSummary?.finalStatus === "completed",
       message: "The browser-triggered quick start reached a completed autonomous summary."
     });
+  }
+
+  if (consistencyVerification) {
+    checks.push(...consistencyVerification.checks);
   }
 
   if (finalRunStatus === "completed") {
@@ -882,6 +1085,8 @@ function buildVerification({
   return {
     passed: checks.every((check) => check.passed),
     extractedPromptToken,
+    statusPillVerification,
+    maxRoundsPreparation,
     checks
   };
 }
@@ -916,11 +1121,12 @@ async function runPanelBrowserSmoke(options) {
   let panel = null;
   let browser = null;
   let cdpSession = null;
-  let pageReadiness = null;
   let statusPolls = [];
 
   await ensureDirectory(evidenceRoot);
   await seedWorkspace(workspaceRoot);
+  const immutableInputSnapshots = await captureSmokeInputSnapshots(workspaceRoot);
+  await writeJson(path.join(evidenceRoot, "input-snapshots.json"), immutableInputSnapshots);
 
   try {
     const browserInfo = await detectBrowser(options.browserPath);
@@ -964,9 +1170,13 @@ async function runPanelBrowserSmoke(options) {
       options.browserStartupMs,
       "panel page to finish loading"
     );
-    pageReadiness = await collectPageReadiness(cdpSession);
-    summary.pageReadiness = pageReadiness;
-    await writeJson(path.join(evidenceRoot, "page-readiness.json"), pageReadiness);
+    const pageReadiness = await collectPageReadiness(cdpSession);
+    const initialPageReadinessEvidence = buildPageReadinessEvidence({
+      initialPageReadiness: pageReadiness
+    });
+    summary.pageReadiness = initialPageReadinessEvidence.pageReadiness;
+    summary.finalPageReadiness = null;
+    await writePageReadinessArtifacts(evidenceRoot, initialPageReadinessEvidence);
 
     if (pageReadiness.callApiType !== "function") {
       throw new Error(
@@ -997,18 +1207,24 @@ async function runPanelBrowserSmoke(options) {
     const preparedFields = await evaluateExpression(
       cdpSession,
       `(() => {
-        const setValue = (id, value) => {
+        const getElement = (id) => {
           const element = document.getElementById(id);
 
           if (!element) {
             throw new Error("Missing element: " + id);
           }
 
+          return element;
+        };
+        const setValue = (id, value) => {
+          const element = getElement(id);
+
           element.focus();
           element.value = String(value);
           element.dispatchEvent(new Event("input", { bubbles: true }));
           element.dispatchEvent(new Event("change", { bubbles: true }));
         };
+        const pageDefaultMaxRounds = String(getElement("maxRoundsInput").value ?? "");
 
         setValue("workspaceInput", ${serializeForExpression(workspaceRoot)});
         setValue("requestInput", ${serializeForExpression(requestText)});
@@ -1020,7 +1236,9 @@ async function runPanelBrowserSmoke(options) {
           workspace: document.getElementById("workspaceInput").value,
           requestLength: document.getElementById("requestInput").value.length,
           runId: document.getElementById("runIdInput").value,
-          maxRounds: document.getElementById("maxRoundsInput").value
+          maxRounds: document.getElementById("maxRoundsInput").value,
+          requestedMaxRounds: ${serializeForExpression(String(options.maxRounds))},
+          pageDefaultMaxRounds
         };
       })()`
     );
@@ -1053,24 +1271,36 @@ async function runPanelBrowserSmoke(options) {
     const autonomousSummary = await readFile(autonomousSummaryPath, "utf8")
       .then((contents) => JSON.parse(contents))
       .catch(() => null);
+    const consistencyVerification = buildBrowserRunConsistencyVerification({
+      runId,
+      statusAfter,
+      runState,
+      autonomousSummary,
+      requireCompleted: options.requireCompleted
+    });
     const artifactVerification = options.requireCompleted
-      ? await verifyGeneratedSummaryArtifact(workspaceRoot)
+      ? await verifyGeneratedSummaryArtifact(workspaceRoot, {
+          immutableInputSnapshots
+        })
       : null;
     const verification = buildVerification({
       browserPath: browserInfo.browserPath,
       browserWebSocketUrl: browser.devTools.browserWebSocketUrl,
       requireCompleted: options.requireCompleted,
+      preparedFields,
       runState,
       autonomousSummary,
       specSnapshotExists,
       uiState,
       statusAfter,
+      consistencyVerification,
       artifactVerification,
       runId
     });
 
     summary.statusAfter = statusAfter;
     summary.uiState = uiState;
+    summary.preparedFields = preparedFields;
     summary.verification = verification;
     summary.runStatePath = runStatePath;
     summary.specSnapshotPath = specSnapshotExists ? specSnapshotPath : null;
@@ -1111,8 +1341,13 @@ async function runPanelBrowserSmoke(options) {
       const finalPageReadiness = await collectPageReadiness(cdpSession).catch(() => null);
 
       if (finalPageReadiness) {
-        summary.pageReadiness = finalPageReadiness;
-        await writeJson(path.join(evidenceRoot, "page-readiness.json"), finalPageReadiness).catch(() => undefined);
+        const finalPageReadinessEvidence = buildPageReadinessEvidence({
+          initialPageReadiness: summary.pageReadiness ?? null,
+          finalPageReadiness
+        });
+        summary.pageReadiness = finalPageReadinessEvidence.pageReadiness;
+        summary.finalPageReadiness = finalPageReadinessEvidence.finalPageReadiness;
+        await writePageReadinessArtifacts(evidenceRoot, finalPageReadinessEvidence).catch(() => undefined);
       }
     }
 
@@ -1154,6 +1389,10 @@ async function main() {
 }
 
 export {
+  buildBrowserRunConsistencyVerification,
+  buildMaxRoundsPreparationEvidence,
+  buildPageReadinessEvidence,
+  buildStatusPillCompletionVerification,
   extractConfirmationTokenFromPrompt,
   isMainModule,
   listCandidateBrowserPaths,
