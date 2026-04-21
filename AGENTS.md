@@ -20,6 +20,20 @@ Read it before making broad changes.
 - Default to full agent autonomy: do not ask the human to take action unless execution is blocked by a capability, permission, or environment limit the agent cannot resolve directly.
 - If blocked, immediately escalate to GPT-5.4 for support; only ask the human after that escalation path is exhausted.
 - Do not mix unrelated task lines in the same dirty `main` workspace. For parallel work or long-running validation, follow `docs/workspace-isolation-sop.zh-TW.md`.
+- Keep changes minimal and targeted; avoid unrelated refactors or broad cleanup.
+
+## Repository Commands (Source of Truth)
+
+- install: `npm ci`
+- workflow validation: `npm run validate:workflows`
+- build: `npm run build`
+- package smoke: `npm run pack:check`
+- lint: `npm run lint`
+- typecheck: `npm run typecheck`
+- test: `npm test`
+- integration: `npm run test:integration`
+- e2e: `npm run test:e2e`
+- example smoke (from CI): `npm run validate:example`, `npm run plan:example`, `npm run run:example`, `npm run report:example`, `npm run handoff:example`, `npm run dispatch:example`
 
 ## Role Contracts
 
@@ -52,6 +66,7 @@ Prefer emitting patch notes and a Codex-ready execution prompt for the next loop
 
 Use objective evidence: build, lint, typecheck, test, integration, e2e, or other task-specific checks.
 If a gate was not run, say so explicitly.
+When full validation is not possible, explain the remaining risk and why it remains.
 Capture validation results in a structured form when the round is intended for handoff or release review.
 
 ## Round Outputs
