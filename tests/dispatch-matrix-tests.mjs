@@ -369,6 +369,26 @@ function buildPersistentTransientGptRunnerFailureScript(
   ].join("\n");
 }
 
+function buildNoArtifactFailureScript({
+  stdoutLines = [],
+  stderrLines = [],
+  exitCode = 1
+} = {}) {
+  if (process.platform === "win32") {
+    return [
+      ...stdoutLines.map((line) => `[Console]::Out.WriteLine('${escapePowerShellSingleQuoted(line)}')`),
+      ...stderrLines.map((line) => `[Console]::Error.WriteLine('${escapePowerShellSingleQuoted(line)}')`),
+      `exit ${exitCode}`
+    ].join("\n");
+  }
+
+  return [
+    ...stdoutLines.map((line) => `printf '%s\\n' '${escapeShellSingleQuoted(line)}'`),
+    ...stderrLines.map((line) => `printf '%s\\n' '${escapeShellSingleQuoted(line)}' >&2`),
+    `exit ${exitCode}`
+  ].join("\n");
+}
+
 function modeForRuntime(runtimeId) {
   if (runtimeId === "cursor") {
     return "hybrid";
@@ -1725,6 +1745,112 @@ async function main() {
         process.env.AI_FACTORY_GPT_RUNNER_RETRY_MAX_DELAY_MS = previousRetryMaxDelayMs;
       }
     }
+  });
+
+  await runTest("matrix: gpt-runner auth drift fails closed as a blocked task", async () => {
+    const scenario = await runSingleDescriptorDispatchScenario({
+      tempPrefix: "ai-factory-matrix-gpt-runner-auth-drift-",
+      runtimeId: "gpt-runner",
+      doctorOverrides: { "gpt-runner": { ok: true } },
+      launcherScript: buildNoArtifactFailureScript({
+        stderrLines: [
+          "401 Unauthorized: login expired after doctor readiness",
+          "Auth drift detected during first real task"
+        ]
+      })
+    });
+    const { descriptor, dispatchResult, report, task } = scenario;
+    const result = dispatchResult.results[0];
+
+    assert.equal(result.status, "incomplete");
+    assert.equal(dispatchResult.summary.incomplete, 1);
+    assert.equal(task.status, "blocked");
+    assert.equal(result.nextTaskStatus, "blocked");
+    assert.equal(result.artifact?.status, "blocked");
+    assert.ok(!result.artifact?.automationDecision);
+    assert.match(result.artifact?.summary ?? "", /auth drift/i);
+    assert.match(result.note ?? "", /fail-closed blocked result/i);
+    assert.match(report, new RegExp(`\\[blocked\\] ${descriptor.taskId} ->`));
+  });
+
+  await runTest("matrix: gpt-runner model denial fails closed as a blocked task", async () => {
+    const scenario = await runSingleDescriptorDispatchScenario({
+      tempPrefix: "ai-factory-matrix-gpt-runner-model-denial-",
+      runtimeId: "gpt-runner",
+      doctorOverrides: { "gpt-runner": { ok: true } },
+      launcherScript: buildNoArtifactFailureScript({
+        stderrLines: [
+          "model access denied for gpt-5.4-pro",
+          "requested model is not available for this account"
+        ]
+      })
+    });
+    const { descriptor, dispatchResult, report, task } = scenario;
+    const result = dispatchResult.results[0];
+
+    assert.equal(result.status, "incomplete");
+    assert.equal(dispatchResult.summary.incomplete, 1);
+    assert.equal(task.status, "blocked");
+    assert.equal(result.nextTaskStatus, "blocked");
+    assert.equal(result.artifact?.status, "blocked");
+    assert.ok(!result.artifact?.automationDecision);
+    assert.match(result.artifact?.summary ?? "", /model denial|model access/i);
+    assert.match(result.note ?? "", /fail-closed blocked result/i);
+    assert.match(report, new RegExp(`\\[blocked\\] ${descriptor.taskId} ->`));
+  });
+
+  await runTest("matrix: gpt-runner 429 retry-after becomes a timed automatic retry", async () => {
+    const scenario = await runSingleDescriptorDispatchScenario({
+      tempPrefix: "ai-factory-matrix-gpt-runner-rate-limit-",
+      runtimeId: "gpt-runner",
+      doctorOverrides: { "gpt-runner": { ok: true } },
+      launcherScript: buildNoArtifactFailureScript({
+        stderrLines: [
+          "429 Too Many Requests from upstream provider",
+          "Retry-After: 120"
+        ]
+      })
+    });
+    const { descriptor, dispatchResult, report, task } = scenario;
+    const result = dispatchResult.results[0];
+
+    assert.equal(result.status, "continued");
+    assert.equal(dispatchResult.summary.continued, 1);
+    assert.equal(task.status, "waiting_retry");
+    assert.equal(result.nextTaskStatus, "waiting_retry");
+    assert.equal(result.artifact?.status, "blocked");
+    assert.equal(result.artifact?.automationDecision?.action, "retry_task");
+    assert.equal(result.artifact?.automationDecision?.delayMinutes, 2);
+    assert.match(result.artifact?.summary ?? "", /429 \/ Retry-After/i);
+    assert.match(result.note ?? "", /fail-closed blocked result/i);
+    assert.match(report, new RegExp(`\\[waiting_retry\\] ${descriptor.taskId} ->`));
+  });
+
+  await runTest("matrix: gpt-runner provider timeout becomes a timed automatic retry", async () => {
+    const scenario = await runSingleDescriptorDispatchScenario({
+      tempPrefix: "ai-factory-matrix-gpt-runner-provider-timeout-",
+      runtimeId: "gpt-runner",
+      doctorOverrides: { "gpt-runner": { ok: true } },
+      launcherScript: buildNoArtifactFailureScript({
+        stderrLines: [
+          "provider timeout while waiting on /responses endpoint",
+          "deadline exceeded"
+        ]
+      })
+    });
+    const { descriptor, dispatchResult, report, task } = scenario;
+    const result = dispatchResult.results[0];
+
+    assert.equal(result.status, "continued");
+    assert.equal(dispatchResult.summary.continued, 1);
+    assert.equal(task.status, "waiting_retry");
+    assert.equal(result.nextTaskStatus, "waiting_retry");
+    assert.equal(result.artifact?.status, "blocked");
+    assert.equal(result.artifact?.automationDecision?.action, "retry_task");
+    assert.equal(result.artifact?.automationDecision?.delayMinutes, 1);
+    assert.match(result.artifact?.summary ?? "", /provider timeout/i);
+    assert.match(result.note ?? "", /fail-closed blocked result/i);
+    assert.match(report, new RegExp(`\\[waiting_retry\\] ${descriptor.taskId} ->`));
   });
 
   await runTest("matrix: launcher permission denials become timed automatic retry decisions", async () => {

@@ -169,6 +169,218 @@ function classifyGptRunnerTransientSignal(value) {
   );
 }
 
+function isMissingResultArtifactReason(reason) {
+  return /result artifact was not written|no such file|enoent/i.test(String(reason ?? ""));
+}
+
+function parseRetryAfterDelayMinutes(value) {
+  const text = String(value ?? "");
+  const retryAfterMatch =
+    /\bretry-after\b[^0-9]*(\d+)(?:\s*(seconds?|secs?|minutes?|mins?))?/i.exec(text) ??
+    /\bretry after\b[^0-9]*(\d+)(?:\s*(seconds?|secs?|minutes?|mins?))?/i.exec(text);
+
+  if (!retryAfterMatch) {
+    return 1;
+  }
+
+  const amount = Number.parseInt(retryAfterMatch[1], 10);
+
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return 1;
+  }
+
+  const unit = String(retryAfterMatch[2] ?? "").toLowerCase();
+
+  if (/min/.test(unit)) {
+    return Math.max(1, amount);
+  }
+
+  return Math.max(1, Math.ceil(amount / 60));
+}
+
+function classifyDoctorRuntimeDriftSignal({
+  runtimeId,
+  execution = null,
+  error = null,
+  resultArtifact = null
+}) {
+  if (runtimeId !== "gpt-runner") {
+    return null;
+  }
+
+  if (resultArtifact?.valid) {
+    return null;
+  }
+
+  if (resultArtifact && !error && !isMissingResultArtifactReason(resultArtifact.reason)) {
+    return null;
+  }
+
+  const text = dedupeText([
+    error instanceof Error ? error.message : error,
+    error?.stdout,
+    error?.stderr,
+    execution?.stdout,
+    execution?.stderr,
+    resultArtifact?.reason
+  ]);
+
+  if (!isNonEmptyString(text)) {
+    return null;
+  }
+
+  const normalizedText = text.toLowerCase();
+
+  if (
+    /\b401\b|\b403\b|unauthorized|forbidden|auth drift|authentication (failed|required)|login (expired|required)|not logged in|session expired|expired token|token expired|invalid api key/.test(
+      normalizedText
+    )
+  ) {
+    return {
+      retryable: false,
+      delayMinutes: 0,
+      summary:
+        "Doctor reported gpt-runner ready, but the first real task hit auth drift (401/403/login/session) and cannot continue automatically.",
+      verification:
+        "Observed post-doctor auth drift during first real GPT Runner execution; blocking for manual re-authentication.",
+      signalSnippet: tailTruncateExecutionOutput(text)
+    };
+  }
+
+  if (
+    /model denial|model access denied|model .*denied|access to model|model .*not allowed|model .*not available|model .*unavailable|unsupported model|unknown model|invalid model|model .*not found/.test(
+      normalizedText
+    )
+  ) {
+    return {
+      retryable: false,
+      delayMinutes: 0,
+      summary:
+        "Doctor reported gpt-runner ready, but the first real task hit model denial or unavailable model access and cannot continue automatically.",
+      verification:
+        "Observed post-doctor model denial during first real GPT Runner execution; blocking for manual model access follow-up.",
+      signalSnippet: tailTruncateExecutionOutput(text)
+    };
+  }
+
+  if (/retry-after|rate limit|too many requests|\b429\b/.test(normalizedText)) {
+    return {
+      retryable: true,
+      delayMinutes: parseRetryAfterDelayMinutes(text),
+      summary:
+        "Doctor reported gpt-runner ready, but the first real task hit upstream rate limiting (429 / Retry-After). Failing closed with an automatic retry window.",
+      verification:
+        "Observed upstream rate limiting after doctor readiness and scheduled an automatic retry.",
+      signalSnippet: tailTruncateExecutionOutput(text)
+    };
+  }
+
+  if (
+    /provider timeout|gateway timeout|\b504\b|deadline exceeded|request timed out|timed out while waiting|upstream timed out|operation timed out|timeout contacting/.test(
+      normalizedText
+    )
+  ) {
+    return {
+      retryable: true,
+      delayMinutes: 1,
+      summary:
+        "Doctor reported gpt-runner ready, but the first real task hit a provider timeout. Failing closed with an automatic retry.",
+      verification:
+        "Observed provider timeout symptoms after doctor readiness and scheduled an automatic retry.",
+      signalSnippet: tailTruncateExecutionOutput(text)
+    };
+  }
+
+  return null;
+}
+
+function buildDoctorRuntimeDriftResult(
+  descriptor,
+  runtimeId,
+  driftSignal,
+  execution = null,
+  notePrefix = null
+) {
+  const summary = dedupeText([
+    driftSignal.summary,
+    isNonEmptyString(driftSignal.signalSnippet)
+      ? `launcherSignal=${driftSignal.signalSnippet}`
+      : null
+  ]);
+  const artifact = validateResultArtifact(
+    {
+      runId: descriptor.runId,
+      taskId: descriptor.taskId,
+      handoffId: descriptor.handoffId ?? null,
+      status: "blocked",
+      summary,
+      changedFiles: [],
+      verification: [driftSignal.verification],
+      notes: [summary],
+      ...(driftSignal.retryable
+        ? {
+            automationDecision: {
+              action: "retry_task",
+              reason: summary,
+              delayMinutes: driftSignal.delayMinutes
+            }
+          }
+        : {})
+    },
+    {
+      runId: descriptor.runId,
+      taskId: descriptor.taskId,
+      handoffId: descriptor.handoffId ?? undefined
+    }
+  );
+
+  return buildDispatchResultFromArtifact(
+    descriptor,
+    runtimeId,
+    {
+      exists: true,
+      valid: true,
+      artifact,
+      reason: null
+    },
+    execution,
+    appendNoteFragment(
+      notePrefix,
+      "Converted doctor-to-runtime drift into a fail-closed blocked result."
+    )
+  );
+}
+
+function maybeBuildDoctorRuntimeDriftResult(
+  descriptor,
+  runtimeId,
+  {
+    execution = null,
+    error = null,
+    resultArtifact = null,
+    notePrefix = null
+  } = {}
+) {
+  const driftSignal = classifyDoctorRuntimeDriftSignal({
+    runtimeId,
+    execution,
+    error,
+    resultArtifact
+  });
+
+  if (!driftSignal) {
+    return null;
+  }
+
+  return buildDoctorRuntimeDriftResult(
+    descriptor,
+    runtimeId,
+    driftSignal,
+    error ? executionFromError(error) : execution,
+    notePrefix
+  );
+}
+
 function shouldRetryGptRunnerLauncher({
   runtimeId,
   attemptNumber,
@@ -207,7 +419,7 @@ function shouldRetryGptRunnerLauncher({
   const stdout = execution?.stdout ?? "";
   const stderr = execution?.stderr ?? "";
 
-  if (!/result artifact was not written|no such file|enoent/i.test(String(reason))) {
+  if (!isMissingResultArtifactReason(reason)) {
     return false;
   }
 
@@ -911,7 +1123,7 @@ function isExhaustedTransientGptRunnerFailure({
 
   const reason = resultArtifact.reason ?? "";
 
-  if (!/result artifact was not written|no such file|enoent/i.test(String(reason))) {
+  if (!isMissingResultArtifactReason(reason)) {
     return false;
   }
 
@@ -1612,6 +1824,19 @@ export async function dispatchHandoffs(indexPath, mode = "dry-run") {
               break;
             }
 
+            completedResult = maybeBuildDoctorRuntimeDriftResult(
+              descriptor,
+              runtimeId,
+              {
+                error,
+                notePrefix: lockRecoveryNote
+              }
+            );
+
+            if (completedResult) {
+              break;
+            }
+
             throw error;
           }
 
@@ -1645,6 +1870,20 @@ export async function dispatchHandoffs(indexPath, mode = "dry-run") {
             })
           ) {
             completedResult = buildTransientGptRunnerRetryResult(descriptor, execution, lockRecoveryNote);
+            break;
+          }
+
+          completedResult = maybeBuildDoctorRuntimeDriftResult(
+            descriptor,
+            runtimeId,
+            {
+              execution,
+              resultArtifact,
+              notePrefix: lockRecoveryNote
+            }
+          );
+
+          if (completedResult) {
             break;
           }
 

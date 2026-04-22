@@ -1329,16 +1329,28 @@ function slugifyLabel(value, fallback = "entry") {
 function classifyFailureCategory(reason = "") {
   const text = String(reason).toLowerCase();
 
-  if (/rate limit|too many requests|429/.test(text)) {
+  if (/rate limit|too many requests|retry-after|retry after|429/.test(text)) {
     return "rate_limit";
   }
 
-  if (/timeout|timed out|etimedout|watchdog timeout|no-progress circuit|stalled/.test(text)) {
+  if (
+    /timeout|timed out|etimedout|gateway timeout|provider timeout|deadline exceeded|watchdog timeout|no-progress circuit|stalled/.test(
+      text
+    )
+  ) {
     return "timeout";
   }
 
   if (/missing|not found|enoent|npm ci|dependency/.test(text)) {
     return "missing_dependency";
+  }
+
+  if (
+    /\b401\b|\b403\b|unauthorized|forbidden|auth drift|authentication (failed|required)|login (expired|required)|not logged in|session expired|expired token|token expired|invalid api key|model denial|model access denied|access to model|model .*not allowed|model .*not available|model .*unavailable|unsupported model|unknown model|invalid model|model .*not found/.test(
+      text
+    )
+  ) {
+    return "environment_mismatch";
   }
 
   if (
@@ -1364,7 +1376,36 @@ function classifyFailureCategory(reason = "") {
   return "unknown";
 }
 
-function isRetryableCategory(category) {
+function classifyEnvironmentMismatchMode(reason = "") {
+  const text = String(reason).toLowerCase();
+
+  if (
+    /\b401\b|\b403\b|unauthorized|forbidden|auth drift|authentication (failed|required)|login (expired|required)|not logged in|session expired|expired token|token expired|invalid api key/.test(
+      text
+    )
+  ) {
+    return "auth_drift";
+  }
+
+  if (
+    /model denial|model access denied|access to model|model .*not allowed|model .*not available|model .*unavailable|unsupported model|unknown model|invalid model|model .*not found/.test(
+      text
+    )
+  ) {
+    return "model_denial";
+  }
+
+  return "availability";
+}
+
+function isRetryableCategory(category, reason = "") {
+  if (
+    category === "environment_mismatch" &&
+    ["auth_drift", "model_denial"].includes(classifyEnvironmentMismatchMode(reason))
+  ) {
+    return false;
+  }
+
   return ["rate_limit", "timeout", "environment_mismatch", "missing_dependency"].includes(category);
 }
 
@@ -1382,6 +1423,16 @@ function deriveLikelyCause(category, reason) {
   }
 
   if (category === "environment_mismatch") {
+    const mismatchMode = classifyEnvironmentMismatchMode(reason);
+
+    if (mismatchMode === "auth_drift") {
+      return "Runtime authentication drifted after doctor readiness and the task could not continue.";
+    }
+
+    if (mismatchMode === "model_denial") {
+      return "Runtime model access drifted after doctor readiness and the selected model was denied.";
+    }
+
     return "Runtime, network, or upstream provider availability was unstable.";
   }
 
@@ -1402,7 +1453,7 @@ function deriveLikelyCause(category, reason) {
     : "No diagnostic message was captured.";
 }
 
-function deriveNextBestAction(category) {
+function deriveNextBestAction(category, reason) {
   if (category === "rate_limit") {
     return "Retry with backoff and keep deterministic prompt/hash inputs unchanged.";
   }
@@ -1416,6 +1467,16 @@ function deriveNextBestAction(category) {
   }
 
   if (category === "environment_mismatch") {
+    const mismatchMode = classifyEnvironmentMismatchMode(reason);
+
+    if (mismatchMode === "auth_drift") {
+      return "Re-authenticate the affected runtime, rerun doctor if needed, and only then retry the same handoff.";
+    }
+
+    if (mismatchMode === "model_denial") {
+      return "Use an allowed model or restore model access before retrying the same handoff.";
+    }
+
     return "Retry the same handoff after runtime, network, or upstream provider availability recovers.";
   }
 
@@ -1454,8 +1515,8 @@ function createFailureFeedbackEntry({
       : `Autonomous dispatch produced status=${status} without a detailed error message.`,
     evidence: safeArray(evidence).filter(isNonEmptyString),
     likelyCause: deriveLikelyCause(category, reason),
-    nextBestAction: deriveNextBestAction(category),
-    retryable: isRetryableCategory(category),
+    nextBestAction: deriveNextBestAction(category, reason),
+    retryable: isRetryableCategory(category, reason),
     status: status ?? "failed"
   };
 }

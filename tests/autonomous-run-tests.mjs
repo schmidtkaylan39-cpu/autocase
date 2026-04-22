@@ -1516,6 +1516,285 @@ async function main() {
     assert.equal(generatedCases.cases[0].retryable, true);
   });
 
+  await runTest("autonomous loop records doctor-to-runtime model denial as non-retryable environment feedback", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-autonomous-model-denial-feedback-"));
+    const runResult = await runProject(validSpecPath, tempDir, "autonomous-model-denial-feedback-run");
+    const doctorReportPath = path.join(tempDir, "doctor.json");
+    const handoffIndexPath = path.join(tempDir, "handoffs", "index.json");
+    const dispatchResultsPath = path.join(tempDir, "handoffs", "dispatch-results.json");
+    const dispatchResultsMarkdownPath = path.join(tempDir, "handoffs", "dispatch-results.md");
+
+    await writeJson(doctorReportPath, { checks: [] });
+    await mkdir(path.dirname(handoffIndexPath), { recursive: true });
+    await writeJson(handoffIndexPath, {
+      generatedAt: new Date().toISOString(),
+      runId: "autonomous-model-denial-feedback-run",
+      readyTaskCount: 1,
+      descriptors: []
+    });
+
+    const result = await runAutonomousLoop(runResult.statePath, {
+      maxRounds: 1,
+      operations: {
+        runRuntimeDoctor: async () => ({ jsonPath: doctorReportPath }),
+        tickProjectRun: async () => ({
+          handoffIndexPath,
+          readyTaskCount: 1
+        }),
+        dispatchHandoffs: async () => {
+          const currentRunState = refreshRunState(await readJson(runResult.statePath));
+          const blockedRunState = refreshRunState({
+            ...currentRunState,
+            taskLedger: currentRunState.taskLedger.map((task) =>
+              task.id === "planning-brief" ? { ...task, status: "blocked" } : task
+            )
+          });
+
+          await writeJson(runResult.statePath, blockedRunState);
+
+          return {
+            summary: {
+              executed: 1,
+              completed: 0,
+              continued: 0,
+              incomplete: 1,
+              failed: 0,
+              skipped: 0
+            },
+            resultJsonPath: dispatchResultsPath,
+            resultMarkdownPath: dispatchResultsMarkdownPath,
+            results: [
+              {
+                taskId: "planning-brief",
+                runtime: "gpt-runner",
+                status: "incomplete",
+                note: "Converted doctor-to-runtime drift into a fail-closed blocked result. Runtime reported a blocked task in the result artifact.",
+                launcherPath: path.join(tempDir, "handoffs", "planning-brief.launch.ps1"),
+                resultPath: path.join(tempDir, "handoffs", "results", "planning-brief.result.json"),
+                artifact: {
+                  status: "blocked",
+                  summary:
+                    "Doctor reported gpt-runner ready, but the first real task hit model denial or unavailable model access and cannot continue automatically. launcherSignal=model access denied for gpt-5.4-pro",
+                  verification: [
+                    "Observed post-doctor model denial during first real GPT Runner execution; blocking for manual model access follow-up."
+                  ],
+                  notes: [
+                    "Doctor reported gpt-runner ready, but the first real task hit model denial or unavailable model access and cannot continue automatically. launcherSignal=model access denied for gpt-5.4-pro"
+                  ]
+                }
+              }
+            ]
+          };
+        }
+      }
+    });
+
+    const feedbackDirectory = path.join(path.dirname(runResult.statePath), "artifacts", "failure-feedback");
+    const feedbackIndex = await readJson(path.join(feedbackDirectory, "failure-feedback-index.json"));
+
+    assert.equal(result.summary.failureFeedback.count, 1);
+    assert.equal(feedbackIndex.entries[0].status, "incomplete");
+    assert.equal(feedbackIndex.entries[0].category, "environment_mismatch");
+    assert.equal(feedbackIndex.entries[0].retryable, false);
+    assert.match(feedbackIndex.entries[0].summary, /model denial/i);
+  });
+
+  await runTest("autonomous loop records 429 retry-after drift as retryable rate-limit feedback", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-autonomous-rate-limit-feedback-"));
+    const runResult = await runProject(validSpecPath, tempDir, "autonomous-rate-limit-feedback-run");
+    const doctorReportPath = path.join(tempDir, "doctor.json");
+    const handoffIndexPath = path.join(tempDir, "handoffs", "index.json");
+    const dispatchResultsPath = path.join(tempDir, "handoffs", "dispatch-results.json");
+    const dispatchResultsMarkdownPath = path.join(tempDir, "handoffs", "dispatch-results.md");
+    const nextRetryAt = new Date(Date.now() + 120_000).toISOString();
+
+    await writeJson(doctorReportPath, { checks: [] });
+    await mkdir(path.dirname(handoffIndexPath), { recursive: true });
+    await writeJson(handoffIndexPath, {
+      generatedAt: new Date().toISOString(),
+      runId: "autonomous-rate-limit-feedback-run",
+      readyTaskCount: 1,
+      descriptors: []
+    });
+
+    const result = await runAutonomousLoop(runResult.statePath, {
+      maxRounds: 1,
+      operations: {
+        runRuntimeDoctor: async () => ({ jsonPath: doctorReportPath }),
+        tickProjectRun: async () => ({
+          handoffIndexPath,
+          readyTaskCount: 1
+        }),
+        dispatchHandoffs: async () => {
+          const currentRunState = refreshRunState(await readJson(runResult.statePath));
+          const waitingRetryRunState = refreshRunState({
+            ...currentRunState,
+            taskLedger: currentRunState.taskLedger.map((task) =>
+              task.id === "planning-brief"
+                ? {
+                    ...task,
+                    status: "waiting_retry",
+                    retryCount: (task.retryCount ?? 0) + 1,
+                    nextRetryAt,
+                    lastRetryReason: "429 Too Many Requests / Retry-After"
+                  }
+                : task
+            )
+          });
+
+          await writeJson(runResult.statePath, waitingRetryRunState);
+
+          return {
+            summary: {
+              executed: 1,
+              completed: 0,
+              continued: 1,
+              incomplete: 0,
+              failed: 0,
+              skipped: 0
+            },
+            resultJsonPath: dispatchResultsPath,
+            resultMarkdownPath: dispatchResultsMarkdownPath,
+            results: [
+              {
+                taskId: "planning-brief",
+                runtime: "gpt-runner",
+                status: "continued",
+                note: "Converted doctor-to-runtime drift into a fail-closed blocked result. Runtime reported a blocked task with an automatic continuation decision.",
+                launcherPath: path.join(tempDir, "handoffs", "planning-brief.launch.ps1"),
+                resultPath: path.join(tempDir, "handoffs", "results", "planning-brief.result.json"),
+                artifact: {
+                  status: "blocked",
+                  summary:
+                    "Doctor reported gpt-runner ready, but the first real task hit upstream rate limiting (429 / Retry-After). Failing closed with an automatic retry window. launcherSignal=429 Too Many Requests Retry-After: 120",
+                  verification: [
+                    "Observed upstream rate limiting after doctor readiness and scheduled an automatic retry."
+                  ],
+                  notes: [
+                    "Doctor reported gpt-runner ready, but the first real task hit upstream rate limiting (429 / Retry-After). Failing closed with an automatic retry window. launcherSignal=429 Too Many Requests Retry-After: 120"
+                  ],
+                  automationDecision: {
+                    action: "retry_task",
+                    reason:
+                      "Doctor reported gpt-runner ready, but the first real task hit upstream rate limiting (429 / Retry-After). Failing closed with an automatic retry window. launcherSignal=429 Too Many Requests Retry-After: 120",
+                    delayMinutes: 2
+                  }
+                }
+              }
+            ]
+          };
+        }
+      }
+    });
+
+    const feedbackDirectory = path.join(path.dirname(runResult.statePath), "artifacts", "failure-feedback");
+    const feedbackIndex = await readJson(path.join(feedbackDirectory, "failure-feedback-index.json"));
+
+    assert.equal(result.summary.failureFeedback.count, 1);
+    assert.equal(feedbackIndex.entries[0].status, "continued");
+    assert.equal(feedbackIndex.entries[0].category, "rate_limit");
+    assert.equal(feedbackIndex.entries[0].retryable, true);
+    assert.match(feedbackIndex.entries[0].summary, /retry-after/i);
+  });
+
+  await runTest("autonomous loop records provider timeout drift as retryable timeout feedback", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-autonomous-provider-timeout-feedback-"));
+    const runResult = await runProject(validSpecPath, tempDir, "autonomous-provider-timeout-feedback-run");
+    const doctorReportPath = path.join(tempDir, "doctor.json");
+    const handoffIndexPath = path.join(tempDir, "handoffs", "index.json");
+    const dispatchResultsPath = path.join(tempDir, "handoffs", "dispatch-results.json");
+    const dispatchResultsMarkdownPath = path.join(tempDir, "handoffs", "dispatch-results.md");
+    const nextRetryAt = new Date(Date.now() + 60_000).toISOString();
+
+    await writeJson(doctorReportPath, { checks: [] });
+    await mkdir(path.dirname(handoffIndexPath), { recursive: true });
+    await writeJson(handoffIndexPath, {
+      generatedAt: new Date().toISOString(),
+      runId: "autonomous-provider-timeout-feedback-run",
+      readyTaskCount: 1,
+      descriptors: []
+    });
+
+    const result = await runAutonomousLoop(runResult.statePath, {
+      maxRounds: 1,
+      operations: {
+        runRuntimeDoctor: async () => ({ jsonPath: doctorReportPath }),
+        tickProjectRun: async () => ({
+          handoffIndexPath,
+          readyTaskCount: 1
+        }),
+        dispatchHandoffs: async () => {
+          const currentRunState = refreshRunState(await readJson(runResult.statePath));
+          const waitingRetryRunState = refreshRunState({
+            ...currentRunState,
+            taskLedger: currentRunState.taskLedger.map((task) =>
+              task.id === "planning-brief"
+                ? {
+                    ...task,
+                    status: "waiting_retry",
+                    retryCount: (task.retryCount ?? 0) + 1,
+                    nextRetryAt,
+                    lastRetryReason: "provider timeout"
+                  }
+                : task
+            )
+          });
+
+          await writeJson(runResult.statePath, waitingRetryRunState);
+
+          return {
+            summary: {
+              executed: 1,
+              completed: 0,
+              continued: 1,
+              incomplete: 0,
+              failed: 0,
+              skipped: 0
+            },
+            resultJsonPath: dispatchResultsPath,
+            resultMarkdownPath: dispatchResultsMarkdownPath,
+            results: [
+              {
+                taskId: "planning-brief",
+                runtime: "gpt-runner",
+                status: "continued",
+                note: "Converted doctor-to-runtime drift into a fail-closed blocked result. Runtime reported a blocked task with an automatic continuation decision.",
+                launcherPath: path.join(tempDir, "handoffs", "planning-brief.launch.ps1"),
+                resultPath: path.join(tempDir, "handoffs", "results", "planning-brief.result.json"),
+                artifact: {
+                  status: "blocked",
+                  summary:
+                    "Doctor reported gpt-runner ready, but the first real task hit a provider timeout. Failing closed with an automatic retry. launcherSignal=provider timeout while waiting on /responses endpoint deadline exceeded",
+                  verification: [
+                    "Observed provider timeout symptoms after doctor readiness and scheduled an automatic retry."
+                  ],
+                  notes: [
+                    "Doctor reported gpt-runner ready, but the first real task hit a provider timeout. Failing closed with an automatic retry. launcherSignal=provider timeout while waiting on /responses endpoint deadline exceeded"
+                  ],
+                  automationDecision: {
+                    action: "retry_task",
+                    reason:
+                      "Doctor reported gpt-runner ready, but the first real task hit a provider timeout. Failing closed with an automatic retry. launcherSignal=provider timeout while waiting on /responses endpoint deadline exceeded",
+                    delayMinutes: 1
+                  }
+                }
+              }
+            ]
+          };
+        }
+      }
+    });
+
+    const feedbackDirectory = path.join(path.dirname(runResult.statePath), "artifacts", "failure-feedback");
+    const feedbackIndex = await readJson(path.join(feedbackDirectory, "failure-feedback-index.json"));
+
+    assert.equal(result.summary.failureFeedback.count, 1);
+    assert.equal(feedbackIndex.entries[0].status, "continued");
+    assert.equal(feedbackIndex.entries[0].category, "timeout");
+    assert.equal(feedbackIndex.entries[0].retryable, true);
+    assert.match(feedbackIndex.entries[0].summary, /provider timeout/i);
+  });
+
   await runTest("autonomous loop rejects concurrent execution for the same run-state", async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-autonomous-lock-"));
     const runResult = await runProject(validSpecPath, tempDir, "autonomous-lock-run");
