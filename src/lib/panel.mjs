@@ -15,6 +15,7 @@ import {
   validateSpec
 } from "./commands.mjs";
 import { runAutonomousLoop } from "./autonomous-run.mjs";
+import { readDispatchResultsArtifact, readRunStateArtifact } from "./control-plane-artifacts.mjs";
 import { dispatchHandoffs } from "./dispatch.mjs";
 import { runRuntimeDoctor } from "./doctor.mjs";
 import { readJson } from "./fs-utils.mjs";
@@ -146,7 +147,7 @@ async function collectHandoffDirectories(runStatePath) {
     path.join(runDirectory, "handoffs"),
     path.join(runDirectory, "handoffs-autonomous")
   ]);
-  const runState = await readJson(runStatePath).catch(() => null);
+  const runState = await readRunStateArtifact(runStatePath).catch(() => null);
 
   for (const task of runState?.taskLedger ?? []) {
     if (typeof task.activeHandoffOutputDir === "string" && task.activeHandoffOutputDir.trim().length > 0) {
@@ -281,7 +282,7 @@ async function buildWorkspaceOverview(workspaceRoot) {
   let latestRun = null;
 
   if (latestRunStatePath) {
-    const runState = await readJson(latestRunStatePath).catch(() => null);
+    const runState = await readRunStateArtifact(latestRunStatePath).catch(() => null);
 
     if (runState) {
       const runDirectory = path.dirname(latestRunStatePath);
@@ -925,7 +926,7 @@ async function readGptEvidenceForRun(runStatePath) {
     throw createUserError("No dispatch-results.json found for this run. Execute dispatch first.");
   }
 
-  const dispatchResults = await readJson(dispatchResultsPath);
+  const dispatchResults = await readDispatchResultsArtifact(dispatchResultsPath);
   const gptInteractions = [];
 
   for (const result of dispatchResults?.results ?? []) {

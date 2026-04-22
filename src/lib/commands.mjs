@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { ensureDirectory, readJson, writeJson } from "./fs-utils.mjs";
+import { readRunStateArtifact } from "./control-plane-artifacts.mjs";
 import { buildHandoffDescriptor, getLauncherMetadata, renderHandoffMarkdown } from "./handoffs.mjs";
 import { clarifyIntakeRequest } from "./intake-clarifier.mjs";
 import {
@@ -443,7 +444,7 @@ export async function runProject(
 
 export async function reportProjectRun(runStatePath) {
   const resolvedRunStatePath = path.resolve(runStatePath);
-  const runState = refreshRunState(await readJson(resolvedRunStatePath));
+  const runState = refreshRunState(await readRunStateArtifact(resolvedRunStatePath));
   const runDirectory = path.dirname(resolvedRunStatePath);
   const planPath = path.join(runDirectory, "execution-plan.json");
   const plan = await readJson(planPath);
@@ -462,7 +463,7 @@ export async function reportProjectRun(runStatePath) {
 
 export async function updateRunTask(runStatePath, taskId, nextStatus, note = "") {
   const resolvedRunStatePath = path.resolve(runStatePath);
-  const existingRunState = await readJson(resolvedRunStatePath);
+  const existingRunState = await readRunStateArtifact(resolvedRunStatePath);
   const workspaceRoot = inferWorkspaceRootFromRunState(existingRunState, resolvedRunStatePath);
   await ensureRunStateIntakePlanningReady(existingRunState, workspaceRoot, null, "task update");
   const nextRunState = updateTaskInRunState(existingRunState, taskId, nextStatus, note);
@@ -490,7 +491,7 @@ export async function scheduleTaskRetry(
 ) {
   const resolvedRunStatePath = path.resolve(runStatePath);
   const runDirectory = path.dirname(resolvedRunStatePath);
-  const existingRunState = await readJson(resolvedRunStatePath);
+  const existingRunState = await readRunStateArtifact(resolvedRunStatePath);
   const workspaceRoot = inferWorkspaceRootFromRunState(existingRunState, resolvedRunStatePath);
   await ensureRunStateIntakePlanningReady(existingRunState, workspaceRoot, null, "retry scheduling");
   const { config } = await loadFactoryConfig(configPath, workspaceRoot);
@@ -578,7 +579,7 @@ export async function tickProjectRun(
   outputDir
 ) {
   const resolvedRunStatePath = path.resolve(runStatePath);
-  const previousRunState = await readJson(resolvedRunStatePath);
+  const previousRunState = await readRunStateArtifact(resolvedRunStatePath);
   const workspaceRoot = inferWorkspaceRootFromRunState(previousRunState, resolvedRunStatePath);
   await ensureRunStateIntakePlanningReady(previousRunState, workspaceRoot, null, "tick");
   const refreshedRunState = refreshRunState(previousRunState);
@@ -614,7 +615,7 @@ export async function tickProjectRun(
     outputDir,
     resolveWorkspaceRelativePath(workspaceRoot, doctorReportPath)
   );
-  const nextRunState = await readJson(resolvedRunStatePath);
+  const nextRunState = await readRunStateArtifact(resolvedRunStatePath);
 
   return {
     runDirectory,
@@ -632,7 +633,7 @@ export async function applyTaskResult(runStatePath, taskId, resultPath) {
   const resolvedRunStatePath = path.resolve(runStatePath);
   const resolvedResultPath = path.resolve(resultPath);
   const runDirectory = path.dirname(resolvedRunStatePath);
-  const existingRunState = await readJson(resolvedRunStatePath);
+  const existingRunState = await readRunStateArtifact(resolvedRunStatePath);
   const workspaceRoot = inferWorkspaceRootFromRunState(existingRunState, resolvedRunStatePath);
   await ensureRunStateIntakePlanningReady(existingRunState, workspaceRoot, null, "result application");
   const targetTask = existingRunState.taskLedger.find((task) => task.id === taskId);
@@ -706,7 +707,7 @@ export async function createRunHandoffs(
   const runDirectory = path.dirname(resolvedRunStatePath);
   const resolvedOutputDir = resolveRunRelativePath(runDirectory, outputDir, path.join(runDirectory, "handoffs"));
   assertCanonicalHandoffOutputDir(runDirectory, resolvedOutputDir);
-  const runState = refreshRunState(await readJson(resolvedRunStatePath));
+  const runState = refreshRunState(await readRunStateArtifact(resolvedRunStatePath));
   const workspaceRoot = inferWorkspaceRootFromRunState(runState, resolvedRunStatePath);
   await ensureRunStateIntakePlanningReady(runState, workspaceRoot, null, "handoff generation");
   const plan = await readJson(path.join(runDirectory, "execution-plan.json"));

@@ -71,6 +71,62 @@ async function postActionExpectError(baseUrl, action, payload = {}) {
   return body.error ?? `Request failed: ${response.status}`;
 }
 
+async function createPanelRunFixture(workspaceRoot, runId) {
+  const runDirectory = path.join(workspaceRoot, "runs", runId);
+  const runStatePath = path.join(runDirectory, "run-state.json");
+  const handoffDirectory = path.join(runDirectory, "handoffs");
+  const runStateFixture = {
+    version: 1,
+    runId,
+    projectName: "Panel Fixture Run",
+    workspacePath: workspaceRoot,
+    createdAt: "2026-04-20T18:30:00.000Z",
+    updatedAt: "2026-04-20T18:31:00.000Z",
+    status: "in_progress",
+    summary: {
+      totalTasks: 1,
+      readyTasks: 1,
+      pendingTasks: 0,
+      waitingRetryTasks: 0,
+      completedTasks: 0,
+      blockedTasks: 0,
+      failedTasks: 0
+    },
+    roles: {},
+    retryPolicy: {},
+    runtimeRouting: {},
+    modelPolicy: {},
+    mandatoryGates: [],
+    intake: null,
+    stopConditions: [],
+    definitionOfDone: [],
+    taskLedger: [
+      {
+        id: "planning-brief",
+        phaseId: "planning",
+        role: "planner",
+        owner: "Codex",
+        title: "Clarify the brief and execution sequence",
+        description: "Prepare the next dispatch package.",
+        status: "ready",
+        attempts: 0,
+        dependsOn: [],
+        acceptanceCriteria: []
+      }
+    ],
+    nextActions: []
+  };
+
+  await mkdir(handoffDirectory, { recursive: true });
+  await writeFile(runStatePath, `${JSON.stringify(runStateFixture, null, 2)}\n`, "utf8");
+
+  return {
+    runDirectory,
+    runStatePath,
+    handoffDirectory
+  };
+}
+
 async function main() {
   await runTest("normalizePanelPort keeps defaults and validates range", async () => {
     assert.equal(normalizePanelPort(undefined), 4310);
@@ -225,6 +281,50 @@ async function main() {
       assert.match(pageHtml, /invokeAction\(\s*"quick-start-safe"/);
       assert.match(pageHtml, /scheduleAutoResume\(overviewPayload\.overview\)/);
       assert.match(pageHtml, /refreshStatus\(\)\.catch/);
+    } finally {
+      await panel.close();
+    }
+  });
+
+  await runTest("panel gpt-evidence rejects malformed dispatch-results artifacts", async () => {
+    const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "ai-factory-panel-gpt-invalid-json-"));
+    const { runStatePath, handoffDirectory } = await createPanelRunFixture(workspaceRoot, "panel-gpt-invalid-json");
+    const panel = await startPanelServer({
+      workspaceDir: workspaceRoot,
+      port: 0
+    });
+
+    await writeFile(path.join(handoffDirectory, "dispatch-results.json"), '{"summary":{},"results":[', "utf8");
+
+    try {
+      const errorMessage = await postActionExpectError(panel.url, "gpt-evidence", {
+        runStatePath
+      });
+      assert.match(errorMessage, /dispatch-results artifact is invalid|malformed JSON|partial write/i);
+    } finally {
+      await panel.close();
+    }
+  });
+
+  await runTest("panel gpt-evidence rejects dispatch-results artifacts missing required results arrays", async () => {
+    const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "ai-factory-panel-gpt-missing-results-"));
+    const { runStatePath, handoffDirectory } = await createPanelRunFixture(workspaceRoot, "panel-gpt-missing-results");
+    const panel = await startPanelServer({
+      workspaceDir: workspaceRoot,
+      port: 0
+    });
+
+    await writeFile(
+      path.join(handoffDirectory, "dispatch-results.json"),
+      `${JSON.stringify({ summary: {} }, null, 2)}\n`,
+      "utf8"
+    );
+
+    try {
+      const errorMessage = await postActionExpectError(panel.url, "gpt-evidence", {
+        runStatePath
+      });
+      assert.match(errorMessage, /dispatch-results artifact is invalid|dispatch-results\.results/i);
     } finally {
       await panel.close();
     }
