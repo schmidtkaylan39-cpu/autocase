@@ -360,6 +360,13 @@ The panel is now simplified and localized in Chinese. Recommended flow:
 2. fill request text
 3. click `一鍵開始（推薦）`
 
+Current safe-flow note:
+
+1. keep or edit the structured request template
+2. click the quick-start button to generate a start/end preview
+3. review the preview and confirm the exact confirmation token
+4. let the panel continue into `confirm -> run -> autonomous`
+
 Detailed Chinese guide: `docs/panel-quickstart.zh-TW.md`
 
 This panel calls the same CLI workflow functions under the hood and keeps all artifacts in your workspace.

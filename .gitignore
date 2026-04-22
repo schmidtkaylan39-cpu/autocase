@@ -4,4 +4,5 @@ reports/
 workspace/
 review-bundles/
 release-artifacts/
+tmp/
 *.log

@@ -140,6 +140,7 @@ This now aligns the starter with its intended operating model:
 - local CI verifies
 - OpenClaw remains an optional orchestrator adapter for teams that explicitly opt it in
 - Cursor remains an auxiliary human IDE / spot-check surface and is not auto-selected by the default planner/reviewer route
+- Planner and reviewer retries can temporarily fail over from `gpt-runner` to `codex` after a transient GPT Runner upstream failure when Codex is healthy and no explicit runtime override blocks that route
 
 If a team wants Cursor as an explicit planner/reviewer fallback, it must opt in through `runtimeRouting.roleOverrides`, for example:
 
@@ -307,6 +308,8 @@ Execution result states are currently:
   Launcher execution itself failed.
 - `skipped`
   Runtime is currently treated as manual or hybrid only.
+
+If launcher process creation is denied by the host environment, dispatch converts that condition into a timed `retry_task` continuation so the task re-enters the loop as `waiting_retry` instead of immediately hard-failing.
 
 Hybrid/manual follow-up now has a matching CLI-side retry path:
 

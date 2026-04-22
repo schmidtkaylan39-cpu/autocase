@@ -1,0 +1,8 @@
+{
+  "Browser": "Chrome/149.0.7795.2",
+  "Protocol-Version": "1.3",
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/149.0.0.0 Safari/537.36",
+  "V8-Version": "14.9.111",
+  "WebKit-Version": "537.36 (@02dc409e890c90057fd651124098ec52a6b544f1)",
+  "webSocketDebuggerUrl": "ws://127.0.0.1:64570/devtools/browser/e662a82e-43e7-4e76-b7a8-93d1cf6486f1"
+}

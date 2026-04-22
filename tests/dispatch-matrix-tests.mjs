@@ -286,6 +286,44 @@ function buildTransientGptRunnerRecoveryScript(
   return `${lines.join("\n")}\n${buildResultArtifactScript(resultPath, artifact)}`;
 }
 
+function buildPersistentTransientGptRunnerFailureScript(
+  resultPath,
+  {
+    attemptCounterFileName = ".gpt-runner-attempt.txt",
+    transientMessage = "503 Service Unavailable: transient upstream failure"
+  } = {}
+) {
+  if (process.platform === "win32") {
+    return [
+      `$resultPath = '${escapePowerShellSingleQuoted(resultPath)}'`,
+      `$attemptCounterPath = Join-Path (Split-Path -Parent $resultPath) '${escapePowerShellSingleQuoted(
+        attemptCounterFileName
+      )}'`,
+      "$attemptCount = 0",
+      "if (Test-Path -LiteralPath $attemptCounterPath) {",
+      "  $attemptCount = [int](Get-Content -LiteralPath $attemptCounterPath -Raw)",
+      "}",
+      "$attemptCount += 1",
+      "Set-Content -LiteralPath $attemptCounterPath -Value $attemptCount -Encoding utf8",
+      `[Console]::Error.WriteLine('${escapePowerShellSingleQuoted(transientMessage)}')`,
+      "exit 1"
+    ].join("\n");
+  }
+
+  return [
+    `resultPath='${escapeShellSingleQuoted(resultPath)}'`,
+    `attemptCounterPath="$(dirname "$resultPath")/${escapeShellSingleQuoted(attemptCounterFileName)}"`,
+    "attemptCount=0",
+    'if [ -f "$attemptCounterPath" ]; then',
+    '  attemptCount="$(cat "$attemptCounterPath")"',
+    "fi",
+    "attemptCount=$((attemptCount + 1))",
+    'printf "%s" "$attemptCount" > "$attemptCounterPath"',
+    `printf '%s\\n' '${escapeShellSingleQuoted(transientMessage)}' >&2`,
+    "exit 1"
+  ].join("\n");
+}
+
 function modeForRuntime(runtimeId) {
   if (runtimeId === "cursor") {
     return "hybrid";
@@ -1414,6 +1452,104 @@ async function main() {
     }
   });
 
+  await runTest("matrix: exhausted gpt-runner transient upstream failures become automatic retry decisions", async () => {
+    const previousLauncherAttempts = process.env.AI_FACTORY_GPT_RUNNER_LAUNCHER_ATTEMPTS;
+    const previousRetryBaseDelayMs = process.env.AI_FACTORY_GPT_RUNNER_RETRY_BASE_DELAY_MS;
+    const previousRetryMaxDelayMs = process.env.AI_FACTORY_GPT_RUNNER_RETRY_MAX_DELAY_MS;
+    const attemptCounterFileName = ".gpt-runner-attempt.txt";
+    process.env.AI_FACTORY_GPT_RUNNER_LAUNCHER_ATTEMPTS = "2";
+    process.env.AI_FACTORY_GPT_RUNNER_RETRY_BASE_DELAY_MS = "1";
+    process.env.AI_FACTORY_GPT_RUNNER_RETRY_MAX_DELAY_MS = "1";
+
+    try {
+      const scenario = await runSingleDescriptorDispatchScenario({
+        tempPrefix: "ai-factory-matrix-gpt-runner-transient-exhausted-",
+        runtimeId: "gpt-runner",
+        doctorOverrides: { "gpt-runner": { ok: true } },
+        launcherScript: buildPersistentTransientGptRunnerFailureScript("{{RESULT_PATH}}", {
+          attemptCounterFileName
+        })
+      });
+      const { descriptor, dispatchResult, report, task } = scenario;
+      const result = dispatchResult.results[0];
+      const attemptCounterPath = path.join(path.dirname(descriptor.resultPath), attemptCounterFileName);
+      const attemptCounter = await readFile(attemptCounterPath, "utf8");
+
+      assert.equal(result.status, "continued");
+      assert.equal(dispatchResult.summary.continued, 1);
+      assert.equal(task.status, "ready");
+      assert.equal(result.artifact?.automationDecision?.action, "retry_task");
+      assert.equal(result.nextTaskStatus, "ready");
+      assert.equal(attemptCounter.trim(), "2");
+      assert.match(result.note ?? "", /automatic retry/i);
+      assert.match(report, new RegExp(`\\[ready\\] ${descriptor.taskId} ->`));
+    } finally {
+      if (previousLauncherAttempts === undefined) {
+        delete process.env.AI_FACTORY_GPT_RUNNER_LAUNCHER_ATTEMPTS;
+      } else {
+        process.env.AI_FACTORY_GPT_RUNNER_LAUNCHER_ATTEMPTS = previousLauncherAttempts;
+      }
+
+      if (previousRetryBaseDelayMs === undefined) {
+        delete process.env.AI_FACTORY_GPT_RUNNER_RETRY_BASE_DELAY_MS;
+      } else {
+        process.env.AI_FACTORY_GPT_RUNNER_RETRY_BASE_DELAY_MS = previousRetryBaseDelayMs;
+      }
+
+      if (previousRetryMaxDelayMs === undefined) {
+        delete process.env.AI_FACTORY_GPT_RUNNER_RETRY_MAX_DELAY_MS;
+      } else {
+        process.env.AI_FACTORY_GPT_RUNNER_RETRY_MAX_DELAY_MS = previousRetryMaxDelayMs;
+      }
+    }
+  });
+
+  await runTest("matrix: launcher permission denials become timed automatic retry decisions", async () => {
+    if (process.platform !== "win32") {
+      return;
+    }
+
+    const previousPowerShellCommand = process.env.AI_FACTORY_POWERSHELL_COMMAND;
+    const deniedCommandPath = await mkdtemp(path.join(os.tmpdir(), "ai-factory-matrix-launcher-denied-"));
+
+    process.env.AI_FACTORY_POWERSHELL_COMMAND = deniedCommandPath;
+
+    try {
+      const scenario = await runSingleDescriptorDispatchScenario({
+        tempPrefix: "ai-factory-matrix-launcher-permission-denied-",
+        runtimeId: "codex",
+        launcherScript: buildResultArtifactScript("{{RESULT_PATH}}", {
+          status: "completed",
+          summary: "this artifact should never be written when launcher creation is denied",
+          changedFiles: ["src/lib/dispatch.mjs"],
+          verification: ["node tests/dispatch-matrix-tests.mjs"],
+          notes: ["launcher permission denied path"]
+        })
+      });
+      const { dispatchResult, report, task } = scenario;
+      const result = dispatchResult.results[0];
+
+      assert.equal(result.status, "continued");
+      assert.equal(dispatchResult.summary.continued, 1);
+      assert.equal(task.status, "waiting_retry");
+      assert.equal(result.nextTaskStatus, "waiting_retry");
+      assert.equal(result.artifact?.status, "blocked");
+      assert.equal(result.artifact?.automationDecision?.action, "retry_task");
+      assert.equal(result.artifact?.automationDecision?.delayMinutes, 1);
+      assert.match(result.note ?? "", /automatic retry/i);
+      assert.match(result.artifact?.summary ?? "", /launcher process creation was denied/i);
+      assert.match(report, new RegExp(`\\[waiting_retry\\] ${result.taskId} ->`));
+    } finally {
+      if (previousPowerShellCommand === undefined) {
+        delete process.env.AI_FACTORY_POWERSHELL_COMMAND;
+      } else {
+        process.env.AI_FACTORY_POWERSHELL_COMMAND = previousPowerShellCommand;
+      }
+
+      await rm(deniedCommandPath, { force: true, recursive: true });
+    }
+  });
+
   await runTest("matrix: descriptor timeoutMs is enforced without environment overrides", async () => {
     const previousTimeout = process.env.AI_FACTORY_POWERSHELL_TIMEOUT_MS;
     delete process.env.AI_FACTORY_POWERSHELL_TIMEOUT_MS;
@@ -1519,6 +1655,81 @@ async function main() {
     assert.match(result.note ?? "", /retry budget exhausted/i);
     assert.equal(markerFiles.length, 0);
     assert.equal(task?.status, "blocked");
+    assert.match(report, new RegExp(`\\[blocked\\] ${descriptor.taskId} ->`));
+  });
+
+  await runTest("matrix: retry budget guard still allows the first automatic retry attempt", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-matrix-first-retry-"));
+    const { runResult, handoffResult, descriptor } = await createPlannerDispatchReadyRun(
+      tempDir,
+      `first-retry-${Date.now()}`,
+      {
+        "gpt-runner": { ok: true },
+        codex: { ok: true }
+      }
+    );
+    const markerDirectory = path.join(tempDir, "first-retry-markers");
+    const runState = JSON.parse(await readFile(runResult.statePath, "utf8"));
+
+    await limitDispatchToDescriptors(handoffResult.indexPath, handoffResult.runId, [descriptor]);
+    await writeFile(descriptor.launcherPath, buildMarkerOnlyScript(markerDirectory), "utf8");
+    await writeJson(runResult.statePath, {
+      ...runState,
+      taskLedger: runState.taskLedger.map((task) =>
+        task.id === descriptor.taskId
+          ? {
+              ...task,
+              retryCount: descriptor.execution.retryBudget
+            }
+          : task
+      )
+    });
+
+    const dispatchResult = await dispatchHandoffs(handoffResult.indexPath, "execute");
+    const result = dispatchResult.results[0];
+    const markerFiles = await readdir(markerDirectory).catch(() => []);
+
+    assert.notEqual(result.status, "skipped");
+    assert.equal(markerFiles.length, 1);
+  });
+
+  await runTest("matrix: retry budget guard also blocks repeated automatic retry_count loops", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-matrix-retry-count-budget-"));
+    const { runResult, handoffResult, descriptor, reportPath } = await createDispatchReadyRun(
+      tempDir,
+      `retry-count-budget-${Date.now()}`,
+      { codex: { ok: true } }
+    );
+    const markerDirectory = path.join(tempDir, "retry-count-budget-markers");
+    const runState = JSON.parse(await readFile(runResult.statePath, "utf8"));
+
+    await limitDispatchToDescriptors(handoffResult.indexPath, handoffResult.runId, [descriptor]);
+    await writeFile(descriptor.launcherPath, buildMarkerOnlyScript(markerDirectory), "utf8");
+    await writeJson(runResult.statePath, {
+      ...runState,
+      taskLedger: runState.taskLedger.map((task) =>
+        task.id === descriptor.taskId
+          ? {
+              ...task,
+              retryCount: descriptor.execution.retryBudget + 1
+            }
+          : task
+      )
+    });
+
+    const dispatchResult = await dispatchHandoffs(handoffResult.indexPath, "execute");
+    const result = dispatchResult.results[0];
+    const markerFiles = await readdir(markerDirectory).catch(() => []);
+    const nextRunState = JSON.parse(await readFile(runResult.statePath, "utf8"));
+    const report = await readFile(reportPath, "utf8");
+    const task = nextRunState.taskLedger.find((item) => item.id === descriptor.taskId);
+
+    assert.equal(result.status, "skipped");
+    assert.match(result.note ?? "", /retry budget exhausted/i);
+    assert.match(result.note ?? "", /retryCount=/i);
+    assert.equal(markerFiles.length, 0);
+    assert.equal(task?.status, "blocked");
+    assert.match(task?.notes?.at(-1) ?? "", /dispatch:retry-budget-exhausted .*retryCount=/i);
     assert.match(report, new RegExp(`\\[blocked\\] ${descriptor.taskId} ->`));
   });
 

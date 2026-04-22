@@ -1,0 +1,93 @@
+{
+  "projectName": "Create artifacts/generated/summary.md from both local files without changing the input files",
+  "summary": "Create artifacts/generated/summary.md from both local files without changing the input files.",
+  "projectGoal": {
+    "oneLine": "Create artifacts/generated/summary.md from both local files without changing the input files.",
+    "details": "Start from this confirmed state: Local workspace contains data/brief.txt and data/details.txt with tokens BRIEF-PANEL-SMOKE-20260421-A and DETAIL-PANEL-SMOKE-20260421-B, and artifacts/generated is writable.. Deliver this confirmed end point: Create artifacts/generated/summary.md from both local files without changing the input files.. Clarified goal: Create artifacts/generated/summary.md from both local files without changing the input files.. Use these confirmed inputs: data/brief.txt; data/details.txt.. Keep these items out of scope: do not modify input files; do not call external APIs; do not send email.."
+  },
+  "targetUsers": [
+    "The operator who submitted this confirmed quick-start request."
+  ],
+  "coreFeatures": [
+    {
+      "id": "create-artifacts-generated-summary-md-from-both-",
+      "title": "Create artifacts/generated/summary.md from both local files without changing the input files",
+      "description": "Begin from: Local workspace contains data/brief.txt and data/details.txt with tokens BRIEF-PANEL-SMOKE-20260421-A and DETAIL-PANEL-SMOKE-20260421-B, and artifacts/generated is writable.. Deliver: Create artifacts/generated/summary.md from both local files without changing the input files.. Inputs: data/brief.txt; data/details.txt..",
+      "acceptanceCriteria": [
+        "artifacts/generated/summary.md exists",
+        "summary.md includes the exact token BRIEF-PANEL-SMOKE-20260421-A",
+        "summary.md includes the exact token DETAIL-PANEL-SMOKE-20260421-B",
+        "summary.md contains a heading named Combined Notes",
+        "summary.md includes a short Chinese summary."
+      ]
+    }
+  ],
+  "backlogFeatures": [],
+  "nonGoals": [
+    "Do not broaden the request into a larger platform rewrite or unrelated automation project.",
+    "Do not assume unspecified credentials, approvals, or downstream integrations are already available.",
+    "do not modify input files",
+    "do not call external APIs",
+    "do not send email."
+  ],
+  "technicalConstraints": {
+    "preferredStack": [
+      "Use the existing repository and local workspace files.",
+      "Keep the solution compatible with the current AI Factory workflow."
+    ],
+    "forbiddenTools": [
+      "do not modify input files",
+      "do not call external APIs",
+      "do not send email."
+    ],
+    "deploymentTarget": "Current local workspace"
+  },
+  "integrations": [
+    {
+      "name": "Email platform",
+      "status": "required",
+      "notes": "external_service"
+    },
+    {
+      "name": "API / webhook target",
+      "status": "required",
+      "notes": "external_service"
+    }
+  ],
+  "dataSources": [
+    "data/brief.txt",
+    "data/details.txt."
+  ],
+  "definitionOfDone": [
+    "artifacts/generated/summary.md exists",
+    "summary.md includes the exact token BRIEF-PANEL-SMOKE-20260421-A",
+    "summary.md includes the exact token DETAIL-PANEL-SMOKE-20260421-B",
+    "summary.md contains a heading named Combined Notes",
+    "summary.md includes a short Chinese summary.",
+    "The confirmed end point is delivered: Create artifacts/generated/summary.md from both local files without changing the input files..",
+    "The run respects the confirmed out-of-scope limits: do not modify input files; do not call external APIs; do not send email.."
+  ],
+  "acceptanceCriteria": [
+    "artifacts/generated/summary.md exists",
+    "summary.md includes the exact token BRIEF-PANEL-SMOKE-20260421-A",
+    "summary.md includes the exact token DETAIL-PANEL-SMOKE-20260421-B",
+    "summary.md contains a heading named Combined Notes",
+    "summary.md includes a short Chinese summary."
+  ],
+  "riskStopRules": [
+    "The request can trigger outbound communication or a public-facing action.",
+    "Approve the final outbound or public-facing action before execution."
+  ],
+  "priorities": [
+    "Deliver the confirmed end point directly.",
+    "Stay inside the confirmed scope."
+  ],
+  "deliverables": [
+    "Create artifacts/generated/summary.md from both local files without changing the input files."
+  ],
+  "factoryMetadata": {
+    "generatedBy": "panel-quick-start-safe",
+    "requestId": "e7ffbeb8-d377-452e-96fa-e0334879d3c6",
+    "generatedAt": "2026-04-20T20:39:07.728Z"
+  }
+}

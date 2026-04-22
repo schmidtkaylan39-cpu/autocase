@@ -28,6 +28,7 @@ const defaultDispatchOutputTailBytes = 64 * 1024;
 const defaultGptRunnerLauncherAttempts = 3;
 const defaultGptRunnerRetryBaseDelayMs = 2000;
 const defaultGptRunnerRetryMaxDelayMs = 15000;
+const defaultLauncherPermissionRetryDelayMinutes = 1;
 
 function readPositiveIntegerEnv(name, fallbackValue) {
   const rawValue = process.env[name];
@@ -212,6 +213,16 @@ function shouldRetryGptRunnerLauncher({
   return classifyGptRunnerTransientSignal(`${stdout}\n${stderr}`);
 }
 
+function isLauncherPermissionDeniedError(error) {
+  const code = typeof error === "object" && error !== null && "code" in error ? String(error.code) : "";
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return (
+    code === "EPERM" ||
+    code === "EACCES" ||
+    /spawn eperm|spawn eacces|permission denied|operation not permitted/i.test(message)
+  );
+}
+
 function normalizeExecutionGuardrails(descriptor) {
   const role = descriptor.role ?? descriptor.task?.role ?? null;
   const promptHash =
@@ -267,6 +278,18 @@ function countDispatchFailureNotes(task) {
     : 0;
 }
 
+function countRetryBudgetConsumption(task) {
+  const attempts = normalizePositiveInteger(task?.attempts, 0);
+  const retryCount = normalizePositiveInteger(task?.retryCount, 0);
+  const automaticRetriesConsumed = Math.max(0, retryCount - 1);
+
+  return {
+    attempts,
+    retryCount,
+    consumed: Math.max(attempts, automaticRetriesConsumed)
+  };
+}
+
 function buildLauncherExecutionError(message, code, cause) {
   const error = /** @type {Error & { code?: string, stdout?: string, stderr?: string }} */ (
     new Error(message, { cause })
@@ -283,6 +306,40 @@ function buildLauncherExecutionError(message, code, cause) {
       : "";
 
   return error;
+}
+
+async function classifyLauncherCommandStartError(command, unavailableMessage, error) {
+  const code = typeof error === "object" && error !== null && "code" in error ? String(error.code) : "";
+
+  if (code !== "ENOENT" || !isNonEmptyString(command)) {
+    return buildLauncherExecutionError(unavailableMessage, "ENOENT", error);
+  }
+
+  try {
+    const commandStats = await stat(command);
+
+    if (commandStats.isDirectory()) {
+      return buildLauncherExecutionError(
+        `Launcher runtime path is not executable because it resolves to a directory: ${command}`,
+        "EPERM",
+        error
+      );
+    }
+
+    if (!commandStats.isFile()) {
+      return buildLauncherExecutionError(
+        `Launcher runtime path is not executable: ${command}`,
+        "EPERM",
+        error
+      );
+    }
+  } catch (statError) {
+    if (!(statError instanceof Error) || !("code" in statError) || statError.code !== "ENOENT") {
+      throw statError;
+    }
+  }
+
+  return buildLauncherExecutionError(unavailableMessage, "ENOENT", error);
 }
 
 function isLauncherTimeoutError(error) {
@@ -354,7 +411,11 @@ async function runPowerShellScript(scriptPath, timeoutMs = null) {
       /timed out/i.test(errorMessage);
 
     if (powerShellMissing) {
-      throw buildLauncherExecutionError(`PowerShell runtime is not available: ${runtime.command}`, "ENOENT", error);
+      throw await classifyLauncherCommandStartError(
+        runtime.command,
+        `PowerShell runtime is not available: ${runtime.command}`,
+        error
+      );
     }
 
     if (timedOut) {
@@ -399,7 +460,11 @@ async function runShellScript(scriptPath, timeoutMs = null) {
       /timed out/i.test(errorMessage);
 
     if (shellMissing) {
-      throw buildLauncherExecutionError(`Launcher shell is not available: ${shellCommand}`, "ENOENT", error);
+      throw await classifyLauncherCommandStartError(
+        shellCommand,
+        `Launcher shell is not available: ${shellCommand}`,
+        error
+      );
     }
 
     if (timedOut) {
@@ -801,6 +866,155 @@ function buildDispatchResultFromArtifact(descriptor, runtimeId, resultArtifact, 
   };
 }
 
+function isExhaustedTransientGptRunnerFailure({
+  runtimeId,
+  attemptNumber,
+  maxAttempts,
+  error = null,
+  execution = null,
+  resultArtifact = null
+}) {
+  if (runtimeId !== "gpt-runner" || attemptNumber < maxAttempts) {
+    return false;
+  }
+
+  if (error) {
+    const code = typeof error === "object" && error !== null && "code" in error ? String(error.code) : "";
+    const message = error instanceof Error ? error.message : String(error);
+    const stdout = typeof error?.stdout === "string" ? error.stdout : "";
+    const stderr = typeof error?.stderr === "string" ? error.stderr : "";
+    return (
+      code === launcherTimeoutErrorCode ||
+      code === "ETIMEDOUT" ||
+      classifyGptRunnerTransientSignal(message) ||
+      classifyGptRunnerTransientSignal(stdout) ||
+      classifyGptRunnerTransientSignal(stderr)
+    );
+  }
+
+  if (!resultArtifact || resultArtifact.valid) {
+    return false;
+  }
+
+  const reason = resultArtifact.reason ?? "";
+
+  if (!/result artifact was not written|no such file|enoent/i.test(String(reason))) {
+    return false;
+  }
+
+  return classifyGptRunnerTransientSignal(`${execution?.stdout ?? ""}\n${execution?.stderr ?? ""}`);
+}
+
+function buildTransientGptRunnerRetryResult(descriptor, execution = null, notePrefix = null) {
+  const stdout = tailTruncateExecutionOutput(execution?.stdout);
+  const stderr = tailTruncateExecutionOutput(execution?.stderr);
+  const reason = dedupeText([
+    "Transient GPT Runner upstream failure; automatically retrying the same task.",
+    classifyGptRunnerTransientSignal(`${stdout}\n${stderr}`)
+      ? "Observed transient provider or transport symptoms in launcher output."
+      : null
+  ]);
+  const artifact = validateResultArtifact(
+    {
+      runId: descriptor.runId,
+      taskId: descriptor.taskId,
+      handoffId: descriptor.handoffId ?? null,
+      status: "blocked",
+      summary: reason,
+      changedFiles: [],
+      verification: ["Observed transient GPT Runner provider failure and scheduled an automatic retry."],
+      notes: [reason],
+      automationDecision: {
+        action: "retry_task",
+        reason,
+        delayMinutes: 0
+      }
+    },
+    {
+      runId: descriptor.runId,
+      taskId: descriptor.taskId,
+      handoffId: descriptor.handoffId ?? undefined
+    }
+  );
+
+  return buildDispatchResultFromArtifact(
+    descriptor,
+    "gpt-runner",
+    {
+      exists: true,
+      valid: true,
+      artifact,
+      reason: null
+    },
+    execution,
+    appendNoteFragment(notePrefix, "Converted exhausted transient GPT Runner failure into an automatic retry.")
+  );
+}
+
+function buildLauncherPermissionRetryResult(
+  descriptor,
+  runtimeId,
+  error = null,
+  notePrefix = null
+) {
+  const execution = executionFromError(error);
+  const stdout = tailTruncateExecutionOutput(execution.stdout);
+  const stderr = tailTruncateExecutionOutput(execution.stderr);
+  const errorMessage = error instanceof Error ? error.message : String(error ?? "");
+  const reason = dedupeText([
+    `Launcher process creation was denied for runtime ${runtimeId}; automatically retrying the same task after a short cooldown.`,
+    "The host environment reported a permission or policy restriction while starting the launcher.",
+    isNonEmptyString(errorMessage) ? errorMessage : null
+  ]);
+  const artifact = validateResultArtifact(
+    {
+      runId: descriptor.runId,
+      taskId: descriptor.taskId,
+      handoffId: descriptor.handoffId ?? null,
+      status: "blocked",
+      summary: reason,
+      changedFiles: [],
+      verification: [
+        `Observed launcher process creation denial while starting runtime ${runtimeId}.`
+      ],
+      notes: [reason],
+      automationDecision: {
+        action: "retry_task",
+        reason,
+        delayMinutes: defaultLauncherPermissionRetryDelayMinutes
+      }
+    },
+    {
+      runId: descriptor.runId,
+      taskId: descriptor.taskId,
+      handoffId: descriptor.handoffId ?? undefined
+    }
+  );
+
+  return buildDispatchResultFromArtifact(
+    descriptor,
+    runtimeId,
+    {
+      exists: true,
+      valid: true,
+      artifact,
+      reason: null
+    },
+    {
+      stdout,
+      stderr
+    },
+    appendNoteFragment(
+      notePrefix,
+      "Converted launcher process permission denial into an automatic retry."
+    )
+  );
+}
+
+function dedupeText(items) {
+  return [...new Set((items ?? []).filter(isNonEmptyString).map((item) => item.trim()))].join(" ");
+}
+
 async function tryRecoverExistingResultArtifact(runStatePath, descriptor, runtimeId, runId, notePrefix) {
   if (!(await fileExists(runStatePath)) || !descriptor.resultPath) {
     return null;
@@ -914,9 +1128,9 @@ async function prepareTaskForExecution(
       };
     }
 
-    const attempts = normalizePositiveInteger(task.attempts, 0);
+    const retryBudgetState = countRetryBudgetConsumption(task);
 
-    if (attempts >= executionGuardrails.retryBudget) {
+    if (retryBudgetState.consumed >= executionGuardrails.retryBudget) {
       const guardedRunState = updateTaskInRunState(
         {
           ...runState,
@@ -926,7 +1140,8 @@ async function prepareTaskForExecution(
         },
         descriptor.taskId,
         "blocked",
-        `dispatch:retry-budget-exhausted attempts=${attempts} budget=${executionGuardrails.retryBudget}`
+        `dispatch:retry-budget-exhausted attempts=${retryBudgetState.attempts} ` +
+          `retryCount=${retryBudgetState.retryCount} budget=${executionGuardrails.retryBudget}`
       );
 
       await writeJson(runStatePath, guardedRunState);
@@ -938,7 +1153,10 @@ async function prepareTaskForExecution(
 
       return {
         shouldExecute: false,
-        note: `Retry budget exhausted for task ${descriptor.taskId} (${attempts}/${executionGuardrails.retryBudget}).`
+        note:
+          `Retry budget exhausted for task ${descriptor.taskId} ` +
+          `(attempts=${retryBudgetState.attempts}, retryCount=${retryBudgetState.retryCount}, ` +
+          `budget=${executionGuardrails.retryBudget}).`
       };
     }
 
@@ -1352,6 +1570,33 @@ export async function dispatchHandoffs(indexPath, mode = "dry-run") {
               continue;
             }
 
+            if (
+              isExhaustedTransientGptRunnerFailure({
+                runtimeId,
+                attemptNumber: launcherAttempt,
+                maxAttempts: maxLauncherAttempts,
+                error,
+                resultArtifact
+              })
+            ) {
+              completedResult = buildTransientGptRunnerRetryResult(
+                descriptor,
+                executionFromError(error),
+                lockRecoveryNote
+              );
+              break;
+            }
+
+            if (isLauncherPermissionDeniedError(error)) {
+              completedResult = buildLauncherPermissionRetryResult(
+                descriptor,
+                runtimeId,
+                error,
+                lockRecoveryNote
+              );
+              break;
+            }
+
             throw error;
           }
 
@@ -1373,6 +1618,19 @@ export async function dispatchHandoffs(indexPath, mode = "dry-run") {
           ) {
             await sleep(computeGptRunnerRetryDelayMs(launcherAttempt));
             continue;
+          }
+
+          if (
+            isExhaustedTransientGptRunnerFailure({
+              runtimeId,
+              attemptNumber: launcherAttempt,
+              maxAttempts: maxLauncherAttempts,
+              execution,
+              resultArtifact
+            })
+          ) {
+            completedResult = buildTransientGptRunnerRetryResult(descriptor, execution, lockRecoveryNote);
+            break;
           }
 
           completedResult = buildDispatchResultFromArtifact(

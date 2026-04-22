@@ -15,6 +15,15 @@ const npmCliPath =
   path.join(path.dirname(process.execPath), "node_modules", "npm", "bin", "npm-cli.js");
 const postjectCliPath = path.join(projectRoot, "node_modules", "postject", "dist", "cli.js");
 const sentinelFuse = "NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2";
+const transientSourceBackupTopLevelSegments = new Set([
+  ".git",
+  "node_modules",
+  "release-artifacts",
+  "reports",
+  "review-bundles",
+  "runs",
+  "tmp"
+]);
 
 function compactTimestamp(timestamp = new Date()) {
   const iso = timestamp.toISOString();
@@ -147,7 +156,7 @@ export function shouldExcludeFromSourceBackup(relativePath, nestedOutputRelative
 
   const topLevelSegment = normalizedPath.split("/")[0];
 
-  if (topLevelSegment === ".git" || topLevelSegment === "node_modules" || topLevelSegment === "release-artifacts") {
+  if (transientSourceBackupTopLevelSegments.has(topLevelSegment)) {
     return true;
   }
 

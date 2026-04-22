@@ -718,6 +718,60 @@ async function main() {
     assert.ok(typeof planningTask?.nextRetryAt === "string");
   });
 
+  await runTest("planner retries fail over to codex after transient gpt-runner upstream failures", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-planner-failover-run-"));
+    const runResult = await runProject(validSpecPath, tempDir, "planner-failover-run");
+    const initialHandoffs = await createRunHandoffs(runResult.statePath);
+    const planningDescriptor = initialHandoffs.descriptors.find((descriptor) => descriptor.taskId === "planning-brief");
+    const doctorReportPath = path.join(tempDir, "planner-failover-run.doctor.json");
+
+    if (!planningDescriptor) {
+      throw new Error("Expected a planning-brief handoff descriptor.");
+    }
+
+    await writeJson(
+      planningDescriptor.resultPath,
+      withArtifactIdentity(
+        {
+          status: "blocked",
+          summary: "planner hit a transient upstream issue and wants an immediate automatic retry",
+          changedFiles: [],
+          verification: ["none"],
+          notes: ["retry through codex failover"],
+          automationDecision: {
+            action: "retry_task",
+            reason:
+              "Transient GPT Runner upstream failure; automatically retrying the same task. Observed transient provider or transport symptoms in launcher output.",
+            delayMinutes: 0
+          }
+        },
+        {
+          runId: runResult.runId,
+          taskId: "planning-brief",
+          handoffId: planningDescriptor.handoffId
+        }
+      )
+    );
+
+    await applyTaskResult(runResult.statePath, "planning-brief", planningDescriptor.resultPath);
+    await writeFakeDoctorReport(doctorReportPath, {
+      "gpt-runner": { ok: true },
+      codex: { ok: true }
+    });
+
+    const retryHandoffs = await createRunHandoffs(runResult.statePath, undefined, doctorReportPath);
+    const retryDescriptor = retryHandoffs.descriptors.find((descriptor) => descriptor.taskId === "planning-brief");
+
+    if (!retryDescriptor) {
+      throw new Error("Expected a retried planning-brief handoff descriptor.");
+    }
+
+    const retryDescriptorArtifact = JSON.parse(await readFile(retryDescriptor.handoffJsonPath, "utf8"));
+    assert.equal(retryDescriptor.runtime.id, "codex");
+    assert.match(retryDescriptor.runtime.selectionReason, /transient GPT Runner upstream failure/i);
+    assert.match(retryDescriptorArtifact.launcherScript, /codex -a never exec --skip-git-repo-check -C \. -s workspace-write -/i);
+  });
+
   await runTest("manual or hybrid result artifacts require an active handoff", async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-apply-no-handoff-"));
     const runResult = await runProject(validSpecPath, tempDir, "apply-no-handoff-run");

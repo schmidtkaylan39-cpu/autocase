@@ -1,0 +1,42 @@
+{
+  "generatedAt": "2026-04-20T19:33:59.525Z",
+  "startedAt": "2026-04-20T19:33:59.521Z",
+  "finishedAt": "2026-04-20T19:33:59.873Z",
+  "feasibleNow": false,
+  "harnessPassed": false,
+  "evidenceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-3\\panel-browser-smoke-20260421-033359",
+  "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-3\\panel-browser-smoke-20260421-033359\\workspace",
+  "runId": "panel-browser-20260421-033359",
+  "maxRounds": 0,
+  "headless": true,
+  "requestText": "Start: Local workspace contains data/brief.txt and data/details.txt with tokens BRIEF-PANEL-BROWSER-SMOKE-20260421-A and DETAIL-PANEL-BROWSER-SMOKE-20260421-B, and artifacts/generated is writable.\nEnd point: Create artifacts/generated/summary.md from both local files without changing the input files.\nSuccess criteria: use both local input files; create a run for this request; keep the output inside artifacts/generated.\nInput source: data/brief.txt; data/details.txt.\nOut of scope: do not modify input files; do not call external APIs; do not send email.",
+  "browser": {
+    "browserPath": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+    "browserName": "chrome",
+    "candidatesTried": [
+      "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
+    ]
+  },
+  "panelUrl": "http://127.0.0.1:64681",
+  "devTools": {
+    "port": 64682,
+    "browserWebSocketUrl": "ws://127.0.0.1:64682/devtools/browser/1cd30a1e-1d70-44cd-b1b8-7ad787667ccd"
+  },
+  "debugBaseUrl": "http://127.0.0.1:64682",
+  "pageTarget": {
+    "id": "EF65684AFE6567AFC01D926FE529976C",
+    "title": "AI Factory 中文操作面板",
+    "type": "page",
+    "url": "http://127.0.0.1:64681/",
+    "websocketUrl": "ws://127.0.0.1:64682/devtools/page/EF65684AFE6567AFC01D926FE529976C"
+  },
+  "pageReadiness": {
+    "readyState": "complete",
+    "callApiType": "undefined",
+    "refreshStatusType": "undefined",
+    "quickStartButtonText": "一鍵開始（推薦）",
+    "statusPillText": "讀取中...",
+    "logBoxText": "等待操作..."
+  },
+  "error": "Panel page script did not initialize. callApiType=undefined, refreshStatusType=undefined"
+}

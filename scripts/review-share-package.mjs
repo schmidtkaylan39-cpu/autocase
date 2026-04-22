@@ -1,11 +1,28 @@
-import { execFile } from "node:child_process";
 import { access, copyFile, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { promisify } from "node:util";
 
-const execFileAsync = promisify(execFile);
+import { validateZipArchiveEntryNames } from "../src/lib/zip-archive.mjs";
+
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const zipLocalFileHeaderSignature = 0x04034b50;
+const zipCentralDirectorySignature = 0x02014b50;
+const zipEndOfCentralDirectorySignature = 0x06054b50;
+const crc32Table = (() => {
+  const table = new Uint32Array(256);
+
+  for (let index = 0; index < 256; index += 1) {
+    let value = index;
+
+    for (let bit = 0; bit < 8; bit += 1) {
+      value = (value & 1) === 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
+    }
+
+    table[index] = value >>> 0;
+  }
+
+  return table;
+})();
 
 function compactTimestamp(timestamp = new Date()) {
   const pad = (value) => String(value).padStart(2, "0");
@@ -48,6 +65,16 @@ function normalizePosixPath(filePath) {
   return filePath.replace(/\\/g, "/");
 }
 
+function computeCrc32(buffer) {
+  let crc = 0xffffffff;
+
+  for (const byte of buffer) {
+    crc = crc32Table[(crc ^ byte) & 0xff] ^ (crc >>> 8);
+  }
+
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
 async function findLatestReviewBundleDirectory(rootDirectory) {
   const entries = await readdir(rootDirectory, { withFileTypes: true });
   const candidates = [];
@@ -71,65 +98,100 @@ async function findLatestReviewBundleDirectory(rootDirectory) {
   return candidates[0].fullPath;
 }
 
-async function findLatestAcceptanceSummaryPath(rootDirectory) {
-  const acceptanceRoot = path.join(rootDirectory, "reports", "acceptance");
-
-  invariant(await fileExists(acceptanceRoot), `Acceptance reports directory does not exist: ${acceptanceRoot}`);
-
-  const entries = await readdir(acceptanceRoot, { withFileTypes: true });
-  const candidates = [];
-
-  for (const entry of entries) {
-    if (!entry.isDirectory() || !entry.name.startsWith("live-roundtrip-")) {
-      continue;
-    }
-
-    const summaryPath = path.join(acceptanceRoot, entry.name, "acceptance-summary.json");
-
-    if (!(await fileExists(summaryPath))) {
-      continue;
-    }
-
-    const summaryStats = await stat(summaryPath);
-    candidates.push({
-      summaryPath,
-      mtimeMs: summaryStats.mtimeMs
-    });
-  }
-
-  invariant(candidates.length > 0, `No live-roundtrip acceptance-summary.json found under ${acceptanceRoot}`);
-
-  candidates.sort((left, right) => right.mtimeMs - left.mtimeMs);
-  return candidates[0].summaryPath;
-}
-
 async function createZipArchive(bundleDirectory, archivePath) {
-  if (process.platform === "win32") {
-    await execFileAsync(
-      "powershell.exe",
-      [
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-Command",
-        `Compress-Archive -LiteralPath '${bundleDirectory.replace(/'/g, "''")}' -DestinationPath '${archivePath.replace(/'/g, "''")}' -Force`
-      ],
-      {
-        encoding: "utf8",
-        timeout: 180000,
-        maxBuffer: 10 * 1024 * 1024,
-        windowsHide: true
+  const files = [];
+  const resolvedBundleDirectory = path.resolve(bundleDirectory);
+  const entryRoot = path.basename(resolvedBundleDirectory);
+
+  async function walk(currentDirectory) {
+    const entries = await readdir(currentDirectory, { withFileTypes: true });
+    entries.sort((left, right) => left.name.localeCompare(right.name));
+
+    for (const entry of entries) {
+      const absolutePath = path.join(currentDirectory, entry.name);
+
+      if (entry.isDirectory()) {
+        await walk(absolutePath);
+        continue;
       }
-    );
-    return;
+
+      if (!entry.isFile()) {
+        continue;
+      }
+
+      files.push({
+        absolutePath,
+        entryName: `${entryRoot}/${normalizePosixPath(path.relative(resolvedBundleDirectory, absolutePath))}`
+      });
+    }
   }
 
-  await execFileAsync("zip", ["-qr", archivePath, path.basename(bundleDirectory)], {
-    cwd: path.dirname(bundleDirectory),
-    encoding: "utf8",
-    timeout: 180000,
-    maxBuffer: 10 * 1024 * 1024
-  });
+  await walk(resolvedBundleDirectory);
+
+  const localSections = [];
+  const centralDirectorySections = [];
+  let localOffset = 0;
+
+  for (const file of files) {
+    const fileNameBuffer = Buffer.from(file.entryName, "utf8");
+    const contentBuffer = await readFile(file.absolutePath);
+    const crc32 = computeCrc32(contentBuffer);
+    const localHeader = Buffer.alloc(30);
+
+    localHeader.writeUInt32LE(zipLocalFileHeaderSignature, 0);
+    localHeader.writeUInt16LE(20, 4);
+    localHeader.writeUInt16LE(0, 6);
+    localHeader.writeUInt16LE(0, 8);
+    localHeader.writeUInt16LE(0, 10);
+    localHeader.writeUInt16LE(0, 12);
+    localHeader.writeUInt32LE(crc32, 14);
+    localHeader.writeUInt32LE(contentBuffer.length, 18);
+    localHeader.writeUInt32LE(contentBuffer.length, 22);
+    localHeader.writeUInt16LE(fileNameBuffer.length, 26);
+    localHeader.writeUInt16LE(0, 28);
+
+    localSections.push(localHeader, fileNameBuffer, contentBuffer);
+
+    const centralHeader = Buffer.alloc(46);
+    centralHeader.writeUInt32LE(zipCentralDirectorySignature, 0);
+    centralHeader.writeUInt16LE(20, 4);
+    centralHeader.writeUInt16LE(20, 6);
+    centralHeader.writeUInt16LE(0, 8);
+    centralHeader.writeUInt16LE(0, 10);
+    centralHeader.writeUInt16LE(0, 12);
+    centralHeader.writeUInt16LE(0, 14);
+    centralHeader.writeUInt32LE(crc32, 16);
+    centralHeader.writeUInt32LE(contentBuffer.length, 20);
+    centralHeader.writeUInt32LE(contentBuffer.length, 24);
+    centralHeader.writeUInt16LE(fileNameBuffer.length, 28);
+    centralHeader.writeUInt16LE(0, 30);
+    centralHeader.writeUInt16LE(0, 32);
+    centralHeader.writeUInt16LE(0, 34);
+    centralHeader.writeUInt16LE(0, 36);
+    centralHeader.writeUInt32LE(0, 38);
+    centralHeader.writeUInt32LE(localOffset, 42);
+
+    centralDirectorySections.push(centralHeader, fileNameBuffer);
+    localOffset += localHeader.length + fileNameBuffer.length + contentBuffer.length;
+  }
+
+  const centralDirectoryBuffer = Buffer.concat(centralDirectorySections);
+  const endOfCentralDirectory = Buffer.alloc(22);
+
+  endOfCentralDirectory.writeUInt32LE(zipEndOfCentralDirectorySignature, 0);
+  endOfCentralDirectory.writeUInt16LE(0, 4);
+  endOfCentralDirectory.writeUInt16LE(0, 6);
+  endOfCentralDirectory.writeUInt16LE(files.length, 8);
+  endOfCentralDirectory.writeUInt16LE(files.length, 10);
+  endOfCentralDirectory.writeUInt32LE(centralDirectoryBuffer.length, 12);
+  endOfCentralDirectory.writeUInt32LE(localOffset, 16);
+  endOfCentralDirectory.writeUInt16LE(0, 20);
+
+  await writeFile(
+    archivePath,
+    Buffer.concat([...localSections, centralDirectoryBuffer, endOfCentralDirectory])
+  );
+  await validateZipArchiveEntryNames(archivePath);
 }
 
 function renderPackageReadme({
@@ -208,10 +270,14 @@ export async function createReviewSharePackage({
 } = {}) {
   const resolvedBundleDir =
     bundleDir !== null ? path.resolve(bundleDir) : await findLatestReviewBundleDirectory(outputDir);
-  const resolvedAcceptanceSummaryPath =
-    acceptanceSummaryPath !== null
-      ? path.resolve(acceptanceSummaryPath)
-      : await findLatestAcceptanceSummaryPath(projectRoot);
+  invariant(
+    typeof acceptanceSummaryPath === "string" && acceptanceSummaryPath.trim().length > 0,
+    [
+      "Acceptance summary must be provided explicitly for review-share-package.",
+      "Use --acceptance-summary <path-to-acceptance-summary.json> so the share package cannot mix unrelated snapshots."
+    ].join("\n")
+  );
+  const resolvedAcceptanceSummaryPath = path.resolve(acceptanceSummaryPath);
   const bundleBaseName = path.basename(resolvedBundleDir);
   const bundleZipPath = `${resolvedBundleDir}.zip`;
   const bundleMetadataDir = path.join(resolvedBundleDir, "metadata");

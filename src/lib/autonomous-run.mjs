@@ -15,11 +15,16 @@ function isNonEmptyString(value) {
   return typeof value === "string" && value.trim().length > 0;
 }
 
+function dedupeText(items) {
+  return [...new Set(safeArray(items).filter(isNonEmptyString).map((item) => item.trim()))];
+}
+
 const autonomousLockSuffix = ".autonomous.lock";
 const descriptorExecutionLockSuffix = ".execute.lock";
 const autonomousLockStaleMs = 10 * 60 * 1000;
 const autonomousLockUninitializedMs = 5 * 1000;
 const descriptorExecutionLockStaleMs = 3 * 60 * 1000;
+const defaultAutonomousWatchdogTimeoutMs = 24 * 60 * 60 * 1000;
 
 async function fileExists(targetPath) {
   try {
@@ -51,6 +56,26 @@ function getAutonomousNoProgressCycleLimit() {
 
 function getAutonomousLockTimeoutMs() {
   return readPositiveIntegerEnv("AI_FACTORY_AUTONOMOUS_LOCK_TIMEOUT_MS", 500);
+}
+
+function getAutonomousWatchdogTimeoutMs() {
+  return readPositiveIntegerEnv(
+    "AI_FACTORY_AUTONOMOUS_WATCHDOG_TIMEOUT_MS",
+    defaultAutonomousWatchdogTimeoutMs
+  );
+}
+
+function getAutonomousCheckpointStaleMs() {
+  return readPositiveIntegerEnv("AI_FACTORY_AUTONOMOUS_CHECKPOINT_STALE_MS", 15 * 60 * 1000);
+}
+
+function normalizeTimestampOrNull(value) {
+  if (!isNonEmptyString(value)) {
+    return null;
+  }
+
+  const timestampMs = Date.parse(value);
+  return Number.isFinite(timestampMs) ? new Date(timestampMs).toISOString() : null;
 }
 
 function parseLockPid(lockContent) {
@@ -211,6 +236,93 @@ function countAutonomousRequeues(task, sourceTaskId = null) {
   return safeArray(task.notes).filter((note) => sourcePattern.test(note)).length;
 }
 
+function countTaskNotes(task, pattern) {
+  return safeArray(task?.notes).filter((note) => pattern.test(note)).length;
+}
+
+function resolveAutonomousRecoveryBudget(runState) {
+  return normalizePositiveInteger(runState?.retryPolicy?.replanning, 1);
+}
+
+function buildBudgetExhaustedRecoveryResult(
+  runState,
+  taskId,
+  reason,
+  {
+    recoveryType,
+    recoveryNotePattern,
+    budgetExhaustedNotePrefix,
+    budgetExhaustedStopLabel
+  }
+) {
+  const task = runState.taskLedger.find((candidate) => candidate.id === taskId);
+
+  if (!task) {
+    return {
+      changed: false,
+      recovery: null,
+      runState
+    };
+  }
+
+  const attempts = countTaskNotes(task, recoveryNotePattern);
+  const budget = resolveAutonomousRecoveryBudget(runState);
+  const stopMessage =
+    `${budgetExhaustedStopLabel} retry budget exhausted for ${taskId} ` +
+    `(attempts=${attempts}, budget=${budget}); ${reason}`;
+  const budgetExhaustedPattern = new RegExp(
+    `${escapeForRegex(budgetExhaustedNotePrefix)}:budget-exhausted\\b`,
+    "i"
+  );
+  const alreadyAnnotated = safeArray(task.notes).some((note) => budgetExhaustedPattern.test(note));
+
+  if (alreadyAnnotated) {
+    return {
+      changed: true,
+      recovery: {
+        type: recoveryType,
+        sourceTaskId: taskId,
+        targetTaskIds: [taskId],
+        reason: stopMessage,
+        attempts,
+        budget,
+        terminalStopReason: stopMessage
+      },
+      runState: refreshRunState(runState)
+    };
+  }
+
+  const nextTaskLedger = runState.taskLedger.map((candidate) =>
+    candidate.id === taskId
+      ? appendAutonomousNote(
+          {
+            ...clearTaskExecutionState(candidate),
+            status: "blocked"
+          },
+          `${budgetExhaustedNotePrefix}:budget-exhausted attempts=${attempts} budget=${budget} ${reason}`
+        )
+      : candidate
+  );
+
+  return {
+    changed: true,
+    recovery: {
+      type: recoveryType,
+      sourceTaskId: taskId,
+      targetTaskIds: [taskId],
+      reason: stopMessage,
+      attempts,
+      budget,
+      terminalStopReason: stopMessage
+    },
+    runState: refreshRunState({
+      ...runState,
+      updatedAt: new Date().toISOString(),
+      taskLedger: nextTaskLedger
+    })
+  };
+}
+
 function extractFeatureId(taskId) {
   const match = /^(implement|review|verify)-(.+)$/.exec(String(taskId));
   return match ? match[2] : null;
@@ -255,6 +367,67 @@ function resolveFeatureReplanBudget(runState, sourceTaskId, ids) {
     implementationTask?.retriesBeforeReplan ?? retryPolicy.implementation,
     3
   );
+}
+
+function buildAutonomousResumeContext(previousCheckpoint) {
+  const previousUpdatedAt = normalizeTimestampOrNull(previousCheckpoint?.updatedAt);
+  const checkpointStaleMs = getAutonomousCheckpointStaleMs();
+  const previousAgeMs =
+    previousUpdatedAt === null ? null : Math.max(Date.now() - Date.parse(previousUpdatedAt), 0);
+  const previousActivity =
+    previousCheckpoint?.activity && typeof previousCheckpoint.activity === "object"
+      ? {
+          phase: isNonEmptyString(previousCheckpoint.activity.phase)
+            ? previousCheckpoint.activity.phase
+            : null,
+          round: Number.isInteger(previousCheckpoint.activity.round)
+            ? previousCheckpoint.activity.round
+            : null,
+          detail: isNonEmptyString(previousCheckpoint.activity.detail)
+            ? previousCheckpoint.activity.detail
+            : null,
+          enteredAt: normalizeTimestampOrNull(previousCheckpoint.activity.enteredAt),
+          heartbeatAt: normalizeTimestampOrNull(previousCheckpoint.activity.heartbeatAt)
+        }
+      : null;
+
+  return {
+    resumed: Boolean(previousCheckpoint),
+    previousSessionId: isNonEmptyString(previousCheckpoint?.sessionId) ? previousCheckpoint.sessionId : null,
+    previousCheckpointStatus: isNonEmptyString(previousCheckpoint?.checkpointStatus)
+      ? previousCheckpoint.checkpointStatus
+      : null,
+    previousUpdatedAt,
+    previousAgeMs,
+    previousRoundsCompleted: Number.isInteger(previousCheckpoint?.roundsCompleted)
+      ? previousCheckpoint.roundsCompleted
+      : 0,
+    previousLastRoundAttempted: Number.isInteger(previousCheckpoint?.lastRoundAttempted)
+      ? previousCheckpoint.lastRoundAttempted
+      : 0,
+    interruptedActiveSession: previousCheckpoint?.checkpointStatus === "active",
+    staleInterruptedSession:
+      previousCheckpoint?.checkpointStatus === "active" &&
+      Number.isFinite(previousAgeMs) &&
+      previousAgeMs >= checkpointStaleMs,
+    carriedForwardProgressDiagnostics:
+      Boolean(previousCheckpoint) && previousCheckpoint?.checkpointStatus !== "completed",
+    checkpointStaleAfterMs: checkpointStaleMs,
+    previousActivity
+  };
+}
+
+function buildCheckpointActivity({ phase = null, round = null, detail = null } = {}) {
+  const now = new Date().toISOString();
+
+  return {
+    phase: isNonEmptyString(phase) ? phase : null,
+    round: Number.isInteger(round) ? round : null,
+    detail: isNonEmptyString(detail) ? detail : null,
+    enteredAt: now,
+    heartbeatAt: now,
+    checkpointStaleAfterMs: getAutonomousCheckpointStaleMs()
+  };
 }
 
 function parseNoteTimestamp(note) {
@@ -560,6 +733,28 @@ function reopenPlanningForFeature(runState, ids, reason) {
 }
 
 function reopenPlannerTask(runState, taskId, reason) {
+  const task = runState.taskLedger.find((candidate) => candidate.id === taskId);
+
+  if (!task) {
+    return {
+      changed: false,
+      recovery: null,
+      runState
+    };
+  }
+
+  const currentRetryCount = countTaskNotes(task, /autonomous-planner-retry:/i);
+  const maxRetries = resolveAutonomousRecoveryBudget(runState);
+
+  if (currentRetryCount >= maxRetries) {
+    return buildBudgetExhaustedRecoveryResult(runState, taskId, reason, {
+      recoveryType: "planner_retry_budget_exhausted",
+      recoveryNotePattern: /autonomous-planner-retry:/i,
+      budgetExhaustedNotePrefix: "autonomous-planner-retry",
+      budgetExhaustedStopLabel: "Autonomous planner"
+    });
+  }
+
   const nextTaskLedger = runState.taskLedger.map((task) =>
     task.id === taskId
       ? appendAutonomousNote(
@@ -589,6 +784,28 @@ function reopenPlannerTask(runState, taskId, reason) {
 }
 
 function reopenSingleTask(runState, taskId, reason) {
+  const task = runState.taskLedger.find((candidate) => candidate.id === taskId);
+
+  if (!task) {
+    return {
+      changed: false,
+      recovery: null,
+      runState
+    };
+  }
+
+  const currentRetryCount = countTaskNotes(task, /autonomous-task-retry:/i);
+  const maxRetries = resolveAutonomousRecoveryBudget(runState);
+
+  if (currentRetryCount >= maxRetries) {
+    return buildBudgetExhaustedRecoveryResult(runState, taskId, reason, {
+      recoveryType: "task_retry_budget_exhausted",
+      recoveryNotePattern: /autonomous-task-retry:/i,
+      budgetExhaustedNotePrefix: "autonomous-task-retry",
+      budgetExhaustedStopLabel: "Autonomous task"
+    });
+  }
+
   const nextTaskLedger = runState.taskLedger.map((task) =>
     task.id === taskId
       ? appendAutonomousNote(
@@ -718,6 +935,34 @@ function findTaskStatusTransition(previousRunState, nextRunState, targetStatus) 
   return null;
 }
 
+function findNewReadyTaskId(previousRunState, nextRunState) {
+  const previousReadyIds = new Set(
+    listTaskIdsByStatus(previousRunState?.taskLedger, ["ready"])
+  );
+
+  return (
+    listTaskIdsByStatus(nextRunState?.taskLedger, ["ready"]).find(
+      (taskId) => !previousReadyIds.has(taskId)
+    ) ?? null
+  );
+}
+
+function haveStableReadyTaskIds(previousRunState, nextRunState) {
+  const previousReadyIds = listTaskIdsByStatus(previousRunState?.taskLedger, ["ready"]);
+  const nextReadyIds = listTaskIdsByStatus(nextRunState?.taskLedger, ["ready"]);
+
+  if (nextReadyIds.length === 0 || previousReadyIds.length !== nextReadyIds.length) {
+    return false;
+  }
+
+  const previousReadyIdSet = new Set(previousReadyIds);
+  return nextReadyIds.every((taskId) => previousReadyIdSet.has(taskId));
+}
+
+function shouldTreatRecoveryAsProgress(recovery) {
+  return ["feature_rework", "feature_replan"].includes(recovery?.type);
+}
+
 function listTaskIdsByStatus(taskLedger, statuses) {
   const allowedStatuses = new Set(Array.isArray(statuses) ? statuses : [statuses]);
   return safeArray(taskLedger)
@@ -735,6 +980,7 @@ function deriveRoundProgress({ beforeRunState, afterRunState, dispatchSummary = 
   const beforeSummary = summarizeRunState(beforeRunState);
   const afterSummary = summarizeRunState(afterRunState);
   const completedTaskId = findTaskStatusTransition(beforeRunState, afterRunState, "completed");
+  const newReadyTaskId = findNewReadyTaskId(beforeRunState, afterRunState);
 
   if (afterSummary.completedTasks > beforeSummary.completedTasks || completedTaskId) {
     return {
@@ -744,13 +990,21 @@ function deriveRoundProgress({ beforeRunState, afterRunState, dispatchSummary = 
     };
   }
 
+  if (shouldTreatRecoveryAsProgress(recovery)) {
+    return {
+      progressed: true,
+      event: "automatic_recovery_ready",
+      taskId: recovery?.targetTaskIds?.[0] ?? newReadyTaskId ?? null
+    };
+  }
+
   const readyTaskId = findTaskStatusTransition(beforeRunState, afterRunState, "ready");
 
-  if (afterSummary.readyTasks > beforeSummary.readyTasks) {
+  if (afterSummary.readyTasks > beforeSummary.readyTasks || newReadyTaskId) {
     return {
       progressed: true,
       event: recovery ? "automatic_recovery_ready" : "automatic_work_ready",
-      taskId: readyTaskId ?? recovery?.targetTaskIds?.[0] ?? null
+      taskId: newReadyTaskId ?? readyTaskId ?? recovery?.targetTaskIds?.[0] ?? null
     };
   }
 
@@ -777,6 +1031,7 @@ function shouldCountNoProgressCycle({ beforeRunState, afterRunState, dispatchSum
   const afterSummary = summarizeRunState(afterRunState);
   const remainingTasks = afterSummary.totalTasks - afterSummary.completedTasks;
   const activeTaskIds = listTaskIdsByStatus(afterRunState.taskLedger, ["blocked", "waiting_retry", "in_progress"]);
+  const newReadyTaskId = findNewReadyTaskId(beforeRunState, afterRunState);
 
   if (remainingTasks <= 0) {
     return false;
@@ -790,14 +1045,30 @@ function shouldCountNoProgressCycle({ beforeRunState, afterRunState, dispatchSum
     return false;
   }
 
+  if (newReadyTaskId) {
+    return false;
+  }
+
   if ((dispatchSummary?.completed ?? 0) > 0) {
     return false;
+  }
+
+  if (
+    (dispatchSummary?.executed ?? 0) > 0 &&
+    (haveStableReadyTaskIds(beforeRunState, afterRunState) || activeTaskIds.length > 0)
+  ) {
+    return true;
   }
 
   return afterSummary.readyTasks === 0 && activeTaskIds.length > 0;
 }
 
-function materializeNoProgressAttention(runState, reason, skippedAutomaticTaskIds = []) {
+function materializeAutonomousAttention(
+  runState,
+  reason,
+  notePrefix,
+  skippedAutomaticTaskIds = []
+) {
   const targetTaskIds = new Set([
     ...listTaskIdsByStatus(runState.taskLedger, ["in_progress", "waiting_retry", "ready"]),
     ...safeArray(skippedAutomaticTaskIds).filter(isNonEmptyString)
@@ -817,7 +1088,7 @@ function materializeNoProgressAttention(runState, reason, skippedAutomaticTaskId
         ...clearTaskExecutionState(task),
         status: "blocked"
       },
-      `autonomous-no-progress:${reason}`
+      `${notePrefix}:${reason}`
     );
   });
 
@@ -826,6 +1097,24 @@ function materializeNoProgressAttention(runState, reason, skippedAutomaticTaskId
     updatedAt: new Date().toISOString(),
     taskLedger: nextTaskLedger
   });
+}
+
+function materializeNoProgressAttention(runState, reason, skippedAutomaticTaskIds = []) {
+  return materializeAutonomousAttention(
+    runState,
+    reason,
+    "autonomous-no-progress",
+    skippedAutomaticTaskIds
+  );
+}
+
+function materializeWatchdogTimeoutAttention(runState, reason, skippedAutomaticTaskIds = []) {
+  return materializeAutonomousAttention(
+    runState,
+    reason,
+    "autonomous-watchdog-timeout",
+    skippedAutomaticTaskIds
+  );
 }
 
 function buildAutonomousProgressDiagnostics(
@@ -852,6 +1141,88 @@ function buildAutonomousProgressDiagnostics(
   };
 }
 
+function classifyAutonomousTerminalState(runState, stopReason = "") {
+  const summary = summarizeRunState(runState);
+
+  if (runState?.status === "completed" || summary.completedTasks >= summary.totalTasks) {
+    return "done";
+  }
+
+  if (summary.blockedTasks > 0 || summary.failedTasks > 0 || runState?.status === "attention_required") {
+    return "blocked";
+  }
+
+  if (/maximum rounds reached/i.test(String(stopReason))) {
+    return "exhausted";
+  }
+
+  if (summary.waitingRetryTasks > 0 || summary.readyTasks > 0 || summary.pendingTasks > 0) {
+    return "exhausted";
+  }
+
+  return "blocked";
+}
+
+function buildFailureTaxonomy(stopReason, failureFeedbackEntries = []) {
+  const categories = Array.from(
+    new Set(
+      safeArray(failureFeedbackEntries)
+        .map((entry) => entry?.category)
+        .filter(isNonEmptyString)
+    )
+  );
+  const retryableCategories = Array.from(
+    new Set(
+      safeArray(failureFeedbackEntries)
+        .filter((entry) => entry?.retryable)
+        .map((entry) => entry?.category)
+        .filter(isNonEmptyString)
+    )
+  );
+
+  return {
+    stopCategory: isNonEmptyString(stopReason) ? classifyFailureCategory(stopReason) : null,
+    categories,
+    retryableCategories,
+    entryCount: safeArray(failureFeedbackEntries).length
+  };
+}
+
+function buildWatchdogDiagnostics({
+  startedAt = null,
+  timeoutMs = null,
+  heartbeatAt = null,
+  noProgressCycleLimit = 0,
+  consecutiveNoProgressCycles = 0,
+  rounds = []
+} = {}) {
+  const latestWatchdogRound = [...safeArray(rounds)]
+    .reverse()
+    .find((round) => isNonEmptyString(round?.watchdogEvent));
+  const normalizedTimeoutMs = normalizePositiveInteger(timeoutMs, getAutonomousWatchdogTimeoutMs());
+  const startedAtMs = Date.parse(startedAt ?? "");
+  const elapsedMs = Number.isFinite(startedAtMs) ? Math.max(Date.now() - startedAtMs, 0) : null;
+
+  return {
+    startedAt,
+    heartbeatAt,
+    timeoutMs: normalizedTimeoutMs,
+    elapsedMs,
+    remainingMs:
+      elapsedMs === null ? null : Math.max(normalizedTimeoutMs - elapsedMs, 0),
+    expired: elapsedMs === null ? false : elapsedMs >= normalizedTimeoutMs,
+    noProgressCycleLimit,
+    autonomousLockTimeoutMs: getAutonomousLockTimeoutMs(),
+    autonomousLockStaleMs,
+    descriptorExecutionLockStaleMs,
+    consecutiveNoProgressCycles,
+    triggered: Boolean(latestWatchdogRound),
+    lastEvent: latestWatchdogRound?.watchdogEvent ?? null,
+    lastEventRound: latestWatchdogRound?.round ?? null,
+    lastEventReason: latestWatchdogRound?.stopReason ?? latestWatchdogRound?.recovery?.reason ?? null
+  };
+}
+
 async function writeAutonomousSummaryArtifacts(runDirectory, summary) {
   const summaryJsonPath = path.join(runDirectory, "autonomous-summary.json");
   const summaryMarkdownPath = path.join(runDirectory, "autonomous-summary.md");
@@ -871,6 +1242,8 @@ function buildSummaryMarkdown(summary) {
     "",
     `- Run ID: ${summary.runId}`,
     `- Final status: ${summary.finalStatus}`,
+    `- Terminal state: ${summary.terminalState ?? "unknown"}`,
+    `- Stop reason: ${summary.stopReason ?? "n/a"}`,
     `- Rounds attempted: ${summary.rounds.length}`,
     `- Doctor report: ${summary.doctorReportPath}`,
     `- Failure-feedback artifacts: ${summary.failureFeedback?.count ?? 0}`,
@@ -884,6 +1257,9 @@ function buildSummaryMarkdown(summary) {
     `- Waiting-retry task ids: ${(summary.progressDiagnostics?.waitingRetryTaskIds ?? []).join(", ") || "none"}`,
     `- Skipped automatic task ids: ${(summary.progressDiagnostics?.skippedAutomaticTaskIds ?? []).join(", ") || "none"}`,
     `- Degraded runtime active: ${summary.progressDiagnostics?.degradedRuntimeActive ? "yes" : "no"}`,
+    `- Watchdog heartbeat at: ${summary.watchdog?.heartbeatAt ?? "n/a"}`,
+    `- Watchdog event: ${summary.watchdog?.lastEvent ?? "none"}`,
+    `- Stop category: ${summary.failureTaxonomy?.stopCategory ?? "n/a"}`,
     "",
     "## Rounds",
     ...summary.rounds.map((round) => {
@@ -913,6 +1289,10 @@ function buildSummaryMarkdown(summary) {
 
       if (Number.isFinite(round.consecutiveNoProgressCycles)) {
         bits.push(`noProgress=${round.consecutiveNoProgressCycles}`);
+      }
+
+      if (round.watchdogEvent) {
+        bits.push(`watchdog=${round.watchdogEvent}`);
       }
 
       return bits.join(", ");
@@ -952,7 +1332,7 @@ function classifyFailureCategory(reason = "") {
     return "rate_limit";
   }
 
-  if (/timeout|timed out|etimedout/.test(text)) {
+  if (/timeout|timed out|etimedout|watchdog timeout|no-progress circuit|stalled/.test(text)) {
     return "timeout";
   }
 
@@ -960,7 +1340,11 @@ function classifyFailureCategory(reason = "") {
     return "missing_dependency";
   }
 
-  if (/502|bad gateway|network|dns|connection|runtime is not available|shell is not available/.test(text)) {
+  if (
+    /502|503|bad gateway|service unavailable|network|dns|connection|stream disconnected|reconnecting|provider or transport|runtime is not available|runtime was not available|no automatic runtime was available|shell is not available|transient gpt runner|spawn eperm|spawn eacces|permission denied|operation not permitted|policy restriction|launcher process creation was denied/.test(
+      text
+    )
+  ) {
     return "environment_mismatch";
   }
 
@@ -972,7 +1356,7 @@ function classifyFailureCategory(reason = "") {
     return "verification_failed";
   }
 
-  if (/logic|state transition|stale|dependency/.test(text)) {
+  if (/logic|state transition|stale|dependency|retry budget exhausted|circuit open|attempt budget exhausted/.test(text)) {
     return "logic_bug";
   }
 
@@ -997,7 +1381,7 @@ function deriveLikelyCause(category, reason) {
   }
 
   if (category === "environment_mismatch") {
-    return "Runtime/network environment was unstable or unavailable.";
+    return "Runtime, network, or upstream provider availability was unstable.";
   }
 
   if (category === "artifact_invalid") {
@@ -1031,7 +1415,7 @@ function deriveNextBestAction(category) {
   }
 
   if (category === "environment_mismatch") {
-    return "Stabilize runtime/network availability and retry the failed handoff.";
+    return "Retry the same handoff after runtime, network, or upstream provider availability recovers.";
   }
 
   if (category === "artifact_invalid") {
@@ -1144,6 +1528,379 @@ async function persistFailureFeedbackArtifacts(runDirectory, entries) {
   };
 }
 
+function getAutonomousDebugPaths(runDirectory) {
+  const debugDirectory = path.join(runDirectory, "artifacts", "autonomous-debug");
+
+  return {
+    debugDirectory,
+    terminalSummaryPath: path.join(debugDirectory, "terminal-summary.json"),
+    checkpointPath: path.join(debugDirectory, "checkpoint.json"),
+    hypothesisLedgerPath: path.join(debugDirectory, "hypothesis-ledger.json"),
+    debugBundlePath: path.join(debugDirectory, "debug-bundle.json")
+  };
+}
+
+function deriveAutonomousReasonCode(stopReason, terminalState, runState, progressDiagnostics) {
+  const text = String(stopReason ?? "").toLowerCase();
+
+  if (/autonomous loop error:/i.test(String(stopReason))) {
+    return "autonomous_error";
+  }
+
+  if (/watchdog timeout/.test(text)) {
+    return "watchdog_timeout";
+  }
+
+  if (/retry budget exhausted/.test(text)) {
+    return "retry_budget_exhausted";
+  }
+
+  if (/no automatic runtime was available|runtime was not available|runtime is not available/.test(text)) {
+    return "runtime_unavailable";
+  }
+
+  if (/maximum rounds reached/.test(text)) {
+    return "max_rounds_reached";
+  }
+
+  if (/no-progress circuit|stalled/.test(text)) {
+    return "no_progress_circuit";
+  }
+
+  if (/attention required/.test(text)) {
+    return "attention_required";
+  }
+
+  if (/no ready tasks were available/.test(text)) {
+    return "no_ready_tasks";
+  }
+
+  if (/run completed/.test(text) || terminalState === "done" || runState?.status === "completed") {
+    return "completed";
+  }
+
+  if ((progressDiagnostics?.blockedTaskIds ?? []).length > 0 || runState?.status === "attention_required") {
+    return "blocked_tasks";
+  }
+
+  if ((progressDiagnostics?.waitingRetryTaskIds ?? []).length > 0) {
+    return "waiting_retry";
+  }
+
+  return "unknown";
+}
+
+function listResumeCandidateTaskIds(runState, terminalSummary) {
+  const statusToTaskIds = (statuses) => listTaskIdsByStatus(runState?.taskLedger, statuses);
+
+  if (terminalSummary?.state === "blocked") {
+    return Array.from(
+      new Set([
+        ...safeArray(terminalSummary?.blockedTaskIds),
+        ...safeArray(terminalSummary?.waitingRetryTaskIds)
+      ])
+    );
+  }
+
+  return Array.from(
+    new Set([
+      ...statusToTaskIds(["ready", "pending", "waiting_retry", "in_progress"]),
+      ...safeArray(terminalSummary?.waitingRetryTaskIds)
+    ])
+  );
+}
+
+function findEarliestRetryAt(runState) {
+  const retryTasks = safeArray(runState?.taskLedger)
+    .filter((task) => task?.status === "waiting_retry" && isNonEmptyString(task?.nextRetryAt))
+    .map((task) => ({
+      taskId: task.id,
+      nextRetryAt: task.nextRetryAt,
+      nextRetryAtMs: Date.parse(task.nextRetryAt)
+    }))
+    .filter((task) => Number.isFinite(task.nextRetryAtMs))
+    .sort((left, right) => left.nextRetryAtMs - right.nextRetryAtMs);
+
+  return retryTasks[0] ?? null;
+}
+
+function buildAutonomousTerminalSummary(runState, stopReason, progressDiagnostics) {
+  const state = classifyAutonomousTerminalState(runState, stopReason);
+
+  return {
+    generatedAt: new Date().toISOString(),
+    runId: runState?.runId ?? null,
+    state,
+    reasonCode: deriveAutonomousReasonCode(stopReason, state, runState, progressDiagnostics),
+    finalRunStatus: runState?.status ?? null,
+    stopReason: stopReason ?? null,
+    blockedTaskIds: safeArray(progressDiagnostics?.blockedTaskIds),
+    waitingRetryTaskIds: safeArray(progressDiagnostics?.waitingRetryTaskIds),
+    skippedAutomaticTaskIds: safeArray(progressDiagnostics?.skippedAutomaticTaskIds),
+    degradedRuntimeActive: Boolean(progressDiagnostics?.degradedRuntimeActive),
+    lastProgressAt: progressDiagnostics?.lastProgressAt ?? null,
+    lastProgressTaskId: progressDiagnostics?.lastProgressTaskId ?? null,
+    lastProgressEvent: progressDiagnostics?.lastProgressEvent ?? null,
+    consecutiveNoProgressCycles: progressDiagnostics?.consecutiveNoProgressCycles ?? 0
+  };
+}
+
+function buildAutonomousResumeSummary(runState, runStatePath, terminalSummary) {
+  const nextRetry = findEarliestRetryAt(runState);
+  const taskIds = listResumeCandidateTaskIds(runState, terminalSummary);
+  const defaultCommand = ["node", "src/index.mjs", "autonomous", runStatePath];
+
+  if (terminalSummary?.state === "done") {
+    return {
+      canResume: false,
+      mode: "none",
+      requiresIntervention: false,
+      reason: "Run already completed.",
+      nextRetryAt: null,
+      taskIds: [],
+      runStatePath,
+      command: defaultCommand
+    };
+  }
+
+  if (terminalSummary?.state === "blocked") {
+    return {
+      canResume: true,
+      mode: "manual",
+      requiresIntervention: true,
+      reason: "Blocked or failed tasks require inspection before the next autonomous pass.",
+      nextRetryAt: nextRetry?.nextRetryAt ?? null,
+      taskIds,
+      runStatePath,
+      command: defaultCommand
+    };
+  }
+
+  return {
+    canResume: true,
+    mode: nextRetry ? "scheduled" : "immediate",
+    requiresIntervention: false,
+    reason: nextRetry
+      ? "Wait for the next retry window or rerun the same autonomous entry point after it opens."
+      : "Autonomous execution stopped before terminal completion and can be resumed from the same run-state.",
+    nextRetryAt: nextRetry?.nextRetryAt ?? null,
+    taskIds,
+    runStatePath,
+    command: defaultCommand
+  };
+}
+
+function buildAutonomousDebugEvidence({
+  runDirectory,
+  runStatePath,
+  doctorReportPath,
+  handoffOutputDir,
+  lastHandoffIndexPath,
+  lastDispatchResultJsonPath,
+  lastDispatchResultMarkdownPath,
+  failureFeedback
+}) {
+  return {
+    generatedAt: new Date().toISOString(),
+    runDirectory,
+    runStatePath,
+    doctorReportPath: doctorReportPath ?? null,
+    handoffOutputDir: handoffOutputDir ?? null,
+    lastHandoffIndexPath: lastHandoffIndexPath ?? null,
+    lastDispatchResultJsonPath: lastDispatchResultJsonPath ?? null,
+    lastDispatchResultMarkdownPath: lastDispatchResultMarkdownPath ?? null,
+    failureFeedbackDirectory: failureFeedback?.directory ?? null,
+    failureFeedbackIndexPath: failureFeedback?.indexPath ?? null,
+    generatedTestCasesPath: failureFeedback?.generatedTestCasesPath ?? null
+  };
+}
+
+function mapReasonCodeToFailureCategory(reasonCode, stopReason) {
+  switch (reasonCode) {
+    case "runtime_unavailable":
+      return "environment_mismatch";
+    case "watchdog_timeout":
+    case "no_progress_circuit":
+      return "timeout";
+    case "retry_budget_exhausted":
+      return "logic_bug";
+    case "autonomous_error":
+      return classifyFailureCategory(stopReason);
+    case "blocked_tasks":
+      return "logic_bug";
+    case "completed":
+      return null;
+    default:
+      return classifyFailureCategory(stopReason);
+  }
+}
+
+function buildAutonomousHypothesisLedger({
+  runState,
+  terminalSummary,
+  resume,
+  stopReason,
+  progressDiagnostics,
+  failureFeedbackEntries,
+  debugEvidence
+}) {
+  const entries = [];
+  const terminalCategory = mapReasonCodeToFailureCategory(terminalSummary?.reasonCode, stopReason);
+
+  if (isNonEmptyString(terminalSummary?.reasonCode)) {
+    entries.push({
+      id: terminalSummary.reasonCode,
+      signal: stopReason ?? terminalSummary.reasonCode,
+      category: terminalCategory,
+      likelyCause: deriveLikelyCause(terminalCategory, stopReason),
+      nextBestAction: terminalCategory
+        ? deriveNextBestAction(terminalCategory)
+        : "Preserve artifacts for audit and rerun only if new work is expected.",
+      retryable: terminalCategory ? isRetryableCategory(terminalCategory) : false,
+      taskIds: listResumeCandidateTaskIds(runState, terminalSummary),
+      evidence: dedupeText([
+        debugEvidence?.runStatePath,
+        debugEvidence?.doctorReportPath,
+        debugEvidence?.lastHandoffIndexPath,
+        debugEvidence?.lastDispatchResultJsonPath,
+        debugEvidence?.lastDispatchResultMarkdownPath
+      ])
+    });
+  }
+
+  for (const entry of safeArray(failureFeedbackEntries)) {
+    if (!isNonEmptyString(entry?.category)) {
+      continue;
+    }
+
+    if (entries.some((existingEntry) => existingEntry.id === entry.category)) {
+      continue;
+    }
+
+    entries.push({
+      id: entry.category,
+      signal: entry.summary ?? entry.category,
+      category: entry.category,
+      likelyCause: entry.likelyCause ?? deriveLikelyCause(entry.category, entry.summary),
+      nextBestAction: entry.nextBestAction ?? deriveNextBestAction(entry.category),
+      retryable: Boolean(entry.retryable),
+      taskIds: [entry.taskId].filter(isNonEmptyString),
+      evidence: safeArray(entry.evidence).filter(isNonEmptyString)
+    });
+  }
+
+  return {
+    generatedAt: new Date().toISOString(),
+    runId: runState?.runId ?? null,
+    terminalState: terminalSummary?.state ?? null,
+    stopReason: stopReason ?? null,
+    progressDiagnostics,
+    resume,
+    entries
+  };
+}
+
+function buildAutonomousCheckpoint({
+  runState,
+  runStatePath,
+  sessionId,
+  previousCheckpoint,
+  checkpointStatus,
+  startedAt,
+  lastRoundAttempted,
+  roundsCompleted,
+  stopReason,
+  terminalSummary,
+  resume,
+  progressDiagnostics,
+  debugEvidence,
+  errorMessage,
+  activity = null,
+  resumeContext = null
+}) {
+  return {
+    schemaVersion: 1,
+    sessionId,
+    resumedFromSessionId: isNonEmptyString(previousCheckpoint?.sessionId)
+      ? previousCheckpoint.sessionId
+      : null,
+    resumeCount: previousCheckpoint
+      ? normalizePositiveInteger(previousCheckpoint?.resumeCount, 0) + 1
+      : 0,
+    checkpointStatus,
+    runId: runState?.runId ?? null,
+    runStatePath,
+    startedAt: previousCheckpoint?.startedAt ?? startedAt,
+    updatedAt: new Date().toISOString(),
+    lastRoundAttempted,
+    roundsCompleted,
+    stopReason: stopReason ?? null,
+    terminalSummary,
+    resume,
+    runSummary: summarizeRunState(runState),
+    progressDiagnostics,
+    activity,
+    resumeContext: resumeContext && typeof resumeContext === "object" ? resumeContext : null,
+    debugEvidence,
+    errorMessage: errorMessage ?? null
+  };
+}
+
+function hasAutonomousWatchdogExpired(startedAtMs, timeoutMs) {
+  return Number.isFinite(startedAtMs) && timeoutMs > 0 && Date.now() - startedAtMs >= timeoutMs;
+}
+
+function buildAutonomousWatchdogStopReason(timeoutMs, startedAtMs, context = {}) {
+  const elapsedMs = Number.isFinite(startedAtMs) ? Math.max(Date.now() - startedAtMs, 0) : timeoutMs;
+  const blockedTaskIds = safeArray(context.blockedTaskIds).join(",") || "none";
+  const waitingRetryTaskIds = safeArray(context.waitingRetryTaskIds).join(",") || "none";
+  const skippedAutomaticTaskIds = safeArray(context.skippedAutomaticTaskIds).join(",") || "none";
+
+  return (
+    `autonomous watchdog timeout after ${elapsedMs}ms (limit=${timeoutMs}ms); ` +
+    `blockedTasks=${blockedTaskIds} ` +
+    `waitingRetryTasks=${waitingRetryTaskIds} ` +
+    `skippedAutomaticTasks=${skippedAutomaticTaskIds}`
+  );
+}
+
+function buildAutonomousDebugBundle({
+  runId,
+  terminalSummary,
+  resume,
+  hypothesisLedger,
+  debugPaths,
+  debugEvidence
+}) {
+  return {
+    generatedAt: new Date().toISOString(),
+    runId,
+    terminalState: terminalSummary?.state ?? null,
+    reasonCode: terminalSummary?.reasonCode ?? null,
+    stopReason: terminalSummary?.stopReason ?? null,
+    terminalSummaryPath: debugPaths.terminalSummaryPath,
+    checkpointPath: debugPaths.checkpointPath,
+    hypothesisLedgerPath: debugPaths.hypothesisLedgerPath,
+    debugBundlePath: debugPaths.debugBundlePath,
+    resume,
+    hypothesisCount: safeArray(hypothesisLedger?.entries).length,
+    debugEvidence
+  };
+}
+
+async function writeAutonomousDebugArtifacts(debugPaths, artifacts) {
+  await ensureDirectory(debugPaths.debugDirectory);
+  await writeJson(debugPaths.terminalSummaryPath, artifacts.terminalSummary);
+  await writeJson(debugPaths.hypothesisLedgerPath, artifacts.hypothesisLedger);
+  await writeJson(debugPaths.checkpointPath, artifacts.checkpoint);
+  await writeJson(debugPaths.debugBundlePath, artifacts.debugBundle);
+}
+
+async function writeAutonomousCheckpoint(debugPaths, checkpoint) {
+  await ensureDirectory(debugPaths.debugDirectory);
+  await writeJson(debugPaths.checkpointPath, checkpoint);
+}
+
 /**
  * @typedef {object} AutonomousOperations
  * @property {(outputDir?: string, workspaceRoot?: string) => Promise<{ jsonPath: string }>} [runRuntimeDoctor]
@@ -1203,22 +1960,30 @@ export async function runAutonomousLoop(
     const resolvedDoctorOutputDir = doctorOutputDir
       ? path.resolve(doctorOutputDir)
       : path.join(workspaceRoot, "reports");
-    const doctorResult = await runDoctorOperation(resolvedDoctorOutputDir, workspaceRoot);
     const requestedDoctorReportPath =
       typeof doctorReportPath === "string" && doctorReportPath.trim().length > 0
         ? path.isAbsolute(doctorReportPath)
           ? path.resolve(doctorReportPath)
           : path.resolve(workspaceRoot, doctorReportPath)
         : null;
-    const effectiveDoctorReportPath =
-      requestedDoctorReportPath && (await jsonFileExists(requestedDoctorReportPath))
-        ? requestedDoctorReportPath
-        : doctorResult.jsonPath;
     const resolvedHandoffOutputDir = handoffOutputDir
       ? path.resolve(handoffOutputDir)
       : path.join(runDirectory, "handoffs-autonomous");
+    const debugPaths = getAutonomousDebugPaths(runDirectory);
+    const previousCheckpoint = await readJson(debugPaths.checkpointPath).catch(() => null);
+    const resumeContext = buildAutonomousResumeContext(previousCheckpoint);
+    const sessionId = `${Date.now()}-${process.pid}`;
+    const startedAt = new Date().toISOString();
+    const startedAtMs = Date.parse(startedAt);
+    const watchdogTimeoutMs = getAutonomousWatchdogTimeoutMs();
     const rounds = [];
     const failureFeedbackEntries = [];
+    const emptyFailureFeedback = {
+      count: 0,
+      directory: null,
+      indexPath: null,
+      generatedTestCasesPath: null
+    };
     const noProgressCycleLimit = getAutonomousNoProgressCycleLimit();
     let lastProgressAt = null;
     let lastProgressTaskId = null;
@@ -1226,140 +1991,403 @@ export async function runAutonomousLoop(
     let consecutiveNoProgressCycles = 0;
     let skippedAutomaticTaskIds = [];
     let stopReason = null;
+    let lastHeartbeatAt = null;
+    let effectiveDoctorReportPath = requestedDoctorReportPath;
+    let lastHandoffIndexPath = null;
+    let lastDispatchResultJsonPath = null;
+    let lastDispatchResultMarkdownPath = null;
+    let lastRoundAttempted = 0;
+    let roundsCompleted = 0;
     const persistAutonomousSummary = async (
       finalRunState,
-      currentFailureFeedback = {
-        count: 0,
-        directory: null,
-        indexPath: null,
-        generatedTestCasesPath: null
-      }
+      currentFailureFeedback = emptyFailureFeedback,
+      {
+        checkpointStatus = "active",
+        errorMessage = null,
+        activity = null
+      } = {}
     ) => {
+      const effectiveStopReason =
+        stopReason ?? (finalRunState.status === "completed" ? "run completed" : "maximum rounds reached");
+      lastHeartbeatAt = new Date().toISOString();
+      const progressDiagnostics = buildAutonomousProgressDiagnostics(finalRunState, {
+        lastProgressAt,
+        lastProgressTaskId,
+        lastProgressEvent,
+        consecutiveNoProgressCycles,
+        skippedAutomaticTaskIds
+      });
+      const terminalSummary = buildAutonomousTerminalSummary(
+        finalRunState,
+        effectiveStopReason,
+        progressDiagnostics
+      );
+      const resume = buildAutonomousResumeSummary(
+        finalRunState,
+        resolvedRunStatePath,
+        terminalSummary
+      );
+      const debugEvidence = buildAutonomousDebugEvidence({
+        runDirectory,
+        runStatePath: resolvedRunStatePath,
+        doctorReportPath: effectiveDoctorReportPath,
+        handoffOutputDir: resolvedHandoffOutputDir,
+        lastHandoffIndexPath,
+        lastDispatchResultJsonPath,
+        lastDispatchResultMarkdownPath,
+        failureFeedback: currentFailureFeedback
+      });
+      const hypothesisLedger = buildAutonomousHypothesisLedger({
+        runState: finalRunState,
+        terminalSummary,
+        resume,
+        stopReason: effectiveStopReason,
+        progressDiagnostics,
+        failureFeedbackEntries,
+        debugEvidence
+      });
       const summary = {
         runId: finalRunState.runId,
         finalStatus: finalRunState.status,
+        terminalState: terminalSummary.state,
         doctorReportPath: effectiveDoctorReportPath,
         rounds,
-        stopReason:
-          stopReason ?? (finalRunState.status === "completed" ? "run completed" : "maximum rounds reached"),
+        stopReason: effectiveStopReason,
         runSummary: summarizeRunState(finalRunState),
-        progressDiagnostics: buildAutonomousProgressDiagnostics(finalRunState, {
-          lastProgressAt,
-          lastProgressTaskId,
-          lastProgressEvent,
+        progressDiagnostics,
+        watchdog: buildWatchdogDiagnostics({
+          startedAt,
+          timeoutMs: watchdogTimeoutMs,
+          heartbeatAt: lastHeartbeatAt,
+          noProgressCycleLimit,
           consecutiveNoProgressCycles,
-          skippedAutomaticTaskIds
+          rounds
         }),
-        failureFeedback: currentFailureFeedback
+        failureTaxonomy: buildFailureTaxonomy(effectiveStopReason, failureFeedbackEntries),
+        failureFeedback: currentFailureFeedback,
+        terminalSummary,
+        resume,
+        checkpointPath: debugPaths.checkpointPath,
+        terminalSummaryPath: debugPaths.terminalSummaryPath,
+        hypothesisLedgerPath: debugPaths.hypothesisLedgerPath,
+        debugBundlePath: debugPaths.debugBundlePath,
+        debugEvidence
       };
 
       const artifacts = await writeAutonomousSummaryArtifacts(runDirectory, summary);
+      const checkpoint = buildAutonomousCheckpoint({
+        runState: finalRunState,
+        runStatePath: resolvedRunStatePath,
+        sessionId,
+        previousCheckpoint,
+        checkpointStatus,
+        startedAt,
+        lastRoundAttempted,
+        roundsCompleted,
+        stopReason: effectiveStopReason,
+        terminalSummary,
+        resume,
+        progressDiagnostics,
+        debugEvidence,
+        errorMessage,
+        activity,
+        resumeContext
+      });
+      const debugBundle = buildAutonomousDebugBundle({
+        runId: finalRunState.runId,
+        terminalSummary,
+        resume,
+        hypothesisLedger,
+        debugPaths,
+        debugEvidence
+      });
+      await writeAutonomousDebugArtifacts(debugPaths, {
+        terminalSummary,
+        hypothesisLedger,
+        checkpoint,
+        debugBundle
+      });
 
       return {
         ...artifacts,
+        checkpoint,
+        terminalSummary,
+        hypothesisLedger,
         summary
       };
     };
 
-    await persistAutonomousSummary(refreshRunState(await readJson(resolvedRunStatePath)));
+    const persistActiveCheckpoint = async (
+      activeRunState,
+      {
+        phase = null,
+        round = null,
+        detail = null,
+        errorMessage = null
+      } = {}
+    ) => {
+      const progressDiagnostics = buildAutonomousProgressDiagnostics(activeRunState, {
+        lastProgressAt,
+        lastProgressTaskId,
+        lastProgressEvent,
+        consecutiveNoProgressCycles,
+        skippedAutomaticTaskIds
+      });
+      const debugEvidence = buildAutonomousDebugEvidence({
+        runDirectory,
+        runStatePath: resolvedRunStatePath,
+        doctorReportPath: effectiveDoctorReportPath,
+        handoffOutputDir: resolvedHandoffOutputDir,
+        lastHandoffIndexPath,
+        lastDispatchResultJsonPath,
+        lastDispatchResultMarkdownPath,
+        failureFeedback: emptyFailureFeedback
+      });
+      const checkpoint = buildAutonomousCheckpoint({
+        runState: activeRunState,
+        runStatePath: resolvedRunStatePath,
+        sessionId,
+        previousCheckpoint,
+        checkpointStatus: "active",
+        startedAt,
+        lastRoundAttempted,
+        roundsCompleted,
+        stopReason,
+        terminalSummary: null,
+        resume: null,
+        progressDiagnostics,
+        debugEvidence,
+        errorMessage,
+        activity: buildCheckpointActivity({
+          phase,
+          round,
+          detail
+        }),
+        resumeContext
+      });
 
-    for (let round = 1; round <= maxRounds; round += 1) {
-      let currentRunState = refreshRunState(await readJson(resolvedRunStatePath));
-      const beforeRoundState = currentRunState;
-      await writeRunReport(runDirectory, currentRunState);
+      await writeAutonomousCheckpoint(debugPaths, checkpoint);
+      return checkpoint;
+    };
 
-      if (currentRunState.status === "completed") {
-        stopReason = "run completed";
-        break;
-      }
+    try {
+      await persistActiveCheckpoint(runState, {
+        phase: "doctor",
+        detail: "runtime-doctor"
+      });
+      const doctorResult = await runDoctorOperation(resolvedDoctorOutputDir, workspaceRoot);
+      effectiveDoctorReportPath =
+        requestedDoctorReportPath && (await jsonFileExists(requestedDoctorReportPath))
+          ? requestedDoctorReportPath
+          : doctorResult.jsonPath;
 
-      const roundRecord = {
-        round,
-        statusBefore: currentRunState.status,
-        readyTaskCount: 0,
-        dispatchSummary: null,
-        recovery: null,
-        stopReason: null,
-        progressEvent: null,
-        progressTaskId: null,
-        consecutiveNoProgressCycles: 0,
-        blockedTaskIds: [],
-        waitingRetryTaskIds: [],
-        skippedAutomaticTaskIds: [],
-        degradedRuntimeActive: false
-      };
+      await persistAutonomousSummary(refreshRunState(await readJson(resolvedRunStatePath)));
 
-      const staleInProgressRecovery = await maybeRecoverStalledInProgress(currentRunState);
-
-      if (staleInProgressRecovery.changed) {
-        await writeRunReport(runDirectory, staleInProgressRecovery.runState);
-        roundRecord.recovery = staleInProgressRecovery.recovery;
-        const progress = deriveRoundProgress({
-          beforeRunState: beforeRoundState,
-          afterRunState: staleInProgressRecovery.runState,
-          recovery: staleInProgressRecovery.recovery
+      for (let round = 1; round <= maxRounds; round += 1) {
+        lastRoundAttempted = round;
+        let currentRunState = refreshRunState(await readJson(resolvedRunStatePath));
+        const beforeRoundState = currentRunState;
+        await writeRunReport(runDirectory, currentRunState);
+        await persistActiveCheckpoint(currentRunState, {
+          phase: "round_preflight",
+          round,
+          detail: currentRunState.status
         });
-        if (progress.progressed) {
-          lastProgressAt = new Date().toISOString();
-          lastProgressTaskId = progress.taskId;
-          lastProgressEvent = progress.event;
-          consecutiveNoProgressCycles = 0;
+
+        if (currentRunState.status === "completed") {
+          stopReason = "run completed";
+          break;
         }
-        roundRecord.progressEvent = progress.event;
-        roundRecord.progressTaskId = progress.taskId;
-        roundRecord.consecutiveNoProgressCycles = consecutiveNoProgressCycles;
-        roundRecord.blockedTaskIds = listTaskIdsByStatus(staleInProgressRecovery.runState.taskLedger, ["blocked"]);
+
+        const roundRecord = {
+          round,
+          statusBefore: currentRunState.status,
+          readyTaskCount: 0,
+          dispatchSummary: null,
+          recovery: null,
+          stopReason: null,
+          progressEvent: null,
+          progressTaskId: null,
+          consecutiveNoProgressCycles: 0,
+          blockedTaskIds: [],
+          waitingRetryTaskIds: [],
+          skippedAutomaticTaskIds: [],
+          degradedRuntimeActive: false,
+          heartbeatAt: new Date().toISOString(),
+          watchdogEvent: null
+        };
+
+        if (hasAutonomousWatchdogExpired(startedAtMs, watchdogTimeoutMs)) {
+          stopReason = buildAutonomousWatchdogStopReason(watchdogTimeoutMs, startedAtMs, {
+            blockedTaskIds: listTaskIdsByStatus(currentRunState.taskLedger, ["blocked"]),
+            waitingRetryTaskIds: listTaskIdsByStatus(currentRunState.taskLedger, ["waiting_retry"]),
+            skippedAutomaticTaskIds
+          });
+          const watchdogRunState = materializeWatchdogTimeoutAttention(
+            currentRunState,
+            stopReason,
+            skippedAutomaticTaskIds
+          );
+          await writeRunReport(runDirectory, watchdogRunState);
+          roundRecord.stopReason = stopReason;
+          roundRecord.blockedTaskIds = listTaskIdsByStatus(watchdogRunState.taskLedger, ["blocked"]);
+          roundRecord.waitingRetryTaskIds = listTaskIdsByStatus(
+            watchdogRunState.taskLedger,
+            ["waiting_retry"]
+          );
+          roundRecord.skippedAutomaticTaskIds = [...skippedAutomaticTaskIds];
+          roundRecord.degradedRuntimeActive = hasDegradedRuntimeSignal(watchdogRunState);
+          roundRecord.watchdogEvent = "watchdog_timeout";
+          rounds.push(roundRecord);
+          roundsCompleted = round;
+          await persistAutonomousSummary(watchdogRunState);
+          break;
+        }
+
+        const staleInProgressRecovery = await maybeRecoverStalledInProgress(currentRunState);
+
+        if (staleInProgressRecovery.changed) {
+          await writeRunReport(runDirectory, staleInProgressRecovery.runState);
+          roundRecord.recovery = staleInProgressRecovery.recovery;
+          const progress = deriveRoundProgress({
+            beforeRunState: beforeRoundState,
+            afterRunState: staleInProgressRecovery.runState,
+            recovery: staleInProgressRecovery.recovery
+          });
+          if (progress.progressed) {
+            lastProgressAt = new Date().toISOString();
+            lastProgressTaskId = progress.taskId;
+            lastProgressEvent = progress.event;
+            consecutiveNoProgressCycles = 0;
+          }
+          roundRecord.progressEvent = progress.event;
+          roundRecord.progressTaskId = progress.taskId;
+          roundRecord.consecutiveNoProgressCycles = consecutiveNoProgressCycles;
+          roundRecord.blockedTaskIds = listTaskIdsByStatus(
+            staleInProgressRecovery.runState.taskLedger,
+            ["blocked"]
+          );
+          roundRecord.waitingRetryTaskIds = listTaskIdsByStatus(
+            staleInProgressRecovery.runState.taskLedger,
+            ["waiting_retry"]
+          );
+          roundRecord.skippedAutomaticTaskIds = [...skippedAutomaticTaskIds];
+          roundRecord.degradedRuntimeActive = hasDegradedRuntimeSignal(
+            staleInProgressRecovery.runState
+          );
+          roundRecord.watchdogEvent = "stalled_task_recovered";
+          if (isNonEmptyString(staleInProgressRecovery.recovery?.terminalStopReason)) {
+            stopReason = staleInProgressRecovery.recovery.terminalStopReason;
+            roundRecord.stopReason = stopReason;
+          }
+          rounds.push(roundRecord);
+          roundsCompleted = round;
+          await persistAutonomousSummary(staleInProgressRecovery.runState);
+          if (roundRecord.stopReason) {
+            break;
+          }
+          await persistActiveCheckpoint(staleInProgressRecovery.runState, {
+            phase: "recovery",
+            round,
+            detail: staleInProgressRecovery.recovery?.type ?? "stale_recovery"
+          });
+          continue;
+        }
+
+        const recoveryBeforeTick = maybeRecoverRunState(currentRunState);
+
+        if (recoveryBeforeTick.changed) {
+          await writeRunReport(runDirectory, recoveryBeforeTick.runState);
+          roundRecord.recovery = recoveryBeforeTick.recovery;
+          const progress = deriveRoundProgress({
+            beforeRunState: beforeRoundState,
+            afterRunState: recoveryBeforeTick.runState,
+            recovery: recoveryBeforeTick.recovery
+          });
+          if (progress.progressed) {
+            lastProgressAt = new Date().toISOString();
+            lastProgressTaskId = progress.taskId;
+            lastProgressEvent = progress.event;
+            consecutiveNoProgressCycles = 0;
+          }
+          roundRecord.progressEvent = progress.event;
+          roundRecord.progressTaskId = progress.taskId;
+          roundRecord.consecutiveNoProgressCycles = consecutiveNoProgressCycles;
+          roundRecord.blockedTaskIds = listTaskIdsByStatus(
+            recoveryBeforeTick.runState.taskLedger,
+            ["blocked"]
+          );
+          roundRecord.waitingRetryTaskIds = listTaskIdsByStatus(
+            recoveryBeforeTick.runState.taskLedger,
+            ["waiting_retry"]
+          );
+          roundRecord.skippedAutomaticTaskIds = [...skippedAutomaticTaskIds];
+          roundRecord.degradedRuntimeActive = hasDegradedRuntimeSignal(recoveryBeforeTick.runState);
+          if (isNonEmptyString(recoveryBeforeTick.recovery?.terminalStopReason)) {
+            stopReason = recoveryBeforeTick.recovery.terminalStopReason;
+            roundRecord.stopReason = stopReason;
+          }
+          rounds.push(roundRecord);
+          roundsCompleted = round;
+          await persistAutonomousSummary(recoveryBeforeTick.runState);
+          if (roundRecord.stopReason) {
+            break;
+          }
+          await persistActiveCheckpoint(recoveryBeforeTick.runState, {
+            phase: "recovery",
+            round,
+            detail: recoveryBeforeTick.recovery?.type ?? "blocked_recovery"
+          });
+          continue;
+        }
+
+        await persistActiveCheckpoint(currentRunState, {
+          phase: "tick",
+          round,
+          detail: "generate-handoffs"
+        });
+        const tickResult = await tickOperation(
+          resolvedRunStatePath,
+          effectiveDoctorReportPath,
+          resolvedHandoffOutputDir
+        );
+        lastHandoffIndexPath = tickResult.handoffIndexPath ?? lastHandoffIndexPath;
+        roundRecord.readyTaskCount = tickResult.readyTaskCount;
+
+        const runStateAfterTick = refreshRunState(await readJson(resolvedRunStatePath));
+
+        if (
+          runStateAfterTick.status !== "completed" &&
+          hasAutonomousWatchdogExpired(startedAtMs, watchdogTimeoutMs)
+        ) {
+        stopReason = buildAutonomousWatchdogStopReason(watchdogTimeoutMs, startedAtMs, {
+          blockedTaskIds: listTaskIdsByStatus(runStateAfterTick.taskLedger, ["blocked"]),
+          waitingRetryTaskIds: listTaskIdsByStatus(runStateAfterTick.taskLedger, ["waiting_retry"]),
+          skippedAutomaticTaskIds
+        });
+        const watchdogRunState = materializeWatchdogTimeoutAttention(
+          runStateAfterTick,
+          stopReason,
+          skippedAutomaticTaskIds
+        );
+        await writeRunReport(runDirectory, watchdogRunState);
+        roundRecord.stopReason = stopReason;
+        roundRecord.blockedTaskIds = listTaskIdsByStatus(watchdogRunState.taskLedger, ["blocked"]);
         roundRecord.waitingRetryTaskIds = listTaskIdsByStatus(
-          staleInProgressRecovery.runState.taskLedger,
+          watchdogRunState.taskLedger,
           ["waiting_retry"]
         );
         roundRecord.skippedAutomaticTaskIds = [...skippedAutomaticTaskIds];
-        roundRecord.degradedRuntimeActive = hasDegradedRuntimeSignal(staleInProgressRecovery.runState);
+        roundRecord.degradedRuntimeActive = hasDegradedRuntimeSignal(watchdogRunState);
+        roundRecord.watchdogEvent = "watchdog_timeout";
         rounds.push(roundRecord);
-        await persistAutonomousSummary(staleInProgressRecovery.runState);
-        continue;
-      }
-
-      const recoveryBeforeTick = maybeRecoverRunState(currentRunState);
-
-      if (recoveryBeforeTick.changed) {
-        await writeRunReport(runDirectory, recoveryBeforeTick.runState);
-        roundRecord.recovery = recoveryBeforeTick.recovery;
-        const progress = deriveRoundProgress({
-          beforeRunState: beforeRoundState,
-          afterRunState: recoveryBeforeTick.runState,
-          recovery: recoveryBeforeTick.recovery
-        });
-        if (progress.progressed) {
-          lastProgressAt = new Date().toISOString();
-          lastProgressTaskId = progress.taskId;
-          lastProgressEvent = progress.event;
-          consecutiveNoProgressCycles = 0;
+        roundsCompleted = round;
+        await persistAutonomousSummary(watchdogRunState);
+          break;
         }
-        roundRecord.progressEvent = progress.event;
-        roundRecord.progressTaskId = progress.taskId;
-        roundRecord.consecutiveNoProgressCycles = consecutiveNoProgressCycles;
-        roundRecord.blockedTaskIds = listTaskIdsByStatus(recoveryBeforeTick.runState.taskLedger, ["blocked"]);
-        roundRecord.waitingRetryTaskIds = listTaskIdsByStatus(
-          recoveryBeforeTick.runState.taskLedger,
-          ["waiting_retry"]
-        );
-        roundRecord.skippedAutomaticTaskIds = [...skippedAutomaticTaskIds];
-        roundRecord.degradedRuntimeActive = hasDegradedRuntimeSignal(recoveryBeforeTick.runState);
-        rounds.push(roundRecord);
-        await persistAutonomousSummary(recoveryBeforeTick.runState);
-        continue;
-      }
 
-      const tickResult = await tickOperation(
-        resolvedRunStatePath,
-        effectiveDoctorReportPath,
-        resolvedHandoffOutputDir
-      );
-      roundRecord.readyTaskCount = tickResult.readyTaskCount;
-
-      if (tickResult.readyTaskCount === 0) {
-        currentRunState = refreshRunState(await readJson(resolvedRunStatePath));
+        if (tickResult.readyTaskCount === 0) {
+          currentRunState = runStateAfterTick;
 
         if (currentRunState.status === "completed") {
           stopReason = "run completed";
@@ -1376,25 +2404,39 @@ export async function runAutonomousLoop(
         roundRecord.skippedAutomaticTaskIds = [...skippedAutomaticTaskIds];
         roundRecord.degradedRuntimeActive = hasDegradedRuntimeSignal(currentRunState);
         rounds.push(roundRecord);
+        roundsCompleted = round;
         await persistAutonomousSummary(currentRunState);
-        break;
-      }
+          break;
+        }
 
-      const dispatchResult = await dispatchOperation(tickResult.handoffIndexPath, "execute");
-      roundRecord.dispatchSummary = dispatchResult.summary;
-      const dispatchResults = safeArray(dispatchResult.results);
-      skippedAutomaticTaskIds = dispatchResults
-        .filter((result) => result?.status === "skipped" && isNonEmptyString(result?.taskId))
-        .map((result) => result.taskId);
+        await persistActiveCheckpoint(refreshRunState(await readJson(resolvedRunStatePath)), {
+          phase: "dispatch",
+          round,
+          detail: tickResult.handoffIndexPath ?? "execute"
+        });
+
+        const dispatchResult = await dispatchOperation(tickResult.handoffIndexPath, "execute");
+        lastDispatchResultJsonPath = dispatchResult.resultJsonPath ?? lastDispatchResultJsonPath;
+        lastDispatchResultMarkdownPath =
+          dispatchResult.resultMarkdownPath ?? lastDispatchResultMarkdownPath;
+        roundRecord.dispatchSummary = dispatchResult.summary;
+        const dispatchResults = safeArray(dispatchResult.results);
+        skippedAutomaticTaskIds = dispatchResults
+          .filter((result) => result?.status === "skipped" && isNonEmptyString(result?.taskId))
+          .map((result) => result.taskId);
 
       for (const result of dispatchResults) {
         if (!["failed", "incomplete", "continued"].includes(result?.status)) {
           continue;
         }
 
-        const reason = [result?.error, result?.note]
-          .filter(isNonEmptyString)
-          .join(" | ");
+        const reason = dedupeText([
+          result?.error,
+          result?.note,
+          result?.artifact?.summary,
+          ...safeArray(result?.artifact?.notes),
+          ...safeArray(result?.artifact?.verification)
+        ]).join(" | ");
 
         failureFeedbackEntries.push(
           createFailureFeedbackEntry({
@@ -1442,6 +2484,7 @@ export async function runAutonomousLoop(
 
         roundRecord.stopReason = stopReason;
         rounds.push(roundRecord);
+        roundsCompleted = round;
         break;
       }
 
@@ -1485,8 +2528,12 @@ export async function runAutonomousLoop(
       roundRecord.waitingRetryTaskIds = listTaskIdsByStatus(roundEndState.taskLedger, ["waiting_retry"]);
       roundRecord.skippedAutomaticTaskIds = [...skippedAutomaticTaskIds];
       roundRecord.degradedRuntimeActive = hasDegradedRuntimeSignal(roundEndState);
+      if (isNonEmptyString(recoveryAfterDispatch.recovery?.terminalStopReason)) {
+        stopReason = recoveryAfterDispatch.recovery.terminalStopReason;
+        roundRecord.stopReason = stopReason;
+      }
 
-      if (consecutiveNoProgressCycles >= noProgressCycleLimit) {
+      if (!roundRecord.stopReason && consecutiveNoProgressCycles >= noProgressCycleLimit) {
         stopReason =
           `autonomous no-progress circuit opened after ${consecutiveNoProgressCycles} consecutive cycles; ` +
           `lastProgressTaskId=${lastProgressTaskId ?? "unknown"} ` +
@@ -1503,21 +2550,54 @@ export async function runAutonomousLoop(
         roundRecord.stopReason = stopReason;
         roundRecord.blockedTaskIds = listTaskIdsByStatus(roundEndState.taskLedger, ["blocked"]);
         roundRecord.waitingRetryTaskIds = listTaskIdsByStatus(roundEndState.taskLedger, ["waiting_retry"]);
+        roundRecord.watchdogEvent = "no_progress_circuit_opened";
+      }
+
+      if (
+        !roundRecord.stopReason &&
+        roundEndState.status !== "completed" &&
+        hasAutonomousWatchdogExpired(startedAtMs, watchdogTimeoutMs)
+      ) {
+        stopReason = buildAutonomousWatchdogStopReason(watchdogTimeoutMs, startedAtMs, {
+          blockedTaskIds: roundRecord.blockedTaskIds,
+          waitingRetryTaskIds: roundRecord.waitingRetryTaskIds,
+          skippedAutomaticTaskIds
+        });
+        roundEndState = materializeWatchdogTimeoutAttention(
+          roundEndState,
+          stopReason,
+          skippedAutomaticTaskIds
+        );
+        await writeRunReport(runDirectory, roundEndState);
+        roundRecord.stopReason = stopReason;
+        roundRecord.blockedTaskIds = listTaskIdsByStatus(roundEndState.taskLedger, ["blocked"]);
+        roundRecord.waitingRetryTaskIds = listTaskIdsByStatus(roundEndState.taskLedger, ["waiting_retry"]);
+        roundRecord.watchdogEvent = "watchdog_timeout";
       }
 
       rounds.push(roundRecord);
+      roundsCompleted = round;
       await persistAutonomousSummary(roundEndState);
 
       if (roundRecord.stopReason) {
         break;
       }
+
+      await persistActiveCheckpoint(roundEndState, {
+        phase: "round_complete",
+        round,
+        detail: roundRecord.progressEvent ?? "await-next-round"
+      });
     }
 
     const finalRunState = refreshRunState(await readJson(resolvedRunStatePath));
     const failureFeedback = await persistFailureFeedbackArtifacts(runDirectory, failureFeedbackEntries);
     const { summaryJsonPath, summaryMarkdownPath, summary } = await persistAutonomousSummary(
       finalRunState,
-      failureFeedback
+      failureFeedback,
+      {
+        checkpointStatus: finalRunState.status === "completed" ? "completed" : "halted"
+      }
     );
 
     return {
@@ -1527,6 +2607,25 @@ export async function runAutonomousLoop(
       rounds,
       summary
     };
+    } catch (error) {
+      const latestRunState = refreshRunState(await readJson(resolvedRunStatePath).catch(() => runState));
+      stopReason = `autonomous loop error: ${error instanceof Error ? error.message : String(error)}`;
+      const failureFeedback = await persistFailureFeedbackArtifacts(
+        runDirectory,
+        failureFeedbackEntries
+      ).catch(() => emptyFailureFeedback);
+
+      await persistAutonomousSummary(
+        latestRunState,
+        failureFeedback,
+        {
+          checkpointStatus: "failed",
+          errorMessage: error instanceof Error ? error.stack ?? error.message : String(error)
+        }
+      ).catch(() => undefined);
+
+      throw error;
+    }
   } finally {
     await releaseAutonomousLock();
   }

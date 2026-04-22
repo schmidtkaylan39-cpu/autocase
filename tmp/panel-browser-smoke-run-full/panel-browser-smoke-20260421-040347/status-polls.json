@@ -1,0 +1,2906 @@
+[
+  {
+    "collectedAt": "2026-04-20T20:03:48.518Z",
+    "status": {
+      "ok": true,
+      "overview": {
+        "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace",
+        "defaults": {
+          "specPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\specs\\project-spec.json",
+          "runsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs",
+          "reportsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\reports"
+        },
+        "intake": {
+          "exists": true,
+          "clarificationStatus": "confirmed",
+          "confirmedByUser": true,
+          "recommendedNextStep": "planning-ready",
+          "intakeSpecPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-spec.json",
+          "intakeSummaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-summary.md"
+        },
+        "latestRun": {
+          "runDirectory": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347",
+          "runStatePath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\run-state.json",
+          "reportPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\report.md",
+          "handoffIndexPath": null,
+          "summary": {
+            "runId": "panel-browser-20260421-040347",
+            "status": "planned",
+            "totalTasks": 5,
+            "readyTasks": 1,
+            "pendingTasks": 4,
+            "waitingRetryTasks": 0,
+            "completedTasks": 0,
+            "blockedTasks": 0,
+            "failedTasks": 0
+          },
+          "waitingRetry": {
+            "taskIds": [],
+            "earliestNextRetryAt": null,
+            "scheduledTaskIds": []
+          }
+        }
+      }
+    }
+  },
+  {
+    "collectedAt": "2026-04-20T20:04:03.723Z",
+    "status": {
+      "ok": true,
+      "overview": {
+        "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace",
+        "defaults": {
+          "specPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\specs\\project-spec.json",
+          "runsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs",
+          "reportsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\reports"
+        },
+        "intake": {
+          "exists": true,
+          "clarificationStatus": "confirmed",
+          "confirmedByUser": true,
+          "recommendedNextStep": "planning-ready",
+          "intakeSpecPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-spec.json",
+          "intakeSummaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-summary.md"
+        },
+        "latestRun": {
+          "runDirectory": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347",
+          "runStatePath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\run-state.json",
+          "reportPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\report.md",
+          "handoffIndexPath": null,
+          "summary": {
+            "runId": "panel-browser-20260421-040347",
+            "status": "planned",
+            "totalTasks": 5,
+            "readyTasks": 1,
+            "pendingTasks": 4,
+            "waitingRetryTasks": 0,
+            "completedTasks": 0,
+            "blockedTasks": 0,
+            "failedTasks": 0
+          },
+          "waitingRetry": {
+            "taskIds": [],
+            "earliestNextRetryAt": null,
+            "scheduledTaskIds": []
+          }
+        }
+      }
+    }
+  },
+  {
+    "collectedAt": "2026-04-20T20:04:18.738Z",
+    "status": {
+      "ok": true,
+      "overview": {
+        "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace",
+        "defaults": {
+          "specPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\specs\\project-spec.json",
+          "runsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs",
+          "reportsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\reports"
+        },
+        "intake": {
+          "exists": true,
+          "clarificationStatus": "confirmed",
+          "confirmedByUser": true,
+          "recommendedNextStep": "planning-ready",
+          "intakeSpecPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-spec.json",
+          "intakeSummaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-summary.md"
+        },
+        "latestRun": {
+          "runDirectory": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347",
+          "runStatePath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\run-state.json",
+          "reportPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\report.md",
+          "handoffIndexPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\handoffs\\index.json",
+          "summary": {
+            "runId": "panel-browser-20260421-040347",
+            "status": "in_progress",
+            "totalTasks": 5,
+            "readyTasks": 0,
+            "pendingTasks": 4,
+            "waitingRetryTasks": 0,
+            "completedTasks": 0,
+            "blockedTasks": 0,
+            "failedTasks": 0
+          },
+          "waitingRetry": {
+            "taskIds": [],
+            "earliestNextRetryAt": null,
+            "scheduledTaskIds": []
+          }
+        }
+      }
+    }
+  },
+  {
+    "collectedAt": "2026-04-20T20:04:33.748Z",
+    "status": {
+      "ok": true,
+      "overview": {
+        "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace",
+        "defaults": {
+          "specPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\specs\\project-spec.json",
+          "runsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs",
+          "reportsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\reports"
+        },
+        "intake": {
+          "exists": true,
+          "clarificationStatus": "confirmed",
+          "confirmedByUser": true,
+          "recommendedNextStep": "planning-ready",
+          "intakeSpecPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-spec.json",
+          "intakeSummaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-summary.md"
+        },
+        "latestRun": {
+          "runDirectory": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347",
+          "runStatePath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\run-state.json",
+          "reportPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\report.md",
+          "handoffIndexPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\handoffs\\index.json",
+          "summary": {
+            "runId": "panel-browser-20260421-040347",
+            "status": "in_progress",
+            "totalTasks": 5,
+            "readyTasks": 0,
+            "pendingTasks": 4,
+            "waitingRetryTasks": 0,
+            "completedTasks": 0,
+            "blockedTasks": 0,
+            "failedTasks": 0
+          },
+          "waitingRetry": {
+            "taskIds": [],
+            "earliestNextRetryAt": null,
+            "scheduledTaskIds": []
+          }
+        }
+      }
+    }
+  },
+  {
+    "collectedAt": "2026-04-20T20:04:48.755Z",
+    "status": {
+      "ok": true,
+      "overview": {
+        "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace",
+        "defaults": {
+          "specPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\specs\\project-spec.json",
+          "runsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs",
+          "reportsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\reports"
+        },
+        "intake": {
+          "exists": true,
+          "clarificationStatus": "confirmed",
+          "confirmedByUser": true,
+          "recommendedNextStep": "planning-ready",
+          "intakeSpecPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-spec.json",
+          "intakeSummaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-summary.md"
+        },
+        "latestRun": {
+          "runDirectory": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347",
+          "runStatePath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\run-state.json",
+          "reportPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\report.md",
+          "handoffIndexPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\handoffs\\index.json",
+          "summary": {
+            "runId": "panel-browser-20260421-040347",
+            "status": "in_progress",
+            "totalTasks": 5,
+            "readyTasks": 0,
+            "pendingTasks": 4,
+            "waitingRetryTasks": 0,
+            "completedTasks": 0,
+            "blockedTasks": 0,
+            "failedTasks": 0
+          },
+          "waitingRetry": {
+            "taskIds": [],
+            "earliestNextRetryAt": null,
+            "scheduledTaskIds": []
+          }
+        }
+      }
+    }
+  },
+  {
+    "collectedAt": "2026-04-20T20:05:03.760Z",
+    "status": {
+      "ok": true,
+      "overview": {
+        "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace",
+        "defaults": {
+          "specPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\specs\\project-spec.json",
+          "runsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs",
+          "reportsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\reports"
+        },
+        "intake": {
+          "exists": true,
+          "clarificationStatus": "confirmed",
+          "confirmedByUser": true,
+          "recommendedNextStep": "planning-ready",
+          "intakeSpecPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-spec.json",
+          "intakeSummaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-summary.md"
+        },
+        "latestRun": {
+          "runDirectory": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347",
+          "runStatePath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\run-state.json",
+          "reportPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\report.md",
+          "handoffIndexPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\handoffs\\index.json",
+          "summary": {
+            "runId": "panel-browser-20260421-040347",
+            "status": "in_progress",
+            "totalTasks": 5,
+            "readyTasks": 0,
+            "pendingTasks": 4,
+            "waitingRetryTasks": 0,
+            "completedTasks": 0,
+            "blockedTasks": 0,
+            "failedTasks": 0
+          },
+          "waitingRetry": {
+            "taskIds": [],
+            "earliestNextRetryAt": null,
+            "scheduledTaskIds": []
+          }
+        }
+      }
+    }
+  },
+  {
+    "collectedAt": "2026-04-20T20:05:18.768Z",
+    "status": {
+      "ok": true,
+      "overview": {
+        "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace",
+        "defaults": {
+          "specPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\specs\\project-spec.json",
+          "runsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs",
+          "reportsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\reports"
+        },
+        "intake": {
+          "exists": true,
+          "clarificationStatus": "confirmed",
+          "confirmedByUser": true,
+          "recommendedNextStep": "planning-ready",
+          "intakeSpecPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-spec.json",
+          "intakeSummaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-summary.md"
+        },
+        "latestRun": {
+          "runDirectory": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347",
+          "runStatePath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\run-state.json",
+          "reportPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\report.md",
+          "handoffIndexPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\handoffs\\index.json",
+          "summary": {
+            "runId": "panel-browser-20260421-040347",
+            "status": "in_progress",
+            "totalTasks": 5,
+            "readyTasks": 0,
+            "pendingTasks": 4,
+            "waitingRetryTasks": 0,
+            "completedTasks": 0,
+            "blockedTasks": 0,
+            "failedTasks": 0
+          },
+          "waitingRetry": {
+            "taskIds": [],
+            "earliestNextRetryAt": null,
+            "scheduledTaskIds": []
+          }
+        }
+      }
+    }
+  },
+  {
+    "collectedAt": "2026-04-20T20:05:33.787Z",
+    "status": {
+      "ok": true,
+      "overview": {
+        "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace",
+        "defaults": {
+          "specPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\specs\\project-spec.json",
+          "runsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs",
+          "reportsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\reports"
+        },
+        "intake": {
+          "exists": true,
+          "clarificationStatus": "confirmed",
+          "confirmedByUser": true,
+          "recommendedNextStep": "planning-ready",
+          "intakeSpecPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-spec.json",
+          "intakeSummaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-summary.md"
+        },
+        "latestRun": {
+          "runDirectory": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347",
+          "runStatePath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\run-state.json",
+          "reportPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\report.md",
+          "handoffIndexPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\handoffs\\index.json",
+          "summary": {
+            "runId": "panel-browser-20260421-040347",
+            "status": "in_progress",
+            "totalTasks": 5,
+            "readyTasks": 0,
+            "pendingTasks": 4,
+            "waitingRetryTasks": 0,
+            "completedTasks": 0,
+            "blockedTasks": 0,
+            "failedTasks": 0
+          },
+          "waitingRetry": {
+            "taskIds": [],
+            "earliestNextRetryAt": null,
+            "scheduledTaskIds": []
+          }
+        }
+      }
+    }
+  },
+  {
+    "collectedAt": "2026-04-20T20:05:48.799Z",
+    "status": {
+      "ok": true,
+      "overview": {
+        "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace",
+        "defaults": {
+          "specPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\specs\\project-spec.json",
+          "runsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs",
+          "reportsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\reports"
+        },
+        "intake": {
+          "exists": true,
+          "clarificationStatus": "confirmed",
+          "confirmedByUser": true,
+          "recommendedNextStep": "planning-ready",
+          "intakeSpecPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-spec.json",
+          "intakeSummaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-summary.md"
+        },
+        "latestRun": {
+          "runDirectory": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347",
+          "runStatePath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\run-state.json",
+          "reportPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\report.md",
+          "handoffIndexPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\handoffs\\index.json",
+          "summary": {
+            "runId": "panel-browser-20260421-040347",
+            "status": "in_progress",
+            "totalTasks": 5,
+            "readyTasks": 0,
+            "pendingTasks": 4,
+            "waitingRetryTasks": 0,
+            "completedTasks": 0,
+            "blockedTasks": 0,
+            "failedTasks": 0
+          },
+          "waitingRetry": {
+            "taskIds": [],
+            "earliestNextRetryAt": null,
+            "scheduledTaskIds": []
+          }
+        }
+      }
+    }
+  },
+  {
+    "collectedAt": "2026-04-20T20:06:03.807Z",
+    "status": {
+      "ok": true,
+      "overview": {
+        "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace",
+        "defaults": {
+          "specPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\specs\\project-spec.json",
+          "runsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs",
+          "reportsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\reports"
+        },
+        "intake": {
+          "exists": true,
+          "clarificationStatus": "confirmed",
+          "confirmedByUser": true,
+          "recommendedNextStep": "planning-ready",
+          "intakeSpecPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-spec.json",
+          "intakeSummaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-summary.md"
+        },
+        "latestRun": {
+          "runDirectory": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347",
+          "runStatePath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\run-state.json",
+          "reportPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\report.md",
+          "handoffIndexPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\handoffs\\index.json",
+          "summary": {
+            "runId": "panel-browser-20260421-040347",
+            "status": "in_progress",
+            "totalTasks": 5,
+            "readyTasks": 0,
+            "pendingTasks": 4,
+            "waitingRetryTasks": 0,
+            "completedTasks": 0,
+            "blockedTasks": 0,
+            "failedTasks": 0
+          },
+          "waitingRetry": {
+            "taskIds": [],
+            "earliestNextRetryAt": null,
+            "scheduledTaskIds": []
+          }
+        }
+      }
+    }
+  },
+  {
+    "collectedAt": "2026-04-20T20:06:18.821Z",
+    "status": {
+      "ok": true,
+      "overview": {
+        "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace",
+        "defaults": {
+          "specPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\specs\\project-spec.json",
+          "runsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs",
+          "reportsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\reports"
+        },
+        "intake": {
+          "exists": true,
+          "clarificationStatus": "confirmed",
+          "confirmedByUser": true,
+          "recommendedNextStep": "planning-ready",
+          "intakeSpecPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-spec.json",
+          "intakeSummaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-summary.md"
+        },
+        "latestRun": {
+          "runDirectory": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347",
+          "runStatePath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\run-state.json",
+          "reportPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\report.md",
+          "handoffIndexPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\handoffs\\index.json",
+          "summary": {
+            "runId": "panel-browser-20260421-040347",
+            "status": "in_progress",
+            "totalTasks": 5,
+            "readyTasks": 0,
+            "pendingTasks": 4,
+            "waitingRetryTasks": 0,
+            "completedTasks": 0,
+            "blockedTasks": 0,
+            "failedTasks": 0
+          },
+          "waitingRetry": {
+            "taskIds": [],
+            "earliestNextRetryAt": null,
+            "scheduledTaskIds": []
+          }
+        }
+      }
+    }
+  },
+  {
+    "collectedAt": "2026-04-20T20:06:33.839Z",
+    "status": {
+      "ok": true,
+      "overview": {
+        "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace",
+        "defaults": {
+          "specPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\specs\\project-spec.json",
+          "runsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs",
+          "reportsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\reports"
+        },
+        "intake": {
+          "exists": true,
+          "clarificationStatus": "confirmed",
+          "confirmedByUser": true,
+          "recommendedNextStep": "planning-ready",
+          "intakeSpecPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-spec.json",
+          "intakeSummaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-summary.md"
+        },
+        "latestRun": {
+          "runDirectory": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347",
+          "runStatePath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\run-state.json",
+          "reportPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\report.md",
+          "handoffIndexPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\handoffs\\index.json",
+          "summary": {
+            "runId": "panel-browser-20260421-040347",
+            "status": "in_progress",
+            "totalTasks": 5,
+            "readyTasks": 0,
+            "pendingTasks": 4,
+            "waitingRetryTasks": 0,
+            "completedTasks": 0,
+            "blockedTasks": 0,
+            "failedTasks": 0
+          },
+          "waitingRetry": {
+            "taskIds": [],
+            "earliestNextRetryAt": null,
+            "scheduledTaskIds": []
+          }
+        }
+      }
+    }
+  },
+  {
+    "collectedAt": "2026-04-20T20:06:48.845Z",
+    "status": {
+      "ok": true,
+      "overview": {
+        "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace",
+        "defaults": {
+          "specPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\specs\\project-spec.json",
+          "runsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs",
+          "reportsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\reports"
+        },
+        "intake": {
+          "exists": true,
+          "clarificationStatus": "confirmed",
+          "confirmedByUser": true,
+          "recommendedNextStep": "planning-ready",
+          "intakeSpecPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-spec.json",
+          "intakeSummaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-summary.md"
+        },
+        "latestRun": {
+          "runDirectory": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347",
+          "runStatePath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\run-state.json",
+          "reportPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\report.md",
+          "handoffIndexPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\handoffs\\index.json",
+          "summary": {
+            "runId": "panel-browser-20260421-040347",
+            "status": "in_progress",
+            "totalTasks": 5,
+            "readyTasks": 0,
+            "pendingTasks": 4,
+            "waitingRetryTasks": 0,
+            "completedTasks": 0,
+            "blockedTasks": 0,
+            "failedTasks": 0
+          },
+          "waitingRetry": {
+            "taskIds": [],
+            "earliestNextRetryAt": null,
+            "scheduledTaskIds": []
+          }
+        }
+      }
+    }
+  },
+  {
+    "collectedAt": "2026-04-20T20:07:03.850Z",
+    "status": {
+      "ok": true,
+      "overview": {
+        "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace",
+        "defaults": {
+          "specPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\specs\\project-spec.json",
+          "runsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs",
+          "reportsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\reports"
+        },
+        "intake": {
+          "exists": true,
+          "clarificationStatus": "confirmed",
+          "confirmedByUser": true,
+          "recommendedNextStep": "planning-ready",
+          "intakeSpecPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-spec.json",
+          "intakeSummaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-summary.md"
+        },
+        "latestRun": {
+          "runDirectory": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347",
+          "runStatePath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\run-state.json",
+          "reportPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\report.md",
+          "handoffIndexPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\handoffs\\index.json",
+          "summary": {
+            "runId": "panel-browser-20260421-040347",
+            "status": "in_progress",
+            "totalTasks": 5,
+            "readyTasks": 0,
+            "pendingTasks": 4,
+            "waitingRetryTasks": 0,
+            "completedTasks": 0,
+            "blockedTasks": 0,
+            "failedTasks": 0
+          },
+          "waitingRetry": {
+            "taskIds": [],
+            "earliestNextRetryAt": null,
+            "scheduledTaskIds": []
+          }
+        }
+      }
+    }
+  },
+  {
+    "collectedAt": "2026-04-20T20:07:18.865Z",
+    "status": {
+      "ok": true,
+      "overview": {
+        "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace",
+        "defaults": {
+          "specPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\specs\\project-spec.json",
+          "runsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs",
+          "reportsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\reports"
+        },
+        "intake": {
+          "exists": true,
+          "clarificationStatus": "confirmed",
+          "confirmedByUser": true,
+          "recommendedNextStep": "planning-ready",
+          "intakeSpecPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-spec.json",
+          "intakeSummaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-summary.md"
+        },
+        "latestRun": {
+          "runDirectory": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347",
+          "runStatePath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\run-state.json",
+          "reportPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\report.md",
+          "handoffIndexPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\handoffs\\index.json",
+          "summary": {
+            "runId": "panel-browser-20260421-040347",
+            "status": "in_progress",
+            "totalTasks": 5,
+            "readyTasks": 0,
+            "pendingTasks": 4,
+            "waitingRetryTasks": 0,
+            "completedTasks": 0,
+            "blockedTasks": 0,
+            "failedTasks": 0
+          },
+          "waitingRetry": {
+            "taskIds": [],
+            "earliestNextRetryAt": null,
+            "scheduledTaskIds": []
+          }
+        }
+      }
+    }
+  },
+  {
+    "collectedAt": "2026-04-20T20:07:33.871Z",
+    "status": {
+      "ok": true,
+      "overview": {
+        "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace",
+        "defaults": {
+          "specPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\specs\\project-spec.json",
+          "runsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs",
+          "reportsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\reports"
+        },
+        "intake": {
+          "exists": true,
+          "clarificationStatus": "confirmed",
+          "confirmedByUser": true,
+          "recommendedNextStep": "planning-ready",
+          "intakeSpecPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-spec.json",
+          "intakeSummaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-summary.md"
+        },
+        "latestRun": {
+          "runDirectory": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347",
+          "runStatePath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\run-state.json",
+          "reportPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\report.md",
+          "handoffIndexPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\handoffs\\index.json",
+          "summary": {
+            "runId": "panel-browser-20260421-040347",
+            "status": "in_progress",
+            "totalTasks": 5,
+            "readyTasks": 0,
+            "pendingTasks": 4,
+            "waitingRetryTasks": 0,
+            "completedTasks": 0,
+            "blockedTasks": 0,
+            "failedTasks": 0
+          },
+          "waitingRetry": {
+            "taskIds": [],
+            "earliestNextRetryAt": null,
+            "scheduledTaskIds": []
+          }
+        }
+      }
+    }
+  },
+  {
+    "collectedAt": "2026-04-20T20:07:48.885Z",
+    "status": {
+      "ok": true,
+      "overview": {
+        "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace",
+        "defaults": {
+          "specPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\specs\\project-spec.json",
+          "runsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs",
+          "reportsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\reports"
+        },
+        "intake": {
+          "exists": true,
+          "clarificationStatus": "confirmed",
+          "confirmedByUser": true,
+          "recommendedNextStep": "planning-ready",
+          "intakeSpecPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-spec.json",
+          "intakeSummaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-summary.md"
+        },
+        "latestRun": {
+          "runDirectory": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347",
+          "runStatePath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\run-state.json",
+          "reportPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\report.md",
+          "handoffIndexPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\handoffs\\index.json",
+          "summary": {
+            "runId": "panel-browser-20260421-040347",
+            "status": "in_progress",
+            "totalTasks": 5,
+            "readyTasks": 0,
+            "pendingTasks": 4,
+            "waitingRetryTasks": 0,
+            "completedTasks": 0,
+            "blockedTasks": 0,
+            "failedTasks": 0
+          },
+          "waitingRetry": {
+            "taskIds": [],
+            "earliestNextRetryAt": null,
+            "scheduledTaskIds": []
+          }
+        }
+      }
+    }
+  },
+  {
+    "collectedAt": "2026-04-20T20:08:03.898Z",
+    "status": {
+      "ok": true,
+      "overview": {
+        "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace",
+        "defaults": {
+          "specPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\specs\\project-spec.json",
+          "runsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs",
+          "reportsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\reports"
+        },
+        "intake": {
+          "exists": true,
+          "clarificationStatus": "confirmed",
+          "confirmedByUser": true,
+          "recommendedNextStep": "planning-ready",
+          "intakeSpecPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-spec.json",
+          "intakeSummaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-summary.md"
+        },
+        "latestRun": {
+          "runDirectory": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347",
+          "runStatePath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\run-state.json",
+          "reportPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\report.md",
+          "handoffIndexPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\handoffs\\index.json",
+          "summary": {
+            "runId": "panel-browser-20260421-040347",
+            "status": "in_progress",
+            "totalTasks": 5,
+            "readyTasks": 0,
+            "pendingTasks": 4,
+            "waitingRetryTasks": 0,
+            "completedTasks": 0,
+            "blockedTasks": 0,
+            "failedTasks": 0
+          },
+          "waitingRetry": {
+            "taskIds": [],
+            "earliestNextRetryAt": null,
+            "scheduledTaskIds": []
+          }
+        }
+      }
+    }
+  },
+  {
+    "collectedAt": "2026-04-20T20:08:18.910Z",
+    "status": {
+      "ok": true,
+      "overview": {
+        "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace",
+        "defaults": {
+          "specPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\specs\\project-spec.json",
+          "runsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs",
+          "reportsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\reports"
+        },
+        "intake": {
+          "exists": true,
+          "clarificationStatus": "confirmed",
+          "confirmedByUser": true,
+          "recommendedNextStep": "planning-ready",
+          "intakeSpecPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-spec.json",
+          "intakeSummaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-summary.md"
+        },
+        "latestRun": {
+          "runDirectory": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347",
+          "runStatePath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\run-state.json",
+          "reportPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\report.md",
+          "handoffIndexPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\handoffs\\index.json",
+          "summary": {
+            "runId": "panel-browser-20260421-040347",
+            "status": "in_progress",
+            "totalTasks": 5,
+            "readyTasks": 0,
+            "pendingTasks": 4,
+            "waitingRetryTasks": 0,
+            "completedTasks": 0,
+            "blockedTasks": 0,
+            "failedTasks": 0
+          },
+          "waitingRetry": {
+            "taskIds": [],
+            "earliestNextRetryAt": null,
+            "scheduledTaskIds": []
+          }
+        }
+      }
+    }
+  },
+  {
+    "collectedAt": "2026-04-20T20:08:33.927Z",
+    "status": {
+      "ok": true,
+      "overview": {
+        "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace",
+        "defaults": {
+          "specPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\specs\\project-spec.json",
+          "runsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs",
+          "reportsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\reports"
+        },
+        "intake": {
+          "exists": true,
+          "clarificationStatus": "confirmed",
+          "confirmedByUser": true,
+          "recommendedNextStep": "planning-ready",
+          "intakeSpecPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-spec.json",
+          "intakeSummaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-summary.md"
+        },
+        "latestRun": {
+          "runDirectory": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347",
+          "runStatePath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\run-state.json",
+          "reportPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\report.md",
+          "handoffIndexPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\handoffs\\index.json",
+          "summary": {
+            "runId": "panel-browser-20260421-040347",
+            "status": "in_progress",
+            "totalTasks": 5,
+            "readyTasks": 0,
+            "pendingTasks": 3,
+            "waitingRetryTasks": 0,
+            "completedTasks": 1,
+            "blockedTasks": 0,
+            "failedTasks": 0
+          },
+          "waitingRetry": {
+            "taskIds": [],
+            "earliestNextRetryAt": null,
+            "scheduledTaskIds": []
+          }
+        }
+      }
+    }
+  },
+  {
+    "collectedAt": "2026-04-20T20:08:48.946Z",
+    "status": {
+      "ok": true,
+      "overview": {
+        "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace",
+        "defaults": {
+          "specPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\specs\\project-spec.json",
+          "runsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs",
+          "reportsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\reports"
+        },
+        "intake": {
+          "exists": true,
+          "clarificationStatus": "confirmed",
+          "confirmedByUser": true,
+          "recommendedNextStep": "planning-ready",
+          "intakeSpecPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-spec.json",
+          "intakeSummaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-summary.md"
+        },
+        "latestRun": {
+          "runDirectory": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347",
+          "runStatePath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\run-state.json",
+          "reportPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\report.md",
+          "handoffIndexPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\handoffs\\index.json",
+          "summary": {
+            "runId": "panel-browser-20260421-040347",
+            "status": "in_progress",
+            "totalTasks": 5,
+            "readyTasks": 0,
+            "pendingTasks": 3,
+            "waitingRetryTasks": 0,
+            "completedTasks": 1,
+            "blockedTasks": 0,
+            "failedTasks": 0
+          },
+          "waitingRetry": {
+            "taskIds": [],
+            "earliestNextRetryAt": null,
+            "scheduledTaskIds": []
+          }
+        }
+      }
+    }
+  },
+  {
+    "collectedAt": "2026-04-20T20:09:03.959Z",
+    "status": {
+      "ok": true,
+      "overview": {
+        "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace",
+        "defaults": {
+          "specPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\specs\\project-spec.json",
+          "runsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs",
+          "reportsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\reports"
+        },
+        "intake": {
+          "exists": true,
+          "clarificationStatus": "confirmed",
+          "confirmedByUser": true,
+          "recommendedNextStep": "planning-ready",
+          "intakeSpecPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-spec.json",
+          "intakeSummaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-summary.md"
+        },
+        "latestRun": {
+          "runDirectory": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347",
+          "runStatePath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\run-state.json",
+          "reportPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\report.md",
+          "handoffIndexPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\handoffs\\index.json",
+          "summary": {
+            "runId": "panel-browser-20260421-040347",
+            "status": "in_progress",
+            "totalTasks": 5,
+            "readyTasks": 0,
+            "pendingTasks": 3,
+            "waitingRetryTasks": 0,
+            "completedTasks": 1,
+            "blockedTasks": 0,
+            "failedTasks": 0
+          },
+          "waitingRetry": {
+            "taskIds": [],
+            "earliestNextRetryAt": null,
+            "scheduledTaskIds": []
+          }
+        }
+      }
+    }
+  },
+  {
+    "collectedAt": "2026-04-20T20:09:18.966Z",
+    "status": {
+      "ok": true,
+      "overview": {
+        "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace",
+        "defaults": {
+          "specPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\specs\\project-spec.json",
+          "runsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs",
+          "reportsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\reports"
+        },
+        "intake": {
+          "exists": true,
+          "clarificationStatus": "confirmed",
+          "confirmedByUser": true,
+          "recommendedNextStep": "planning-ready",
+          "intakeSpecPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-spec.json",
+          "intakeSummaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-summary.md"
+        },
+        "latestRun": {
+          "runDirectory": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347",
+          "runStatePath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\run-state.json",
+          "reportPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\report.md",
+          "handoffIndexPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\handoffs\\index.json",
+          "summary": {
+            "runId": "panel-browser-20260421-040347",
+            "status": "in_progress",
+            "totalTasks": 5,
+            "readyTasks": 0,
+            "pendingTasks": 3,
+            "waitingRetryTasks": 0,
+            "completedTasks": 1,
+            "blockedTasks": 0,
+            "failedTasks": 0
+          },
+          "waitingRetry": {
+            "taskIds": [],
+            "earliestNextRetryAt": null,
+            "scheduledTaskIds": []
+          }
+        }
+      }
+    }
+  },
+  {
+    "collectedAt": "2026-04-20T20:09:33.985Z",
+    "status": {
+      "ok": true,
+      "overview": {
+        "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace",
+        "defaults": {
+          "specPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\specs\\project-spec.json",
+          "runsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs",
+          "reportsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\reports"
+        },
+        "intake": {
+          "exists": true,
+          "clarificationStatus": "confirmed",
+          "confirmedByUser": true,
+          "recommendedNextStep": "planning-ready",
+          "intakeSpecPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-spec.json",
+          "intakeSummaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-summary.md"
+        },
+        "latestRun": {
+          "runDirectory": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347",
+          "runStatePath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\run-state.json",
+          "reportPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\report.md",
+          "handoffIndexPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\handoffs\\index.json",
+          "summary": {
+            "runId": "panel-browser-20260421-040347",
+            "status": "in_progress",
+            "totalTasks": 5,
+            "readyTasks": 0,
+            "pendingTasks": 3,
+            "waitingRetryTasks": 0,
+            "completedTasks": 1,
+            "blockedTasks": 0,
+            "failedTasks": 0
+          },
+          "waitingRetry": {
+            "taskIds": [],
+            "earliestNextRetryAt": null,
+            "scheduledTaskIds": []
+          }
+        }
+      }
+    }
+  },
+  {
+    "collectedAt": "2026-04-20T20:09:49.001Z",
+    "status": {
+      "ok": true,
+      "overview": {
+        "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace",
+        "defaults": {
+          "specPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\specs\\project-spec.json",
+          "runsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs",
+          "reportsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\reports"
+        },
+        "intake": {
+          "exists": true,
+          "clarificationStatus": "confirmed",
+          "confirmedByUser": true,
+          "recommendedNextStep": "planning-ready",
+          "intakeSpecPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-spec.json",
+          "intakeSummaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-summary.md"
+        },
+        "latestRun": {
+          "runDirectory": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347",
+          "runStatePath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\run-state.json",
+          "reportPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\report.md",
+          "handoffIndexPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\handoffs\\index.json",
+          "summary": {
+            "runId": "panel-browser-20260421-040347",
+            "status": "in_progress",
+            "totalTasks": 5,
+            "readyTasks": 0,
+            "pendingTasks": 3,
+            "waitingRetryTasks": 0,
+            "completedTasks": 1,
+            "blockedTasks": 0,
+            "failedTasks": 0
+          },
+          "waitingRetry": {
+            "taskIds": [],
+            "earliestNextRetryAt": null,
+            "scheduledTaskIds": []
+          }
+        }
+      }
+    }
+  },
+  {
+    "collectedAt": "2026-04-20T20:10:04.018Z",
+    "status": {
+      "ok": true,
+      "overview": {
+        "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace",
+        "defaults": {
+          "specPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\specs\\project-spec.json",
+          "runsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs",
+          "reportsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\reports"
+        },
+        "intake": {
+          "exists": true,
+          "clarificationStatus": "confirmed",
+          "confirmedByUser": true,
+          "recommendedNextStep": "planning-ready",
+          "intakeSpecPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-spec.json",
+          "intakeSummaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-summary.md"
+        },
+        "latestRun": {
+          "runDirectory": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347",
+          "runStatePath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\run-state.json",
+          "reportPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\report.md",
+          "handoffIndexPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\handoffs\\index.json",
+          "summary": {
+            "runId": "panel-browser-20260421-040347",
+            "status": "in_progress",
+            "totalTasks": 5,
+            "readyTasks": 0,
+            "pendingTasks": 3,
+            "waitingRetryTasks": 0,
+            "completedTasks": 1,
+            "blockedTasks": 0,
+            "failedTasks": 0
+          },
+          "waitingRetry": {
+            "taskIds": [],
+            "earliestNextRetryAt": null,
+            "scheduledTaskIds": []
+          }
+        }
+      }
+    }
+  },
+  {
+    "collectedAt": "2026-04-20T20:10:19.025Z",
+    "status": {
+      "ok": true,
+      "overview": {
+        "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace",
+        "defaults": {
+          "specPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\specs\\project-spec.json",
+          "runsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs",
+          "reportsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\reports"
+        },
+        "intake": {
+          "exists": true,
+          "clarificationStatus": "confirmed",
+          "confirmedByUser": true,
+          "recommendedNextStep": "planning-ready",
+          "intakeSpecPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-spec.json",
+          "intakeSummaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-summary.md"
+        },
+        "latestRun": {
+          "runDirectory": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347",
+          "runStatePath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\run-state.json",
+          "reportPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\report.md",
+          "handoffIndexPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\handoffs\\index.json",
+          "summary": {
+            "runId": "panel-browser-20260421-040347",
+            "status": "in_progress",
+            "totalTasks": 5,
+            "readyTasks": 0,
+            "pendingTasks": 3,
+            "waitingRetryTasks": 0,
+            "completedTasks": 1,
+            "blockedTasks": 0,
+            "failedTasks": 0
+          },
+          "waitingRetry": {
+            "taskIds": [],
+            "earliestNextRetryAt": null,
+            "scheduledTaskIds": []
+          }
+        }
+      }
+    }
+  },
+  {
+    "collectedAt": "2026-04-20T20:10:34.030Z",
+    "status": {
+      "ok": true,
+      "overview": {
+        "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace",
+        "defaults": {
+          "specPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\specs\\project-spec.json",
+          "runsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs",
+          "reportsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\reports"
+        },
+        "intake": {
+          "exists": true,
+          "clarificationStatus": "confirmed",
+          "confirmedByUser": true,
+          "recommendedNextStep": "planning-ready",
+          "intakeSpecPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-spec.json",
+          "intakeSummaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-summary.md"
+        },
+        "latestRun": {
+          "runDirectory": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347",
+          "runStatePath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\run-state.json",
+          "reportPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\report.md",
+          "handoffIndexPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\handoffs\\index.json",
+          "summary": {
+            "runId": "panel-browser-20260421-040347",
+            "status": "in_progress",
+            "totalTasks": 5,
+            "readyTasks": 0,
+            "pendingTasks": 3,
+            "waitingRetryTasks": 0,
+            "completedTasks": 1,
+            "blockedTasks": 0,
+            "failedTasks": 0
+          },
+          "waitingRetry": {
+            "taskIds": [],
+            "earliestNextRetryAt": null,
+            "scheduledTaskIds": []
+          }
+        }
+      }
+    }
+  },
+  {
+    "collectedAt": "2026-04-20T20:10:49.036Z",
+    "status": {
+      "ok": true,
+      "overview": {
+        "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace",
+        "defaults": {
+          "specPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\specs\\project-spec.json",
+          "runsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs",
+          "reportsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\reports"
+        },
+        "intake": {
+          "exists": true,
+          "clarificationStatus": "confirmed",
+          "confirmedByUser": true,
+          "recommendedNextStep": "planning-ready",
+          "intakeSpecPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-spec.json",
+          "intakeSummaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-summary.md"
+        },
+        "latestRun": {
+          "runDirectory": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347",
+          "runStatePath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\run-state.json",
+          "reportPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\report.md",
+          "handoffIndexPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\handoffs\\index.json",
+          "summary": {
+            "runId": "panel-browser-20260421-040347",
+            "status": "in_progress",
+            "totalTasks": 5,
+            "readyTasks": 0,
+            "pendingTasks": 3,
+            "waitingRetryTasks": 0,
+            "completedTasks": 1,
+            "blockedTasks": 0,
+            "failedTasks": 0
+          },
+          "waitingRetry": {
+            "taskIds": [],
+            "earliestNextRetryAt": null,
+            "scheduledTaskIds": []
+          }
+        }
+      }
+    }
+  },
+  {
+    "collectedAt": "2026-04-20T20:11:04.049Z",
+    "status": {
+      "ok": true,
+      "overview": {
+        "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace",
+        "defaults": {
+          "specPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\specs\\project-spec.json",
+          "runsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs",
+          "reportsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\reports"
+        },
+        "intake": {
+          "exists": true,
+          "clarificationStatus": "confirmed",
+          "confirmedByUser": true,
+          "recommendedNextStep": "planning-ready",
+          "intakeSpecPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-spec.json",
+          "intakeSummaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-summary.md"
+        },
+        "latestRun": {
+          "runDirectory": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347",
+          "runStatePath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\run-state.json",
+          "reportPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\report.md",
+          "handoffIndexPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\handoffs\\index.json",
+          "summary": {
+            "runId": "panel-browser-20260421-040347",
+            "status": "in_progress",
+            "totalTasks": 5,
+            "readyTasks": 0,
+            "pendingTasks": 3,
+            "waitingRetryTasks": 0,
+            "completedTasks": 1,
+            "blockedTasks": 0,
+            "failedTasks": 0
+          },
+          "waitingRetry": {
+            "taskIds": [],
+            "earliestNextRetryAt": null,
+            "scheduledTaskIds": []
+          }
+        }
+      }
+    }
+  },
+  {
+    "collectedAt": "2026-04-20T20:11:19.065Z",
+    "status": {
+      "ok": true,
+      "overview": {
+        "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace",
+        "defaults": {
+          "specPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\specs\\project-spec.json",
+          "runsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs",
+          "reportsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\reports"
+        },
+        "intake": {
+          "exists": true,
+          "clarificationStatus": "confirmed",
+          "confirmedByUser": true,
+          "recommendedNextStep": "planning-ready",
+          "intakeSpecPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-spec.json",
+          "intakeSummaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-summary.md"
+        },
+        "latestRun": {
+          "runDirectory": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347",
+          "runStatePath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\run-state.json",
+          "reportPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\report.md",
+          "handoffIndexPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\handoffs\\index.json",
+          "summary": {
+            "runId": "panel-browser-20260421-040347",
+            "status": "in_progress",
+            "totalTasks": 5,
+            "readyTasks": 0,
+            "pendingTasks": 3,
+            "waitingRetryTasks": 0,
+            "completedTasks": 1,
+            "blockedTasks": 0,
+            "failedTasks": 0
+          },
+          "waitingRetry": {
+            "taskIds": [],
+            "earliestNextRetryAt": null,
+            "scheduledTaskIds": []
+          }
+        }
+      }
+    }
+  },
+  {
+    "collectedAt": "2026-04-20T20:11:34.072Z",
+    "status": {
+      "ok": true,
+      "overview": {
+        "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace",
+        "defaults": {
+          "specPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\specs\\project-spec.json",
+          "runsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs",
+          "reportsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\reports"
+        },
+        "intake": {
+          "exists": true,
+          "clarificationStatus": "confirmed",
+          "confirmedByUser": true,
+          "recommendedNextStep": "planning-ready",
+          "intakeSpecPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-spec.json",
+          "intakeSummaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-summary.md"
+        },
+        "latestRun": {
+          "runDirectory": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347",
+          "runStatePath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\run-state.json",
+          "reportPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\report.md",
+          "handoffIndexPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\handoffs\\index.json",
+          "summary": {
+            "runId": "panel-browser-20260421-040347",
+            "status": "in_progress",
+            "totalTasks": 5,
+            "readyTasks": 0,
+            "pendingTasks": 3,
+            "waitingRetryTasks": 0,
+            "completedTasks": 1,
+            "blockedTasks": 0,
+            "failedTasks": 0
+          },
+          "waitingRetry": {
+            "taskIds": [],
+            "earliestNextRetryAt": null,
+            "scheduledTaskIds": []
+          }
+        }
+      }
+    }
+  },
+  {
+    "collectedAt": "2026-04-20T20:11:49.086Z",
+    "status": {
+      "ok": true,
+      "overview": {
+        "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace",
+        "defaults": {
+          "specPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\specs\\project-spec.json",
+          "runsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs",
+          "reportsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\reports"
+        },
+        "intake": {
+          "exists": true,
+          "clarificationStatus": "confirmed",
+          "confirmedByUser": true,
+          "recommendedNextStep": "planning-ready",
+          "intakeSpecPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-spec.json",
+          "intakeSummaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-summary.md"
+        },
+        "latestRun": {
+          "runDirectory": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347",
+          "runStatePath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\run-state.json",
+          "reportPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\report.md",
+          "handoffIndexPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\handoffs\\index.json",
+          "summary": {
+            "runId": "panel-browser-20260421-040347",
+            "status": "in_progress",
+            "totalTasks": 5,
+            "readyTasks": 0,
+            "pendingTasks": 3,
+            "waitingRetryTasks": 0,
+            "completedTasks": 1,
+            "blockedTasks": 0,
+            "failedTasks": 0
+          },
+          "waitingRetry": {
+            "taskIds": [],
+            "earliestNextRetryAt": null,
+            "scheduledTaskIds": []
+          }
+        }
+      }
+    }
+  },
+  {
+    "collectedAt": "2026-04-20T20:12:04.098Z",
+    "status": {
+      "ok": true,
+      "overview": {
+        "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace",
+        "defaults": {
+          "specPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\specs\\project-spec.json",
+          "runsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs",
+          "reportsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\reports"
+        },
+        "intake": {
+          "exists": true,
+          "clarificationStatus": "confirmed",
+          "confirmedByUser": true,
+          "recommendedNextStep": "planning-ready",
+          "intakeSpecPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-spec.json",
+          "intakeSummaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-summary.md"
+        },
+        "latestRun": {
+          "runDirectory": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347",
+          "runStatePath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\run-state.json",
+          "reportPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\report.md",
+          "handoffIndexPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\handoffs\\index.json",
+          "summary": {
+            "runId": "panel-browser-20260421-040347",
+            "status": "in_progress",
+            "totalTasks": 5,
+            "readyTasks": 0,
+            "pendingTasks": 2,
+            "waitingRetryTasks": 0,
+            "completedTasks": 2,
+            "blockedTasks": 0,
+            "failedTasks": 0
+          },
+          "waitingRetry": {
+            "taskIds": [],
+            "earliestNextRetryAt": null,
+            "scheduledTaskIds": []
+          }
+        }
+      }
+    }
+  },
+  {
+    "collectedAt": "2026-04-20T20:12:19.108Z",
+    "status": {
+      "ok": true,
+      "overview": {
+        "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace",
+        "defaults": {
+          "specPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\specs\\project-spec.json",
+          "runsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs",
+          "reportsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\reports"
+        },
+        "intake": {
+          "exists": true,
+          "clarificationStatus": "confirmed",
+          "confirmedByUser": true,
+          "recommendedNextStep": "planning-ready",
+          "intakeSpecPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-spec.json",
+          "intakeSummaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-summary.md"
+        },
+        "latestRun": {
+          "runDirectory": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347",
+          "runStatePath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\run-state.json",
+          "reportPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\report.md",
+          "handoffIndexPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\handoffs\\index.json",
+          "summary": {
+            "runId": "panel-browser-20260421-040347",
+            "status": "in_progress",
+            "totalTasks": 5,
+            "readyTasks": 0,
+            "pendingTasks": 2,
+            "waitingRetryTasks": 0,
+            "completedTasks": 2,
+            "blockedTasks": 0,
+            "failedTasks": 0
+          },
+          "waitingRetry": {
+            "taskIds": [],
+            "earliestNextRetryAt": null,
+            "scheduledTaskIds": []
+          }
+        }
+      }
+    }
+  },
+  {
+    "collectedAt": "2026-04-20T20:12:34.119Z",
+    "status": {
+      "ok": true,
+      "overview": {
+        "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace",
+        "defaults": {
+          "specPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\specs\\project-spec.json",
+          "runsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs",
+          "reportsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\reports"
+        },
+        "intake": {
+          "exists": true,
+          "clarificationStatus": "confirmed",
+          "confirmedByUser": true,
+          "recommendedNextStep": "planning-ready",
+          "intakeSpecPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-spec.json",
+          "intakeSummaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-summary.md"
+        },
+        "latestRun": {
+          "runDirectory": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347",
+          "runStatePath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\run-state.json",
+          "reportPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\report.md",
+          "handoffIndexPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\handoffs\\index.json",
+          "summary": {
+            "runId": "panel-browser-20260421-040347",
+            "status": "in_progress",
+            "totalTasks": 5,
+            "readyTasks": 0,
+            "pendingTasks": 2,
+            "waitingRetryTasks": 0,
+            "completedTasks": 2,
+            "blockedTasks": 0,
+            "failedTasks": 0
+          },
+          "waitingRetry": {
+            "taskIds": [],
+            "earliestNextRetryAt": null,
+            "scheduledTaskIds": []
+          }
+        }
+      }
+    }
+  },
+  {
+    "collectedAt": "2026-04-20T20:12:49.137Z",
+    "status": {
+      "ok": true,
+      "overview": {
+        "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace",
+        "defaults": {
+          "specPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\specs\\project-spec.json",
+          "runsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs",
+          "reportsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\reports"
+        },
+        "intake": {
+          "exists": true,
+          "clarificationStatus": "confirmed",
+          "confirmedByUser": true,
+          "recommendedNextStep": "planning-ready",
+          "intakeSpecPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-spec.json",
+          "intakeSummaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-summary.md"
+        },
+        "latestRun": {
+          "runDirectory": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347",
+          "runStatePath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\run-state.json",
+          "reportPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\report.md",
+          "handoffIndexPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\handoffs\\index.json",
+          "summary": {
+            "runId": "panel-browser-20260421-040347",
+            "status": "in_progress",
+            "totalTasks": 5,
+            "readyTasks": 0,
+            "pendingTasks": 2,
+            "waitingRetryTasks": 0,
+            "completedTasks": 2,
+            "blockedTasks": 0,
+            "failedTasks": 0
+          },
+          "waitingRetry": {
+            "taskIds": [],
+            "earliestNextRetryAt": null,
+            "scheduledTaskIds": []
+          }
+        }
+      }
+    }
+  },
+  {
+    "collectedAt": "2026-04-20T20:13:04.146Z",
+    "status": {
+      "ok": true,
+      "overview": {
+        "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace",
+        "defaults": {
+          "specPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\specs\\project-spec.json",
+          "runsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs",
+          "reportsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\reports"
+        },
+        "intake": {
+          "exists": true,
+          "clarificationStatus": "confirmed",
+          "confirmedByUser": true,
+          "recommendedNextStep": "planning-ready",
+          "intakeSpecPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-spec.json",
+          "intakeSummaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-summary.md"
+        },
+        "latestRun": {
+          "runDirectory": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347",
+          "runStatePath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\run-state.json",
+          "reportPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\report.md",
+          "handoffIndexPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\handoffs\\index.json",
+          "summary": {
+            "runId": "panel-browser-20260421-040347",
+            "status": "in_progress",
+            "totalTasks": 5,
+            "readyTasks": 0,
+            "pendingTasks": 2,
+            "waitingRetryTasks": 0,
+            "completedTasks": 2,
+            "blockedTasks": 0,
+            "failedTasks": 0
+          },
+          "waitingRetry": {
+            "taskIds": [],
+            "earliestNextRetryAt": null,
+            "scheduledTaskIds": []
+          }
+        }
+      }
+    }
+  },
+  {
+    "collectedAt": "2026-04-20T20:13:19.158Z",
+    "status": {
+      "ok": true,
+      "overview": {
+        "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace",
+        "defaults": {
+          "specPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\specs\\project-spec.json",
+          "runsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs",
+          "reportsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\reports"
+        },
+        "intake": {
+          "exists": true,
+          "clarificationStatus": "confirmed",
+          "confirmedByUser": true,
+          "recommendedNextStep": "planning-ready",
+          "intakeSpecPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-spec.json",
+          "intakeSummaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-summary.md"
+        },
+        "latestRun": {
+          "runDirectory": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347",
+          "runStatePath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\run-state.json",
+          "reportPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\report.md",
+          "handoffIndexPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\handoffs\\index.json",
+          "summary": {
+            "runId": "panel-browser-20260421-040347",
+            "status": "in_progress",
+            "totalTasks": 5,
+            "readyTasks": 0,
+            "pendingTasks": 2,
+            "waitingRetryTasks": 0,
+            "completedTasks": 2,
+            "blockedTasks": 0,
+            "failedTasks": 0
+          },
+          "waitingRetry": {
+            "taskIds": [],
+            "earliestNextRetryAt": null,
+            "scheduledTaskIds": []
+          }
+        }
+      }
+    }
+  },
+  {
+    "collectedAt": "2026-04-20T20:13:34.162Z",
+    "status": {
+      "ok": true,
+      "overview": {
+        "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace",
+        "defaults": {
+          "specPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\specs\\project-spec.json",
+          "runsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs",
+          "reportsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\reports"
+        },
+        "intake": {
+          "exists": true,
+          "clarificationStatus": "confirmed",
+          "confirmedByUser": true,
+          "recommendedNextStep": "planning-ready",
+          "intakeSpecPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-spec.json",
+          "intakeSummaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-summary.md"
+        },
+        "latestRun": {
+          "runDirectory": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347",
+          "runStatePath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\run-state.json",
+          "reportPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\report.md",
+          "handoffIndexPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\handoffs\\index.json",
+          "summary": {
+            "runId": "panel-browser-20260421-040347",
+            "status": "in_progress",
+            "totalTasks": 5,
+            "readyTasks": 0,
+            "pendingTasks": 2,
+            "waitingRetryTasks": 0,
+            "completedTasks": 2,
+            "blockedTasks": 0,
+            "failedTasks": 0
+          },
+          "waitingRetry": {
+            "taskIds": [],
+            "earliestNextRetryAt": null,
+            "scheduledTaskIds": []
+          }
+        }
+      }
+    }
+  },
+  {
+    "collectedAt": "2026-04-20T20:13:49.173Z",
+    "status": {
+      "ok": true,
+      "overview": {
+        "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace",
+        "defaults": {
+          "specPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\specs\\project-spec.json",
+          "runsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs",
+          "reportsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\reports"
+        },
+        "intake": {
+          "exists": true,
+          "clarificationStatus": "confirmed",
+          "confirmedByUser": true,
+          "recommendedNextStep": "planning-ready",
+          "intakeSpecPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-spec.json",
+          "intakeSummaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-summary.md"
+        },
+        "latestRun": {
+          "runDirectory": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347",
+          "runStatePath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\run-state.json",
+          "reportPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\report.md",
+          "handoffIndexPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\handoffs\\index.json",
+          "summary": {
+            "runId": "panel-browser-20260421-040347",
+            "status": "in_progress",
+            "totalTasks": 5,
+            "readyTasks": 0,
+            "pendingTasks": 2,
+            "waitingRetryTasks": 0,
+            "completedTasks": 2,
+            "blockedTasks": 0,
+            "failedTasks": 0
+          },
+          "waitingRetry": {
+            "taskIds": [],
+            "earliestNextRetryAt": null,
+            "scheduledTaskIds": []
+          }
+        }
+      }
+    }
+  },
+  {
+    "collectedAt": "2026-04-20T20:14:04.186Z",
+    "status": {
+      "ok": true,
+      "overview": {
+        "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace",
+        "defaults": {
+          "specPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\specs\\project-spec.json",
+          "runsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs",
+          "reportsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\reports"
+        },
+        "intake": {
+          "exists": true,
+          "clarificationStatus": "confirmed",
+          "confirmedByUser": true,
+          "recommendedNextStep": "planning-ready",
+          "intakeSpecPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-spec.json",
+          "intakeSummaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-summary.md"
+        },
+        "latestRun": {
+          "runDirectory": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347",
+          "runStatePath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\run-state.json",
+          "reportPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\report.md",
+          "handoffIndexPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\handoffs\\index.json",
+          "summary": {
+            "runId": "panel-browser-20260421-040347",
+            "status": "in_progress",
+            "totalTasks": 5,
+            "readyTasks": 0,
+            "pendingTasks": 2,
+            "waitingRetryTasks": 0,
+            "completedTasks": 2,
+            "blockedTasks": 0,
+            "failedTasks": 0
+          },
+          "waitingRetry": {
+            "taskIds": [],
+            "earliestNextRetryAt": null,
+            "scheduledTaskIds": []
+          }
+        }
+      }
+    }
+  },
+  {
+    "collectedAt": "2026-04-20T20:14:19.198Z",
+    "status": {
+      "ok": true,
+      "overview": {
+        "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace",
+        "defaults": {
+          "specPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\specs\\project-spec.json",
+          "runsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs",
+          "reportsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\reports"
+        },
+        "intake": {
+          "exists": true,
+          "clarificationStatus": "confirmed",
+          "confirmedByUser": true,
+          "recommendedNextStep": "planning-ready",
+          "intakeSpecPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-spec.json",
+          "intakeSummaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-summary.md"
+        },
+        "latestRun": {
+          "runDirectory": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347",
+          "runStatePath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\run-state.json",
+          "reportPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\report.md",
+          "handoffIndexPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\handoffs\\index.json",
+          "summary": {
+            "runId": "panel-browser-20260421-040347",
+            "status": "in_progress",
+            "totalTasks": 5,
+            "readyTasks": 0,
+            "pendingTasks": 2,
+            "waitingRetryTasks": 0,
+            "completedTasks": 2,
+            "blockedTasks": 0,
+            "failedTasks": 0
+          },
+          "waitingRetry": {
+            "taskIds": [],
+            "earliestNextRetryAt": null,
+            "scheduledTaskIds": []
+          }
+        }
+      }
+    }
+  },
+  {
+    "collectedAt": "2026-04-20T20:14:34.209Z",
+    "status": {
+      "ok": true,
+      "overview": {
+        "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace",
+        "defaults": {
+          "specPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\specs\\project-spec.json",
+          "runsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs",
+          "reportsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\reports"
+        },
+        "intake": {
+          "exists": true,
+          "clarificationStatus": "confirmed",
+          "confirmedByUser": true,
+          "recommendedNextStep": "planning-ready",
+          "intakeSpecPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-spec.json",
+          "intakeSummaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-summary.md"
+        },
+        "latestRun": {
+          "runDirectory": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347",
+          "runStatePath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\run-state.json",
+          "reportPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\report.md",
+          "handoffIndexPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\handoffs\\index.json",
+          "summary": {
+            "runId": "panel-browser-20260421-040347",
+            "status": "in_progress",
+            "totalTasks": 5,
+            "readyTasks": 0,
+            "pendingTasks": 2,
+            "waitingRetryTasks": 0,
+            "completedTasks": 2,
+            "blockedTasks": 0,
+            "failedTasks": 0
+          },
+          "waitingRetry": {
+            "taskIds": [],
+            "earliestNextRetryAt": null,
+            "scheduledTaskIds": []
+          }
+        }
+      }
+    }
+  },
+  {
+    "collectedAt": "2026-04-20T20:14:49.225Z",
+    "status": {
+      "ok": true,
+      "overview": {
+        "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace",
+        "defaults": {
+          "specPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\specs\\project-spec.json",
+          "runsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs",
+          "reportsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\reports"
+        },
+        "intake": {
+          "exists": true,
+          "clarificationStatus": "confirmed",
+          "confirmedByUser": true,
+          "recommendedNextStep": "planning-ready",
+          "intakeSpecPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-spec.json",
+          "intakeSummaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-summary.md"
+        },
+        "latestRun": {
+          "runDirectory": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347",
+          "runStatePath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\run-state.json",
+          "reportPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\report.md",
+          "handoffIndexPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\handoffs\\index.json",
+          "summary": {
+            "runId": "panel-browser-20260421-040347",
+            "status": "in_progress",
+            "totalTasks": 5,
+            "readyTasks": 0,
+            "pendingTasks": 2,
+            "waitingRetryTasks": 0,
+            "completedTasks": 2,
+            "blockedTasks": 0,
+            "failedTasks": 0
+          },
+          "waitingRetry": {
+            "taskIds": [],
+            "earliestNextRetryAt": null,
+            "scheduledTaskIds": []
+          }
+        }
+      }
+    }
+  },
+  {
+    "collectedAt": "2026-04-20T20:15:04.230Z",
+    "status": {
+      "ok": true,
+      "overview": {
+        "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace",
+        "defaults": {
+          "specPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\specs\\project-spec.json",
+          "runsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs",
+          "reportsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\reports"
+        },
+        "intake": {
+          "exists": true,
+          "clarificationStatus": "confirmed",
+          "confirmedByUser": true,
+          "recommendedNextStep": "planning-ready",
+          "intakeSpecPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-spec.json",
+          "intakeSummaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-summary.md"
+        },
+        "latestRun": {
+          "runDirectory": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347",
+          "runStatePath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\run-state.json",
+          "reportPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\report.md",
+          "handoffIndexPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\handoffs\\index.json",
+          "summary": {
+            "runId": "panel-browser-20260421-040347",
+            "status": "in_progress",
+            "totalTasks": 5,
+            "readyTasks": 0,
+            "pendingTasks": 2,
+            "waitingRetryTasks": 0,
+            "completedTasks": 2,
+            "blockedTasks": 0,
+            "failedTasks": 0
+          },
+          "waitingRetry": {
+            "taskIds": [],
+            "earliestNextRetryAt": null,
+            "scheduledTaskIds": []
+          }
+        }
+      }
+    }
+  },
+  {
+    "collectedAt": "2026-04-20T20:15:19.247Z",
+    "status": {
+      "ok": true,
+      "overview": {
+        "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace",
+        "defaults": {
+          "specPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\specs\\project-spec.json",
+          "runsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs",
+          "reportsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\reports"
+        },
+        "intake": {
+          "exists": true,
+          "clarificationStatus": "confirmed",
+          "confirmedByUser": true,
+          "recommendedNextStep": "planning-ready",
+          "intakeSpecPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-spec.json",
+          "intakeSummaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-summary.md"
+        },
+        "latestRun": {
+          "runDirectory": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347",
+          "runStatePath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\run-state.json",
+          "reportPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\report.md",
+          "handoffIndexPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\handoffs\\index.json",
+          "summary": {
+            "runId": "panel-browser-20260421-040347",
+            "status": "in_progress",
+            "totalTasks": 5,
+            "readyTasks": 0,
+            "pendingTasks": 2,
+            "waitingRetryTasks": 0,
+            "completedTasks": 2,
+            "blockedTasks": 0,
+            "failedTasks": 0
+          },
+          "waitingRetry": {
+            "taskIds": [],
+            "earliestNextRetryAt": null,
+            "scheduledTaskIds": []
+          }
+        }
+      }
+    }
+  },
+  {
+    "collectedAt": "2026-04-20T20:15:34.251Z",
+    "status": {
+      "ok": true,
+      "overview": {
+        "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace",
+        "defaults": {
+          "specPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\specs\\project-spec.json",
+          "runsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs",
+          "reportsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\reports"
+        },
+        "intake": {
+          "exists": true,
+          "clarificationStatus": "confirmed",
+          "confirmedByUser": true,
+          "recommendedNextStep": "planning-ready",
+          "intakeSpecPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-spec.json",
+          "intakeSummaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-summary.md"
+        },
+        "latestRun": {
+          "runDirectory": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347",
+          "runStatePath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\run-state.json",
+          "reportPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\report.md",
+          "handoffIndexPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\handoffs\\index.json",
+          "summary": {
+            "runId": "panel-browser-20260421-040347",
+            "status": "in_progress",
+            "totalTasks": 5,
+            "readyTasks": 0,
+            "pendingTasks": 2,
+            "waitingRetryTasks": 0,
+            "completedTasks": 2,
+            "blockedTasks": 0,
+            "failedTasks": 0
+          },
+          "waitingRetry": {
+            "taskIds": [],
+            "earliestNextRetryAt": null,
+            "scheduledTaskIds": []
+          }
+        }
+      }
+    }
+  },
+  {
+    "collectedAt": "2026-04-20T20:15:49.262Z",
+    "status": {
+      "ok": true,
+      "overview": {
+        "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace",
+        "defaults": {
+          "specPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\specs\\project-spec.json",
+          "runsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs",
+          "reportsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\reports"
+        },
+        "intake": {
+          "exists": true,
+          "clarificationStatus": "confirmed",
+          "confirmedByUser": true,
+          "recommendedNextStep": "planning-ready",
+          "intakeSpecPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-spec.json",
+          "intakeSummaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-summary.md"
+        },
+        "latestRun": {
+          "runDirectory": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347",
+          "runStatePath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\run-state.json",
+          "reportPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\report.md",
+          "handoffIndexPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\handoffs\\index.json",
+          "summary": {
+            "runId": "panel-browser-20260421-040347",
+            "status": "in_progress",
+            "totalTasks": 5,
+            "readyTasks": 0,
+            "pendingTasks": 2,
+            "waitingRetryTasks": 0,
+            "completedTasks": 2,
+            "blockedTasks": 0,
+            "failedTasks": 0
+          },
+          "waitingRetry": {
+            "taskIds": [],
+            "earliestNextRetryAt": null,
+            "scheduledTaskIds": []
+          }
+        }
+      }
+    }
+  },
+  {
+    "collectedAt": "2026-04-20T20:16:04.280Z",
+    "status": {
+      "ok": true,
+      "overview": {
+        "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace",
+        "defaults": {
+          "specPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\specs\\project-spec.json",
+          "runsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs",
+          "reportsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\reports"
+        },
+        "intake": {
+          "exists": true,
+          "clarificationStatus": "confirmed",
+          "confirmedByUser": true,
+          "recommendedNextStep": "planning-ready",
+          "intakeSpecPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-spec.json",
+          "intakeSummaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-summary.md"
+        },
+        "latestRun": {
+          "runDirectory": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347",
+          "runStatePath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\run-state.json",
+          "reportPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\report.md",
+          "handoffIndexPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\handoffs\\index.json",
+          "summary": {
+            "runId": "panel-browser-20260421-040347",
+            "status": "in_progress",
+            "totalTasks": 5,
+            "readyTasks": 0,
+            "pendingTasks": 2,
+            "waitingRetryTasks": 0,
+            "completedTasks": 2,
+            "blockedTasks": 0,
+            "failedTasks": 0
+          },
+          "waitingRetry": {
+            "taskIds": [],
+            "earliestNextRetryAt": null,
+            "scheduledTaskIds": []
+          }
+        }
+      }
+    }
+  },
+  {
+    "collectedAt": "2026-04-20T20:16:19.284Z",
+    "status": {
+      "ok": true,
+      "overview": {
+        "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace",
+        "defaults": {
+          "specPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\specs\\project-spec.json",
+          "runsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs",
+          "reportsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\reports"
+        },
+        "intake": {
+          "exists": true,
+          "clarificationStatus": "confirmed",
+          "confirmedByUser": true,
+          "recommendedNextStep": "planning-ready",
+          "intakeSpecPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-spec.json",
+          "intakeSummaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-summary.md"
+        },
+        "latestRun": {
+          "runDirectory": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347",
+          "runStatePath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\run-state.json",
+          "reportPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\report.md",
+          "handoffIndexPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\handoffs\\index.json",
+          "summary": {
+            "runId": "panel-browser-20260421-040347",
+            "status": "in_progress",
+            "totalTasks": 5,
+            "readyTasks": 0,
+            "pendingTasks": 2,
+            "waitingRetryTasks": 0,
+            "completedTasks": 2,
+            "blockedTasks": 0,
+            "failedTasks": 0
+          },
+          "waitingRetry": {
+            "taskIds": [],
+            "earliestNextRetryAt": null,
+            "scheduledTaskIds": []
+          }
+        }
+      }
+    }
+  },
+  {
+    "collectedAt": "2026-04-20T20:16:34.293Z",
+    "status": {
+      "ok": true,
+      "overview": {
+        "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace",
+        "defaults": {
+          "specPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\specs\\project-spec.json",
+          "runsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs",
+          "reportsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\reports"
+        },
+        "intake": {
+          "exists": true,
+          "clarificationStatus": "confirmed",
+          "confirmedByUser": true,
+          "recommendedNextStep": "planning-ready",
+          "intakeSpecPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-spec.json",
+          "intakeSummaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-summary.md"
+        },
+        "latestRun": {
+          "runDirectory": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347",
+          "runStatePath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\run-state.json",
+          "reportPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\report.md",
+          "handoffIndexPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\handoffs\\index.json",
+          "summary": {
+            "runId": "panel-browser-20260421-040347",
+            "status": "in_progress",
+            "totalTasks": 5,
+            "readyTasks": 0,
+            "pendingTasks": 1,
+            "waitingRetryTasks": 0,
+            "completedTasks": 3,
+            "blockedTasks": 0,
+            "failedTasks": 0
+          },
+          "waitingRetry": {
+            "taskIds": [],
+            "earliestNextRetryAt": null,
+            "scheduledTaskIds": []
+          }
+        }
+      }
+    }
+  },
+  {
+    "collectedAt": "2026-04-20T20:16:49.304Z",
+    "status": {
+      "ok": true,
+      "overview": {
+        "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace",
+        "defaults": {
+          "specPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\specs\\project-spec.json",
+          "runsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs",
+          "reportsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\reports"
+        },
+        "intake": {
+          "exists": true,
+          "clarificationStatus": "confirmed",
+          "confirmedByUser": true,
+          "recommendedNextStep": "planning-ready",
+          "intakeSpecPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-spec.json",
+          "intakeSummaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-summary.md"
+        },
+        "latestRun": {
+          "runDirectory": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347",
+          "runStatePath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\run-state.json",
+          "reportPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\report.md",
+          "handoffIndexPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\handoffs\\index.json",
+          "summary": {
+            "runId": "panel-browser-20260421-040347",
+            "status": "in_progress",
+            "totalTasks": 5,
+            "readyTasks": 0,
+            "pendingTasks": 0,
+            "waitingRetryTasks": 0,
+            "completedTasks": 4,
+            "blockedTasks": 0,
+            "failedTasks": 0
+          },
+          "waitingRetry": {
+            "taskIds": [],
+            "earliestNextRetryAt": null,
+            "scheduledTaskIds": []
+          }
+        }
+      }
+    }
+  },
+  {
+    "collectedAt": "2026-04-20T20:17:04.325Z",
+    "status": {
+      "ok": true,
+      "overview": {
+        "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace",
+        "defaults": {
+          "specPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\specs\\project-spec.json",
+          "runsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs",
+          "reportsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\reports"
+        },
+        "intake": {
+          "exists": true,
+          "clarificationStatus": "confirmed",
+          "confirmedByUser": true,
+          "recommendedNextStep": "planning-ready",
+          "intakeSpecPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-spec.json",
+          "intakeSummaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-summary.md"
+        },
+        "latestRun": {
+          "runDirectory": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347",
+          "runStatePath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\run-state.json",
+          "reportPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\report.md",
+          "handoffIndexPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\handoffs\\index.json",
+          "summary": {
+            "runId": "panel-browser-20260421-040347",
+            "status": "in_progress",
+            "totalTasks": 5,
+            "readyTasks": 0,
+            "pendingTasks": 0,
+            "waitingRetryTasks": 0,
+            "completedTasks": 4,
+            "blockedTasks": 0,
+            "failedTasks": 0
+          },
+          "waitingRetry": {
+            "taskIds": [],
+            "earliestNextRetryAt": null,
+            "scheduledTaskIds": []
+          }
+        }
+      }
+    }
+  },
+  {
+    "collectedAt": "2026-04-20T20:17:19.340Z",
+    "status": {
+      "ok": true,
+      "overview": {
+        "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace",
+        "defaults": {
+          "specPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\specs\\project-spec.json",
+          "runsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs",
+          "reportsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\reports"
+        },
+        "intake": {
+          "exists": true,
+          "clarificationStatus": "confirmed",
+          "confirmedByUser": true,
+          "recommendedNextStep": "planning-ready",
+          "intakeSpecPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-spec.json",
+          "intakeSummaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-summary.md"
+        },
+        "latestRun": {
+          "runDirectory": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347",
+          "runStatePath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\run-state.json",
+          "reportPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\report.md",
+          "handoffIndexPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\handoffs\\index.json",
+          "summary": {
+            "runId": "panel-browser-20260421-040347",
+            "status": "in_progress",
+            "totalTasks": 5,
+            "readyTasks": 0,
+            "pendingTasks": 0,
+            "waitingRetryTasks": 0,
+            "completedTasks": 4,
+            "blockedTasks": 0,
+            "failedTasks": 0
+          },
+          "waitingRetry": {
+            "taskIds": [],
+            "earliestNextRetryAt": null,
+            "scheduledTaskIds": []
+          }
+        }
+      }
+    }
+  },
+  {
+    "collectedAt": "2026-04-20T20:17:34.357Z",
+    "status": {
+      "ok": true,
+      "overview": {
+        "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace",
+        "defaults": {
+          "specPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\specs\\project-spec.json",
+          "runsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs",
+          "reportsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\reports"
+        },
+        "intake": {
+          "exists": true,
+          "clarificationStatus": "confirmed",
+          "confirmedByUser": true,
+          "recommendedNextStep": "planning-ready",
+          "intakeSpecPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-spec.json",
+          "intakeSummaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-summary.md"
+        },
+        "latestRun": {
+          "runDirectory": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347",
+          "runStatePath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\run-state.json",
+          "reportPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\report.md",
+          "handoffIndexPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\handoffs\\index.json",
+          "summary": {
+            "runId": "panel-browser-20260421-040347",
+            "status": "in_progress",
+            "totalTasks": 5,
+            "readyTasks": 0,
+            "pendingTasks": 0,
+            "waitingRetryTasks": 0,
+            "completedTasks": 4,
+            "blockedTasks": 0,
+            "failedTasks": 0
+          },
+          "waitingRetry": {
+            "taskIds": [],
+            "earliestNextRetryAt": null,
+            "scheduledTaskIds": []
+          }
+        }
+      }
+    }
+  },
+  {
+    "collectedAt": "2026-04-20T20:17:49.371Z",
+    "status": {
+      "ok": true,
+      "overview": {
+        "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace",
+        "defaults": {
+          "specPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\specs\\project-spec.json",
+          "runsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs",
+          "reportsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\reports"
+        },
+        "intake": {
+          "exists": true,
+          "clarificationStatus": "confirmed",
+          "confirmedByUser": true,
+          "recommendedNextStep": "planning-ready",
+          "intakeSpecPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-spec.json",
+          "intakeSummaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-summary.md"
+        },
+        "latestRun": {
+          "runDirectory": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347",
+          "runStatePath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\run-state.json",
+          "reportPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\report.md",
+          "handoffIndexPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\handoffs\\index.json",
+          "summary": {
+            "runId": "panel-browser-20260421-040347",
+            "status": "in_progress",
+            "totalTasks": 5,
+            "readyTasks": 0,
+            "pendingTasks": 0,
+            "waitingRetryTasks": 0,
+            "completedTasks": 4,
+            "blockedTasks": 0,
+            "failedTasks": 0
+          },
+          "waitingRetry": {
+            "taskIds": [],
+            "earliestNextRetryAt": null,
+            "scheduledTaskIds": []
+          }
+        }
+      }
+    }
+  },
+  {
+    "collectedAt": "2026-04-20T20:18:04.387Z",
+    "status": {
+      "ok": true,
+      "overview": {
+        "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace",
+        "defaults": {
+          "specPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\specs\\project-spec.json",
+          "runsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs",
+          "reportsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\reports"
+        },
+        "intake": {
+          "exists": true,
+          "clarificationStatus": "confirmed",
+          "confirmedByUser": true,
+          "recommendedNextStep": "planning-ready",
+          "intakeSpecPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-spec.json",
+          "intakeSummaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-summary.md"
+        },
+        "latestRun": {
+          "runDirectory": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347",
+          "runStatePath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\run-state.json",
+          "reportPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\report.md",
+          "handoffIndexPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\handoffs\\index.json",
+          "summary": {
+            "runId": "panel-browser-20260421-040347",
+            "status": "in_progress",
+            "totalTasks": 5,
+            "readyTasks": 0,
+            "pendingTasks": 0,
+            "waitingRetryTasks": 0,
+            "completedTasks": 4,
+            "blockedTasks": 0,
+            "failedTasks": 0
+          },
+          "waitingRetry": {
+            "taskIds": [],
+            "earliestNextRetryAt": null,
+            "scheduledTaskIds": []
+          }
+        }
+      }
+    }
+  },
+  {
+    "collectedAt": "2026-04-20T20:18:19.393Z",
+    "status": {
+      "ok": true,
+      "overview": {
+        "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace",
+        "defaults": {
+          "specPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\specs\\project-spec.json",
+          "runsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs",
+          "reportsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\reports"
+        },
+        "intake": {
+          "exists": true,
+          "clarificationStatus": "confirmed",
+          "confirmedByUser": true,
+          "recommendedNextStep": "planning-ready",
+          "intakeSpecPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-spec.json",
+          "intakeSummaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-summary.md"
+        },
+        "latestRun": {
+          "runDirectory": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347",
+          "runStatePath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\run-state.json",
+          "reportPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\report.md",
+          "handoffIndexPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\handoffs\\index.json",
+          "summary": {
+            "runId": "panel-browser-20260421-040347",
+            "status": "in_progress",
+            "totalTasks": 5,
+            "readyTasks": 0,
+            "pendingTasks": 0,
+            "waitingRetryTasks": 0,
+            "completedTasks": 4,
+            "blockedTasks": 0,
+            "failedTasks": 0
+          },
+          "waitingRetry": {
+            "taskIds": [],
+            "earliestNextRetryAt": null,
+            "scheduledTaskIds": []
+          }
+        }
+      }
+    }
+  },
+  {
+    "collectedAt": "2026-04-20T20:18:34.402Z",
+    "status": {
+      "ok": true,
+      "overview": {
+        "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace",
+        "defaults": {
+          "specPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\specs\\project-spec.json",
+          "runsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs",
+          "reportsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\reports"
+        },
+        "intake": {
+          "exists": true,
+          "clarificationStatus": "confirmed",
+          "confirmedByUser": true,
+          "recommendedNextStep": "planning-ready",
+          "intakeSpecPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-spec.json",
+          "intakeSummaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-summary.md"
+        },
+        "latestRun": {
+          "runDirectory": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347",
+          "runStatePath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\run-state.json",
+          "reportPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\report.md",
+          "handoffIndexPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\handoffs\\index.json",
+          "summary": {
+            "runId": "panel-browser-20260421-040347",
+            "status": "in_progress",
+            "totalTasks": 5,
+            "readyTasks": 0,
+            "pendingTasks": 0,
+            "waitingRetryTasks": 0,
+            "completedTasks": 4,
+            "blockedTasks": 0,
+            "failedTasks": 0
+          },
+          "waitingRetry": {
+            "taskIds": [],
+            "earliestNextRetryAt": null,
+            "scheduledTaskIds": []
+          }
+        }
+      }
+    }
+  },
+  {
+    "collectedAt": "2026-04-20T20:18:49.417Z",
+    "status": {
+      "ok": true,
+      "overview": {
+        "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace",
+        "defaults": {
+          "specPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\specs\\project-spec.json",
+          "runsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs",
+          "reportsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\reports"
+        },
+        "intake": {
+          "exists": true,
+          "clarificationStatus": "confirmed",
+          "confirmedByUser": true,
+          "recommendedNextStep": "planning-ready",
+          "intakeSpecPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-spec.json",
+          "intakeSummaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-summary.md"
+        },
+        "latestRun": {
+          "runDirectory": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347",
+          "runStatePath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\run-state.json",
+          "reportPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\report.md",
+          "handoffIndexPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\handoffs\\index.json",
+          "summary": {
+            "runId": "panel-browser-20260421-040347",
+            "status": "in_progress",
+            "totalTasks": 5,
+            "readyTasks": 0,
+            "pendingTasks": 0,
+            "waitingRetryTasks": 0,
+            "completedTasks": 4,
+            "blockedTasks": 0,
+            "failedTasks": 0
+          },
+          "waitingRetry": {
+            "taskIds": [],
+            "earliestNextRetryAt": null,
+            "scheduledTaskIds": []
+          }
+        }
+      }
+    }
+  },
+  {
+    "collectedAt": "2026-04-20T20:19:04.434Z",
+    "status": {
+      "ok": true,
+      "overview": {
+        "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace",
+        "defaults": {
+          "specPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\specs\\project-spec.json",
+          "runsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs",
+          "reportsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\reports"
+        },
+        "intake": {
+          "exists": true,
+          "clarificationStatus": "confirmed",
+          "confirmedByUser": true,
+          "recommendedNextStep": "planning-ready",
+          "intakeSpecPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-spec.json",
+          "intakeSummaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-summary.md"
+        },
+        "latestRun": {
+          "runDirectory": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347",
+          "runStatePath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\run-state.json",
+          "reportPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\report.md",
+          "handoffIndexPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\handoffs\\index.json",
+          "summary": {
+            "runId": "panel-browser-20260421-040347",
+            "status": "in_progress",
+            "totalTasks": 5,
+            "readyTasks": 0,
+            "pendingTasks": 0,
+            "waitingRetryTasks": 0,
+            "completedTasks": 4,
+            "blockedTasks": 0,
+            "failedTasks": 0
+          },
+          "waitingRetry": {
+            "taskIds": [],
+            "earliestNextRetryAt": null,
+            "scheduledTaskIds": []
+          }
+        }
+      }
+    }
+  },
+  {
+    "collectedAt": "2026-04-20T20:19:19.447Z",
+    "status": {
+      "ok": true,
+      "overview": {
+        "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace",
+        "defaults": {
+          "specPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\specs\\project-spec.json",
+          "runsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs",
+          "reportsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\reports"
+        },
+        "intake": {
+          "exists": true,
+          "clarificationStatus": "confirmed",
+          "confirmedByUser": true,
+          "recommendedNextStep": "planning-ready",
+          "intakeSpecPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-spec.json",
+          "intakeSummaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-summary.md"
+        },
+        "latestRun": {
+          "runDirectory": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347",
+          "runStatePath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\run-state.json",
+          "reportPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\report.md",
+          "handoffIndexPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\handoffs\\index.json",
+          "summary": {
+            "runId": "panel-browser-20260421-040347",
+            "status": "in_progress",
+            "totalTasks": 5,
+            "readyTasks": 0,
+            "pendingTasks": 0,
+            "waitingRetryTasks": 0,
+            "completedTasks": 4,
+            "blockedTasks": 0,
+            "failedTasks": 0
+          },
+          "waitingRetry": {
+            "taskIds": [],
+            "earliestNextRetryAt": null,
+            "scheduledTaskIds": []
+          }
+        }
+      }
+    }
+  },
+  {
+    "collectedAt": "2026-04-20T20:19:34.455Z",
+    "status": {
+      "ok": true,
+      "overview": {
+        "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace",
+        "defaults": {
+          "specPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\specs\\project-spec.json",
+          "runsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs",
+          "reportsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\reports"
+        },
+        "intake": {
+          "exists": true,
+          "clarificationStatus": "confirmed",
+          "confirmedByUser": true,
+          "recommendedNextStep": "planning-ready",
+          "intakeSpecPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-spec.json",
+          "intakeSummaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-summary.md"
+        },
+        "latestRun": {
+          "runDirectory": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347",
+          "runStatePath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\run-state.json",
+          "reportPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\report.md",
+          "handoffIndexPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\handoffs\\index.json",
+          "summary": {
+            "runId": "panel-browser-20260421-040347",
+            "status": "in_progress",
+            "totalTasks": 5,
+            "readyTasks": 0,
+            "pendingTasks": 0,
+            "waitingRetryTasks": 0,
+            "completedTasks": 4,
+            "blockedTasks": 0,
+            "failedTasks": 0
+          },
+          "waitingRetry": {
+            "taskIds": [],
+            "earliestNextRetryAt": null,
+            "scheduledTaskIds": []
+          }
+        }
+      }
+    }
+  },
+  {
+    "collectedAt": "2026-04-20T20:19:49.477Z",
+    "status": {
+      "ok": true,
+      "overview": {
+        "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace",
+        "defaults": {
+          "specPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\specs\\project-spec.json",
+          "runsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs",
+          "reportsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\reports"
+        },
+        "intake": {
+          "exists": true,
+          "clarificationStatus": "confirmed",
+          "confirmedByUser": true,
+          "recommendedNextStep": "planning-ready",
+          "intakeSpecPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-spec.json",
+          "intakeSummaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-summary.md"
+        },
+        "latestRun": {
+          "runDirectory": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347",
+          "runStatePath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\run-state.json",
+          "reportPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\report.md",
+          "handoffIndexPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\handoffs\\index.json",
+          "summary": {
+            "runId": "panel-browser-20260421-040347",
+            "status": "in_progress",
+            "totalTasks": 5,
+            "readyTasks": 0,
+            "pendingTasks": 0,
+            "waitingRetryTasks": 0,
+            "completedTasks": 4,
+            "blockedTasks": 0,
+            "failedTasks": 0
+          },
+          "waitingRetry": {
+            "taskIds": [],
+            "earliestNextRetryAt": null,
+            "scheduledTaskIds": []
+          }
+        }
+      }
+    }
+  },
+  {
+    "collectedAt": "2026-04-20T20:20:04.494Z",
+    "status": {
+      "ok": true,
+      "overview": {
+        "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace",
+        "defaults": {
+          "specPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\specs\\project-spec.json",
+          "runsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs",
+          "reportsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\reports"
+        },
+        "intake": {
+          "exists": true,
+          "clarificationStatus": "confirmed",
+          "confirmedByUser": true,
+          "recommendedNextStep": "planning-ready",
+          "intakeSpecPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-spec.json",
+          "intakeSummaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\clarification\\intake-summary.md"
+        },
+        "latestRun": {
+          "runDirectory": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347",
+          "runStatePath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\run-state.json",
+          "reportPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\report.md",
+          "handoffIndexPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\runs\\panel-browser-20260421-040347\\handoffs\\index.json",
+          "summary": {
+            "runId": "panel-browser-20260421-040347",
+            "status": "completed",
+            "totalTasks": 5,
+            "readyTasks": 0,
+            "pendingTasks": 0,
+            "waitingRetryTasks": 0,
+            "completedTasks": 5,
+            "blockedTasks": 0,
+            "failedTasks": 0
+          },
+          "waitingRetry": {
+            "taskIds": [],
+            "earliestNextRetryAt": null,
+            "scheduledTaskIds": []
+          }
+        }
+      }
+    }
+  }
+]

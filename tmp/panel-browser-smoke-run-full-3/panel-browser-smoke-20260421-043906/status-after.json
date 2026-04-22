@@ -1,0 +1,41 @@
+{
+  "ok": true,
+  "overview": {
+    "workspaceRoot": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full-3\\panel-browser-smoke-20260421-043906\\workspace",
+    "defaults": {
+      "specPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full-3\\panel-browser-smoke-20260421-043906\\workspace\\specs\\project-spec.json",
+      "runsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full-3\\panel-browser-smoke-20260421-043906\\workspace\\runs",
+      "reportsDir": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full-3\\panel-browser-smoke-20260421-043906\\workspace\\reports"
+    },
+    "intake": {
+      "exists": true,
+      "clarificationStatus": "confirmed",
+      "confirmedByUser": true,
+      "recommendedNextStep": "planning-ready",
+      "intakeSpecPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full-3\\panel-browser-smoke-20260421-043906\\workspace\\artifacts\\clarification\\intake-spec.json",
+      "intakeSummaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full-3\\panel-browser-smoke-20260421-043906\\workspace\\artifacts\\clarification\\intake-summary.md"
+    },
+    "latestRun": {
+      "runDirectory": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full-3\\panel-browser-smoke-20260421-043906\\workspace\\runs\\panel-browser-20260421-043906",
+      "runStatePath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full-3\\panel-browser-smoke-20260421-043906\\workspace\\runs\\panel-browser-20260421-043906\\run-state.json",
+      "reportPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full-3\\panel-browser-smoke-20260421-043906\\workspace\\runs\\panel-browser-20260421-043906\\report.md",
+      "handoffIndexPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full-3\\panel-browser-smoke-20260421-043906\\workspace\\runs\\panel-browser-20260421-043906\\handoffs\\index.json",
+      "summary": {
+        "runId": "panel-browser-20260421-043906",
+        "status": "completed",
+        "totalTasks": 5,
+        "readyTasks": 0,
+        "pendingTasks": 0,
+        "waitingRetryTasks": 0,
+        "completedTasks": 5,
+        "blockedTasks": 0,
+        "failedTasks": 0
+      },
+      "waitingRetry": {
+        "taskIds": [],
+        "earliestNextRetryAt": null,
+        "scheduledTaskIds": []
+      }
+    }
+  }
+}

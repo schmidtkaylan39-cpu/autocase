@@ -1,0 +1,31 @@
+{
+  "passed": false,
+  "summaryPath": "C:\\Users\\Administrator\\Documents\\New project\\tmp\\panel-browser-smoke-run-full\\panel-browser-smoke-20260421-040347\\workspace\\artifacts\\generated\\summary.md",
+  "checks": [
+    {
+      "id": "summary-exists",
+      "passed": true,
+      "message": "Generated summary artifact exists."
+    },
+    {
+      "id": "brief-token",
+      "passed": false,
+      "message": "summary.md must include exact token BRIEF-PANEL-SMOKE-20260421-A."
+    },
+    {
+      "id": "detail-token",
+      "passed": false,
+      "message": "summary.md must include exact token DETAIL-PANEL-SMOKE-20260421-B."
+    },
+    {
+      "id": "combined-notes-heading",
+      "passed": false,
+      "message": "summary.md must contain a heading named Combined Notes."
+    },
+    {
+      "id": "chinese-summary",
+      "passed": false,
+      "message": "summary.md must include at least one Chinese character."
+    }
+  ]
+}

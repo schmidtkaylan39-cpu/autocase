@@ -1,0 +1,8 @@
+{
+  "readyState": "complete",
+  "callApiType": "function",
+  "refreshStatusType": "function",
+  "quickStartButtonText": "一鍵開始（推薦）",
+  "statusPillText": "需求狀態：已確認 | 執行狀態：已完成",
+  "logBoxText": "[2026/4/21 04:38:33] Quick start completed\n\n{\n  \"runId\": \"panel-browser-20260421-042048\",\n  \"finalStatus\": \"completed\",\n  \"stopReason\": \"run completed\",\n  \"completedTasks\": 5,\n  \"readyTasks\": 0,\n  \"outcome\": \"completed\"\n}"
+}
