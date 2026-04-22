@@ -5,6 +5,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 
 import { ensureDirectory, readJson, writeJson } from "./fs-utils.mjs";
+import { readHandoffIndexArtifact, readRunStateArtifact } from "./control-plane-artifacts.mjs";
 import { ensureRunStateIntakePlanningReady } from "./intake-state.mjs";
 import {
   buildPowerShellFileArgs,
@@ -1021,7 +1022,7 @@ async function tryRecoverExistingResultArtifact(runStatePath, descriptor, runtim
   }
 
   const recoveryState = await withDispatchLock(runStatePath, async () => {
-    const runState = await readJson(runStatePath);
+    const runState = await readRunStateArtifact(runStatePath);
     const task = runState.taskLedger.find((item) => item.id === descriptor.taskId);
 
     if (!task || task.status !== "in_progress") {
@@ -1087,7 +1088,7 @@ async function prepareTaskForExecution(
   }
 
   return withDispatchLock(runStatePath, async () => {
-    const runState = await readJson(runStatePath);
+    const runState = await readRunStateArtifact(runStatePath);
     const task = runState.taskLedger.find((item) => item.id === descriptor.taskId);
 
     if (!task) {
@@ -1218,7 +1219,7 @@ async function syncDispatchResults(runStatePath, planPath, reportPath, results) 
   }
 
   return withDispatchLock(runStatePath, async () => {
-    let runState = await readJson(runStatePath);
+    let runState = await readRunStateArtifact(runStatePath);
     const updatedTasks = [];
     const resultUpdates = [];
 
@@ -1337,7 +1338,7 @@ export async function dispatchHandoffs(indexPath, mode = "dry-run") {
   }
 
   const resolvedIndexPath = path.resolve(indexPath);
-  const handoffIndex = await readJson(resolvedIndexPath);
+  const handoffIndex = await readHandoffIndexArtifact(resolvedIndexPath);
   const outputDir = path.dirname(resolvedIndexPath);
   const runDirectory = handoffIndex.runDirectory
     ? path.resolve(handoffIndex.runDirectory)
@@ -1347,7 +1348,7 @@ export async function dispatchHandoffs(indexPath, mode = "dry-run") {
     : path.join(runDirectory, "run-state.json");
 
   if (await fileExists(runStatePath)) {
-    const runState = await readJson(runStatePath);
+    const runState = await readRunStateArtifact(runStatePath);
     const workspaceRoot =
       typeof runState?.workspacePath === "string" && runState.workspacePath.trim().length > 0
         ? path.resolve(runState.workspacePath)

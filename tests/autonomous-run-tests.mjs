@@ -54,6 +54,18 @@ async function main() {
     assert.equal(runState.taskLedger.find((task) => task.id === "verify-spec-intake")?.status, "pending");
   });
 
+  await runTest("autonomous loop fails closed on truncated run-state artifacts", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-autonomous-corrupt-run-state-"));
+    const runResult = await runProject(validSpecPath, tempDir, "autonomous-corrupt-run-state");
+
+    await writeFile(runResult.statePath, '{"runId":"autonomous-corrupt-run-state"', "utf8");
+
+    await assert.rejects(
+      () => runAutonomousLoop(runResult.statePath, { maxRounds: 1 }),
+      /run-state artifact is invalid|malformed JSON|partial write/i
+    );
+  });
+
   await runTest("autonomous loop retries blocked planning tasks before ticking dispatch", async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-autonomous-planner-retry-"));
     const runResult = await runProject(validSpecPath, tempDir, "autonomous-planner-retry-run");

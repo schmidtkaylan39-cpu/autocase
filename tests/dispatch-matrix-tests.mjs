@@ -1910,6 +1910,7 @@ async function main() {
       descriptors: [
         {
           taskId: "standalone-task",
+          handoffId: "standalone-handoff",
           runtime: { id: "codex", label: "Codex", mode: "automated" },
           launcherPath,
           resultPath
@@ -1922,6 +1923,64 @@ async function main() {
     assert.equal(dispatchResult.summary.completed, 1);
     assert.equal(dispatchResult.results[0]?.status, "completed");
     assert.equal(dispatchResult.runStateSync, null);
+  });
+
+  await runTest("matrix: malformed handoff index JSON fails closed before dispatch writes success artifacts", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-matrix-index-json-"));
+    const handoffDir = path.join(tempDir, "handoffs");
+    const indexPath = path.join(handoffDir, "index.json");
+
+    await mkdir(handoffDir, { recursive: true });
+    await writeFile(indexPath, '{"runId":"broken-index","descriptors":[', "utf8");
+
+    await assert.rejects(
+      () => dispatchHandoffs(indexPath, "execute"),
+      /handoff index artifact is invalid|malformed JSON|partial write/i
+    );
+    await assert.rejects(() => readFile(path.join(handoffDir, "dispatch-results.json"), "utf8"), /ENOENT/);
+  });
+
+  await runTest("matrix: handoff index descriptors missing handoffId fail before the launcher can run", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-matrix-index-missing-handoff-"));
+    const handoffDir = path.join(tempDir, "handoffs");
+    const indexPath = path.join(handoffDir, "index.json");
+    const launcherPath = path.join(handoffDir, `standalone.launch${getLauncherMetadata().extension}`);
+    const resultPath = path.join(handoffDir, "results", "standalone.result.json");
+
+    await mkdir(path.join(handoffDir, "results"), { recursive: true });
+    await writeFile(
+      launcherPath,
+      bindArtifactScriptIdentity(buildResultArtifactScript(resultPath, {
+        status: "completed",
+        summary: "launcher should not execute when handoff identity is missing",
+        changedFiles: [],
+        verification: ["matrix standalone"],
+        notes: ["missing handoff id"]
+      }), {
+        runId: "standalone-dispatch-run",
+        taskId: "standalone-task"
+      }),
+      "utf8"
+    );
+    await writeJson(indexPath, {
+      generatedAt: new Date().toISOString(),
+      runId: "standalone-dispatch-run",
+      readyTaskCount: 1,
+      descriptors: [
+        {
+          taskId: "standalone-task",
+          runtime: { id: "codex", label: "Codex", mode: "automated" },
+          launcherPath,
+          resultPath
+        }
+      ]
+    });
+
+    await assert.rejects(
+      () => dispatchHandoffs(indexPath, "execute"),
+      /handoff index artifact is invalid|handoff index\.descriptors\[0\]\.handoffId/i
+    );
+    await assert.rejects(() => readFile(resultPath, "utf8"), /ENOENT/);
   });
 
   await runTest("matrix: unsupported dispatch modes fail fast", async () => {
