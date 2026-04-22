@@ -272,7 +272,7 @@ async function main() {
     );
   });
 
-  await runTest("buildHandoffDescriptor keeps planner retries on gpt-runner after transient gpt-runner failures", async () => {
+  await runTest("buildHandoffDescriptor fails planner retries over to codex after transient gpt-runner failures", async () => {
     const descriptor = createDescriptorFixture({
       role: "planner",
       taskId: "planning-brief",
@@ -300,18 +300,19 @@ async function main() {
       platform: "win32"
     });
 
-    assert.equal(descriptor.runtime.id, "gpt-runner");
+    assert.equal(descriptor.runtime.id, "codex");
     assert.equal(descriptor.runtime.mode, "automated");
     assert.equal(descriptor.runtime.selectionStatus, "ready");
-    assert.match(descriptor.runtime.selectionReason, /GPT Runner is ready for this role/i);
-    assert.equal(descriptor.launcher.metadata.runtimeId, "gpt-runner");
+    assert.match(descriptor.runtime.selectionReason, /selected automatically after a transient GPT Runner upstream failure/i);
+    assert.equal(descriptor.launcher.metadata.runtimeId, "codex");
     assert.match(
       descriptor.launcherScript,
-      /\$prompt \| & codex -m 'gpt-5\.4' -a never exec --skip-git-repo-check -C \. -s workspace-write -/i
+      /\$prompt \| & codex -a never exec --skip-git-repo-check -C \. -s workspace-write -/i
     );
+    assert.doesNotMatch(descriptor.launcherScript, /\$prompt \| & codex -m /i);
   });
 
-  await runTest("buildHandoffDescriptor also keeps planner retries on gpt-runner when the transient signal only survives in notes", async () => {
+  await runTest("buildHandoffDescriptor also fails planner retries over to codex when the transient signal only survives in notes", async () => {
     const descriptor = createDescriptorFixture({
       role: "planner",
       taskId: "planning-brief",
@@ -341,18 +342,19 @@ async function main() {
       platform: "win32"
     });
 
-    assert.equal(descriptor.runtime.id, "gpt-runner");
+    assert.equal(descriptor.runtime.id, "codex");
     assert.equal(descriptor.runtime.mode, "automated");
     assert.equal(descriptor.runtime.selectionStatus, "ready");
-    assert.match(descriptor.runtime.selectionReason, /GPT Runner is ready for this role/i);
-    assert.equal(descriptor.launcher.metadata.runtimeId, "gpt-runner");
+    assert.match(descriptor.runtime.selectionReason, /selected automatically after a transient GPT Runner upstream failure/i);
+    assert.equal(descriptor.launcher.metadata.runtimeId, "codex");
     assert.match(
       descriptor.launcherScript,
-      /\$prompt \| & codex -m 'gpt-5\.4-pro' -a never exec --skip-git-repo-check -C \. -s workspace-write -/i
+      /\$prompt \| & codex -a never exec --skip-git-repo-check -C \. -s workspace-write -/i
     );
+    assert.doesNotMatch(descriptor.launcherScript, /\$prompt \| & codex -m /i);
   });
 
-  await runTest("buildHandoffDescriptor preserves escalated reviewer model while reviewer retries stay on gpt-runner", async () => {
+  await runTest("buildHandoffDescriptor preserves escalated reviewer model while reviewer retries fail over to codex", async () => {
     const descriptor = createDescriptorFixture({
       role: "reviewer",
       taskId: "review-feature",
@@ -383,13 +385,14 @@ async function main() {
       platform: "win32"
     });
 
-    assert.equal(descriptor.runtime.id, "gpt-runner");
+    assert.equal(descriptor.runtime.id, "codex");
     assert.equal(descriptor.model.preferredModel, "gpt-5.4-pro");
-    assert.match(descriptor.runtime.selectionReason, /GPT Runner is ready for this role/i);
+    assert.match(descriptor.runtime.selectionReason, /selected automatically after a transient GPT Runner upstream failure/i);
     assert.match(
       descriptor.launcherScript,
-      /\$prompt \| & codex -m 'gpt-5\.4-pro' -a never exec --skip-git-repo-check -C \. -s workspace-write -/i
+      /\$prompt \| & codex -a never exec --skip-git-repo-check -C \. -s workspace-write -/i
     );
+    assert.doesNotMatch(descriptor.launcherScript, /\$prompt \| & codex -m /i);
   });
 
   await runTest("manual planner or reviewer surfaces are skipped by dispatch execute when explicitly forced", async () => {

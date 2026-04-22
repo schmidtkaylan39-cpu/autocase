@@ -467,41 +467,26 @@ function buildCodexLauncher(
   promptMetadata,
   platform = process.platform
 ) {
-  const preferredModel =
-    typeof modelSelection?.preferredModel === "string"
-      ? modelSelection.preferredModel.trim()
-      : "";
-  const explicitModelArgument =
-    preferredModel && preferredModel.toLowerCase() !== "codex"
-      ? preferredModel
-      : null;
-
   if (platform === "win32") {
     const promptLiteral = toPowerShellSingleQuotedLiteral(promptPath);
     const workspaceLiteral = toPowerShellSingleQuotedLiteral(workspacePath);
-    const modelArgument = explicitModelArgument
-      ? ` -m ${toPowerShellSingleQuotedLiteral(explicitModelArgument)}`
-      : "";
 
     return [
       `Set-Location -LiteralPath ${workspaceLiteral}`,
       ...buildLauncherOutputLines(modelSelection, launcherMetadata, promptMetadata, platform),
       `$prompt = Get-Content -Raw -LiteralPath ${promptLiteral}`,
-      `$prompt | & codex${modelArgument} -a never exec --skip-git-repo-check -C . -s workspace-write -`
+      "$prompt | & codex -a never exec --skip-git-repo-check -C . -s workspace-write -"
     ].join("\n");
   }
 
   const promptLiteral = toShellSingleQuotedLiteral(promptPath);
   const workspaceLiteral = toShellSingleQuotedLiteral(workspacePath);
-  const modelArgument = explicitModelArgument
-    ? ` -m ${toShellSingleQuotedLiteral(explicitModelArgument)}`
-    : "";
 
   return [
     `cd ${workspaceLiteral}`,
     ...buildLauncherOutputLines(modelSelection, launcherMetadata, promptMetadata, platform),
     `prompt=$(cat ${promptLiteral})`,
-    `printf "%s" "$prompt" | codex${modelArgument} -a never exec --skip-git-repo-check -C . -s workspace-write -`
+    'printf "%s" "$prompt" | codex -a never exec --skip-git-repo-check -C . -s workspace-write -'
   ].join("\n");
 }
 
@@ -573,8 +558,53 @@ function buildManualLauncher(
   ].join("\n");
 }
 
+function hasExplicitRoleRuntimeOverride(runState, role) {
+  const configuredPreferences = runState?.runtimeRouting?.roleOverrides?.[role];
+  return Array.isArray(configuredPreferences) && configuredPreferences.length > 0;
+}
+
+function hasTransientGptRunnerRetrySignal(task) {
+  const retrySignals = [
+    task?.lastRetryReason,
+    ...(Array.isArray(task?.notes) ? task.notes : [])
+  ];
+
+  return retrySignals.some((value) => /transient gpt runner upstream failure/i.test(String(value ?? "")));
+}
+
+function shouldAutoFailoverPlannerOrReviewerToCodex(task, runState, runtimeChecks, selectedRuntimeId) {
+  if (!task || (task.role !== "planner" && task.role !== "reviewer")) {
+    return false;
+  }
+
+  if (selectedRuntimeId !== "gpt-runner") {
+    return false;
+  }
+
+  if (hasExplicitRoleRuntimeOverride(runState, task.role)) {
+    return false;
+  }
+
+  if (!runtimeChecks?.codex?.ok) {
+    return false;
+  }
+
+  return hasTransientGptRunnerRetrySignal(task);
+}
+
 function resolveTaskRuntimeSelection(task, runState, runtimeChecks) {
-  return pickRuntimeForRole(task.role, runtimeChecks, runState.runtimeRouting);
+  const selected = pickRuntimeForRole(task.role, runtimeChecks, runState.runtimeRouting);
+
+  if (!shouldAutoFailoverPlannerOrReviewerToCodex(task, runState, runtimeChecks, selected.runtimeId)) {
+    return selected;
+  }
+
+  return {
+    runtimeId: "codex",
+    status: "ready",
+    reason:
+      "Codex was selected automatically after a transient GPT Runner upstream failure for this task."
+  };
 }
 
 export function buildHandoffDescriptor({
