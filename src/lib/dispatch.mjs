@@ -758,7 +758,8 @@ async function readResultArtifactForExecution(
     runId = null,
     taskId = null,
     handoffId = null,
-    minimumMtimeMs = null
+    minimumMtimeMs = null,
+    maximumMtimeMs = null
   } = {}
 ) {
   if (!resultPath || !(await fileExists(resultPath))) {
@@ -774,6 +775,8 @@ async function readResultArtifactForExecution(
     const resultStats = await stat(resultPath);
     const minimumArtifactMtimeMs =
       typeof minimumMtimeMs === "number" ? minimumMtimeMs - 1000 : null;
+    const maximumArtifactMtimeMs =
+      typeof maximumMtimeMs === "number" ? maximumMtimeMs : null;
 
     if (typeof minimumArtifactMtimeMs === "number" && resultStats.mtimeMs < minimumArtifactMtimeMs) {
       return {
@@ -781,6 +784,15 @@ async function readResultArtifactForExecution(
         valid: false,
         artifact: null,
         reason: "Result artifact predates this launcher execution."
+      };
+    }
+
+    if (typeof maximumArtifactMtimeMs === "number" && resultStats.mtimeMs > maximumArtifactMtimeMs) {
+      return {
+        exists: true,
+        valid: false,
+        artifact: null,
+        reason: "Result artifact was written after the launcher timeout window."
       };
     }
 
@@ -1529,6 +1541,7 @@ export async function dispatchHandoffs(indexPath, mode = "dry-run") {
         for (let launcherAttempt = 1; launcherAttempt <= maxLauncherAttempts; launcherAttempt += 1) {
           await removeExistingResultArtifact(descriptor.resultPath ?? null);
           const launcherStartedAtMs = Date.now();
+          const launcherTimeoutMs = getLauncherTimeoutMs(executionGuardrails.timeoutMs);
           let execution;
           let resultArtifact;
 
@@ -1540,7 +1553,8 @@ export async function dispatchHandoffs(indexPath, mode = "dry-run") {
                 runId,
                 taskId: descriptor.taskId,
                 handoffId: descriptor.handoffId ?? null,
-                minimumMtimeMs: launcherStartedAtMs
+                minimumMtimeMs: launcherStartedAtMs,
+                maximumMtimeMs: launcherStartedAtMs + launcherTimeoutMs
               });
 
               if (resultArtifact.valid) {
