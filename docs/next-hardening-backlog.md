@@ -4,6 +4,8 @@ Snapshot date: 2026-04-22 (Asia/Shanghai).
 
 This is a docs-only planning artifact for the next hardening round. It does not change code, tests, panel behavior, runtime routing, dispatch behavior, or autonomous flow behavior.
 
+Start with [next-round-execution-pack.md](next-round-execution-pack.md) for the recommended order, hotspot ownership, and branch/worktree operating rules.
+
 ## What Is Already Hardened
 
 - Dispatch/state safety is already beyond the basics:

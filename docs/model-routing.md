@@ -12,13 +12,16 @@ Model routing decides which model should be preferred inside that surface.
 
 ## Default Usage Matrix
 
-| Task role | Runtime | Default model | Escalated model | Typical use |
-| --- | --- | --- | --- | --- |
-| orchestrator | `manual` primary | `gpt-5.4` | none | delivery coordination, retries, dispatch/risk-stop decisions |
-| planner | `manual` primary | `gpt-5.4` | `gpt-5.4-pro` | requirement breakdown, sequencing, clarification |
-| reviewer | `manual` primary | `gpt-5.4` | `gpt-5.4-pro` | review, risk analysis, finding hidden issues |
-| executor | `codex` | `codex` | none | implementation, bug fixing, integration |
-| verifier | `local-ci` | `local-ci` | none | build, lint, typecheck, tests |
+| Task role | Default runtime | Fallback runtime | Default model | Escalated model | Typical use |
+| --- | --- | --- | --- | --- | --- |
+| orchestrator | `gpt-runner` | `manual` | `gpt-5.4` | none | delivery coordination, retries, dispatch/risk-stop decisions |
+| planner | `gpt-runner` | `manual` | `gpt-5.4` | `gpt-5.4-pro` | requirement breakdown, sequencing, clarification |
+| reviewer | `gpt-runner` | `manual` | `gpt-5.4` | `gpt-5.4-pro` | review, risk analysis, finding hidden issues |
+| executor | `codex` | `manual` | `codex` | none | implementation, bug fixing, integration |
+| verifier | `local-ci` | `manual` | `local-ci` | none | build, lint, typecheck, tests |
+
+Manual is the explicit fallback unless `runtimeRouting.roleOverrides` changes the order.
+The default route today is the automated GPT runner for planner/reviewer/orchestrator, not manual-primary handling.
 
 ## Auto-Escalation Rules
 
@@ -50,6 +53,10 @@ Default high-risk patterns:
 Automatic today:
 
 - `handoff` chooses the preferred model automatically
+- runtime routing chooses the default surface automatically:
+  - `gpt-runner` for planner/reviewer/orchestrator
+  - `codex` for executor
+  - `local-ci` for verifier
 - the chosen model is written into:
   - `run-state.json` snapshot via `modelPolicy`
   - each handoff descriptor
@@ -60,6 +67,8 @@ Not automatic today:
 
 - the system does not call the OpenAI HTTP API directly; it uses Codex CLI as the automated GPT runner surface
 - external approval-bound actions may still require human checkpoints even when the task runtime is automated
+- `cursor` is not part of the default planner/reviewer runtime route
+- `openclaw` is not part of the default orchestrator route unless explicitly opted in
 
 ## Cursor Position
 
@@ -95,5 +104,7 @@ You can override:
 Use the default routing unless there is a clear reason to escalate.
 
 - `Codex` should stay the main executor and integrator.
-- `gpt-5.4` should be the default planning/review model.
+- `gpt-runner` should stay the default planner/reviewer/orchestrator runtime.
+- `gpt-5.4` should be the default planning/review model inside that runtime.
 - `gpt-5.4-pro` should be reserved for higher-cost, higher-risk review or re-planning work.
+- `manual`, `cursor`, and `openclaw` should remain explicit fallback or opt-in routes so route changes stay testable.

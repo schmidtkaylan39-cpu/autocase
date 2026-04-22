@@ -2,6 +2,8 @@
 
 Snapshot date: 2026-04-22 (Asia/Shanghai).
 
+For the operator-facing checklist and stop rules, start with [soak-test-operating-checklist.md](soak-test-operating-checklist.md).
+
 Goal: use the existing validation harnesses to catch flake, lock leaks, stale-artifact reuse, drift between doctor and runtime behavior, and long-run state regressions without inventing a brand-new test surface first.
 
 ## Current Soak-Capable Assets

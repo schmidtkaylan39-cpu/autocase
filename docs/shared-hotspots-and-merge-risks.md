@@ -4,18 +4,32 @@ Snapshot date: 2026-04-22 (Asia/Shanghai).
 
 This document identifies the shared surfaces most likely to create future merge conflicts or behavior drift when multiple hardening tasks run in parallel.
 
-## Highest-Risk Shared Hotspots
+## Highest-Risk File Hotspots
 
-| Rank | Hotspot | Why It Conflicts | Typical Co-Changed Files | Recommended Guardrail |
-| --- | --- | --- | --- | --- |
-| 1 | Run lifecycle API | `run`, `task`, `result`, `retry`, `tick`, and `handoff` all converge on the same lifecycle/state paths | `src/lib/commands.mjs`, `src/lib/run-state.mjs`, `docs/run-lifecycle.md`, `tests/run-tests.mjs` | one owner surface per round; update lifecycle docs/tests in the same PR |
-| 2 | Dispatch semantics | result validation, launcher execution, retries, stale artifact handling, lock recovery, and run-state sync all meet here | `src/lib/dispatch.mjs`, `src/lib/result-artifact.mjs`, `docs/dispatch.md`, `tests/dispatch-matrix-tests.mjs` | do not split dispatch semantics across multiple simultaneous feature branches |
-| 3 | Routing and handoff contract | runtime choice, model choice, launcher text, prompt contract, and fallback behavior are tightly coupled | `src/lib/handoffs.mjs`, `src/lib/runtime-registry.mjs`, `src/lib/model-policy.mjs`, `config/factory.config.json`, `tests/runtime-registry-tests.mjs` | route all runtime/model work through one contract owner |
-| 4 | Result/retry/tick transition matrix | small state-machine changes ripple into dispatch, autonomous recovery, and docs quickly | `src/lib/run-state.mjs`, `src/lib/result-application.mjs`, `src/lib/result-artifact.mjs`, `docs/artifact-contract.md`, `docs/run-lifecycle.md` | treat transition rules as one change family |
-| 5 | Autonomous acceptance harness | release, CI, and reliability work all want to edit the same orchestration assumptions | `src/lib/autonomous-run.mjs`, `scripts/e2e-smoke.mjs`, `scripts/live-roundtrip-acceptance.mjs`, `tests/autonomous-run-tests.mjs`, `tests/live-roundtrip-acceptance-tests.mjs` | use dedicated worktrees and avoid unrelated edits in the same round |
-| 6 | Doctor/runtime-readiness surface | shell parity, auth/readiness checks, and route selection drift together | `src/lib/doctor.mjs`, `src/lib/powershell.mjs`, `docs/runtime-doctor.md`, `tests/doctor-tests.mjs` | keep doctor changes paired with routing docs and tests |
-| 7 | Shared documentation set | behavior changes often need synchronized edits across several long docs, and some tests assert doc alignment | `README.md`, `docs/architecture.md`, `docs/handoffs.md`, `docs/dispatch.md`, `docs/model-routing.md` | pick one canonical source doc and keep a doc-sync checklist |
-| 8 | Large monolithic test files | unrelated features append cases into the same files, causing text conflicts even when logic is independent | `tests/run-tests.mjs`, `tests/dispatch-matrix-tests.mjs` | split by feature area before the next wide hardening round |
+| Rank | File or family | Why it conflicts | Typical co-changes | Recommended guardrail | Planned reduction |
+| --- | --- | --- | --- | --- | --- |
+| 1 | `src/lib/commands.mjs` | `run`, `report`, `task`, `retry`, `tick`, `result`, and `handoff` all converge here | `src/lib/run-state.mjs`, `docs/run-lifecycle.md`, `tests/run-tests.mjs` | one lifecycle owner lane per round | split lifecycle/report/tick from handoff/result/retry |
+| 2 | `src/lib/dispatch.mjs` | launcher execution, result validation, retries, locks, and run-state sync all live together | `src/lib/result-artifact.mjs`, `docs/dispatch.md`, `tests/dispatch-matrix-tests.mjs` | do not parallelize dispatch semantics in separate branches | split execution, validation, retry policy, and sync/reporting |
+| 3 | `tests/dispatch-matrix-tests.mjs` | dispatch reliability, concurrency, idempotency, and artifact cases all append into one file | `src/lib/dispatch.mjs` | one dispatch test owner at a time | split by artifact validation, launcher failure, concurrency/idempotency |
+| 4 | `tests/run-tests.mjs` | run creation, handoff generation, result application, retry, tick, and dispatch smoke all append here | `src/lib/commands.mjs`, `src/lib/run-state.mjs` | one lifecycle test owner at a time | split by run creation, handoff, result/retry, tick/report |
+| 5 | `src/lib/run-state.mjs` | transition rules, run-status rollup, retry release, and report data derive from the same model | `src/lib/commands.mjs`, `src/lib/autonomous-run.mjs`, `docs/run-lifecycle.md` | treat state transitions as one change family | split state model from report rendering |
+| 6 | `src/lib/autonomous-run.mjs` | stop reasons, checkpointing, recovery, and terminal-state meaning drift easily | `docs/24h-autonomous-ops-runbook.md`, `docs/checkpoint-and-resume-basics.md`, `tests/autonomous-run-tests.mjs` | keep autonomous semantics in one lane | split progress diagnostics from stop/resume summarization later |
+| 7 | Shared docs set | README, architecture, routing, lifecycle, and operator docs can drift on the same behavior | `README.md`, `docs/architecture.md`, `docs/handoffs.md`, `docs/model-routing.md`, `docs/run-lifecycle.md` | update canonical doc first and use doc-sync checklist | shrink README; keep behavior tables in canonical docs |
+
+## State Surfaces That Look Similar But Are Not
+
+| Surface | Values today | Source of truth | Why people mix it up |
+| --- | --- | --- | --- |
+| task status | `pending`, `ready`, `waiting_retry`, `in_progress`, `completed`, `failed`, `blocked` | `run-state.json.taskLedger[]` | it is the actionable surface, so people over-read it as session state |
+| run status | `planned`, `in_progress`, `completed`, `attention_required` | `run-state.json.status` | it is an aggregate rollup, not the autonomous terminal outcome |
+| dispatch result status | `completed`, `continued`, `incomplete`, `failed`, `skipped` plus dry-run values | `dispatch-results.json` | names partially overlap task outcomes but mean attempt-level results |
+| autonomous terminal state | `done`, `blocked`, `exhausted` | `terminal-summary.json` | operators often collapse it into run status |
+| resume mode | `none`, `manual`, `immediate`, `scheduled` | `checkpoint.json.resume` | `canResume: true` does not always mean "rerun now" |
+
+Two rules should stay explicit:
+
+- `report.md` is a derived view, not the final truth source.
+- `reports/runtime-doctor.json` is a readiness artifact, not success proof.
 
 ## Shared Output Hotspots
 
@@ -44,7 +58,8 @@ The main risk is not just git conflict. It is evidence contamination:
 
 ## Concrete Drift Signals To Watch
 
-- `docs/model-routing.md` still describes planner/reviewer/orchestrator as manual-primary, while current routing docs/tests center the default route on `gpt-runner`.
+- runtime docs disagree on whether planner/reviewer/orchestrator default to `gpt-runner` or `manual`.
+- operator docs use `blocked`, `attention_required`, and `exhausted` interchangeably.
 - Release/readiness docs, architecture docs, and README are all carrying overlapping descriptions of the same lifecycle and routing behavior.
 - Acceptance and soak guidance can drift from the workspace-isolation SOP if output-root rules are copied into scripts/docs inconsistently.
 
@@ -57,6 +72,18 @@ The main risk is not just git conflict. It is evidence contamination:
 5. Choose one canonical behavior doc:
    - recommended candidates: `docs/architecture.md` or `docs/run-lifecycle.md`
    - keep README and other docs derivative from that source
+
+## Planned Split Candidates
+
+These are planning targets only; they are not part of the current docs package.
+
+| Candidate | Proposed split | Why it lowers merge risk |
+| --- | --- | --- |
+| `src/lib/commands.mjs` | intake/spec commands, lifecycle/report/tick commands, handoff/result/retry commands | fewer unrelated edits in the same file |
+| `src/lib/dispatch.mjs` | launcher execution, artifact validation, retry/circuit policy, run-state sync/report generation | dispatch lanes can change one concern at a time |
+| `tests/run-tests.mjs` | run creation, handoff generation, hybrid/manual result flow, tick/report behavior | lifecycle test work no longer stacks into one file |
+| `tests/dispatch-matrix-tests.mjs` | artifact validation, launcher failure handling, concurrency/idempotency | dispatch test additions stop colliding as often |
+| README + architecture docs | README becomes operator-facing summary; detailed behavior lives in canonical docs | less repeated prose and less doc drift |
 
 ## Recommended Merge-Avoidance Sequence
 

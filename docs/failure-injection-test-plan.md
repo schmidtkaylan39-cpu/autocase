@@ -2,6 +2,8 @@
 
 Snapshot date: 2026-04-22 (Asia/Shanghai).
 
+For lane ownership, start order, and per-scenario operating rules, start with [failure-injection-playbook.md](failure-injection-playbook.md).
+
 This plan assumes the repository already has strong direct coverage for:
 
 - invalid/missing/mismatched result artifacts
