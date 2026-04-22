@@ -31,6 +31,17 @@ async function main() {
   await runTest("release evidence builder emits a coherent schema", async () => {
     const validationSummary = summarizeValidationResults(
       {
+        profile: "release-ready",
+        readyForHuman: true,
+        blockedBy: [],
+        criticalGates: [
+          {
+            id: "acceptance-panel-browser-full",
+            command: "npm run acceptance:panel:browser:full",
+            category: "human-ui",
+            status: "passed"
+          }
+        ],
         results: [
           {
             command: "npm test",
@@ -85,7 +96,11 @@ async function main() {
     assert.equal(evidence.provenance.sourceManifestPath, "desktop/release-candidates/v9.9.9/release-manifest.json");
     assert.equal(evidence.provenance.releaseNotesPath, "docs/releases/v9.9.9.md");
     assert.equal(evidence.validationSummary.sourceArtifactTrackedInRepo, true);
-    assert.deepEqual(evidence.verification.localChecks, ["npm test", "npm run selfcheck"]);
+    assert.equal(evidence.validationSummary.profile, "release-ready");
+    assert.equal(evidence.validationSummary.readyForHuman, true);
+    assert.deepEqual(evidence.validationSummary.blockedBy, []);
+    assert.equal(evidence.validationSummary.criticalGates.length, 1);
+    assert.deepEqual(evidence.verification.localChecks, ["npm test", "npm run selfcheck:release-ready"]);
     assert.deepEqual(evidence.verification.externalReviewerRerunChecks, ["npm ci", "npm test"]);
     assert.equal(evidence.verification.externalReviewerSummary, "No concrete bug found.");
     assert.match(evidence.rerunPrerequisite, /npm ci/i);
@@ -178,6 +193,22 @@ async function main() {
     assert.equal(evidence.validationSummary.sourceArtifactTrackedInRepo, true);
     assert.equal(evidence.validationSummary.allPassed, true);
     assert.ok(evidence.validationSummary.resultCount >= 1);
+    if ("profile" in evidence.validationSummary) {
+      assert.equal(
+        evidence.validationSummary.profile === null || typeof evidence.validationSummary.profile === "string",
+        true
+      );
+    }
+    if ("readyForHuman" in evidence.validationSummary) {
+      assert.equal(
+        evidence.validationSummary.readyForHuman === null ||
+          typeof evidence.validationSummary.readyForHuman === "boolean",
+        true
+      );
+    }
+    if ("blockedBy" in evidence.validationSummary) {
+      assert.ok(Array.isArray(evidence.validationSummary.blockedBy));
+    }
     assert.ok(evidence.verification.localChecks.includes("npm run selfcheck"));
     assert.ok(evidence.verification.externalReviewerRerunChecks.includes("npm ci"));
     assert.equal(typeof evidence.verification.externalReviewerSummary, "string");

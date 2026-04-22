@@ -189,6 +189,113 @@ async function main() {
     );
   });
 
+  await runTest("autonomous loop retries the reviewer task itself after dispatch-level incomplete output", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-autonomous-review-dispatch-retry-"));
+    const runResult = await runProject(validSpecPath, tempDir, "autonomous-review-dispatch-retry-run");
+    const doctorReportPath = path.join(tempDir, "doctor.json");
+
+    await writeJson(doctorReportPath, { checks: [] });
+    await updateRunTask(runResult.statePath, "planning-brief", "completed", "planning completed");
+    await updateRunTask(runResult.statePath, "implement-spec-intake", "completed", "implementation completed");
+
+    const runState = await readJson(runResult.statePath);
+    await writeJson(
+      runResult.statePath,
+      refreshRunState({
+        ...runState,
+        taskLedger: runState.taskLedger.map((task) =>
+          task.id === "review-spec-intake"
+            ? {
+                ...task,
+                status: "blocked",
+                notes: [...(Array.isArray(task.notes) ? task.notes : []), `${new Date().toISOString()} dispatch:incomplete`]
+              }
+            : task
+        )
+      })
+    );
+
+    const result = await runAutonomousLoop(runResult.statePath, {
+      maxRounds: 1,
+      operations: {
+        runRuntimeDoctor: async () => ({ jsonPath: doctorReportPath }),
+        tickProjectRun: async () => {
+          throw new Error("tickProjectRun should not be reached before same-task review recovery");
+        },
+        dispatchHandoffs: async () => {
+          throw new Error("dispatchHandoffs should not be reached before same-task review recovery");
+        }
+      }
+    });
+
+    const nextRunState = await readJson(runResult.statePath);
+    const reviewTask = nextRunState.taskLedger.find((task) => task.id === "review-spec-intake");
+    const implementationTask = nextRunState.taskLedger.find((task) => task.id === "implement-spec-intake");
+
+    assert.equal(result.summary.rounds[0]?.recovery?.type, "task_retry");
+    assert.equal(result.summary.rounds[0]?.recovery?.sourceTaskId, "review-spec-intake");
+    assert.deepEqual(result.summary.rounds[0]?.recovery?.targetTaskIds, ["review-spec-intake"]);
+    assert.equal(reviewTask?.status, "ready");
+    assert.equal(implementationTask?.status, "completed");
+    assert.ok(
+      (reviewTask?.notes ?? []).some((note) => /autonomous-task-retry:task dispatch contract was incomplete during autonomous loop/i.test(note)),
+      "review task should record a same-task autonomous retry note for dispatch-level incomplete results"
+    );
+  });
+
+  await runTest("autonomous loop retries the implementation task itself after dispatch-level incomplete output", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-autonomous-implement-dispatch-retry-"));
+    const runResult = await runProject(validSpecPath, tempDir, "autonomous-implement-dispatch-retry-run");
+    const doctorReportPath = path.join(tempDir, "doctor.json");
+
+    await writeJson(doctorReportPath, { checks: [] });
+    await updateRunTask(runResult.statePath, "planning-brief", "completed", "planning completed");
+
+    const runState = await readJson(runResult.statePath);
+    await writeJson(
+      runResult.statePath,
+      refreshRunState({
+        ...runState,
+        taskLedger: runState.taskLedger.map((task) =>
+          task.id === "implement-spec-intake"
+            ? {
+                ...task,
+                status: "blocked",
+                notes: [...(Array.isArray(task.notes) ? task.notes : []), `${new Date().toISOString()} dispatch:incomplete`]
+              }
+            : task
+        )
+      })
+    );
+
+    const result = await runAutonomousLoop(runResult.statePath, {
+      maxRounds: 1,
+      operations: {
+        runRuntimeDoctor: async () => ({ jsonPath: doctorReportPath }),
+        tickProjectRun: async () => {
+          throw new Error("tickProjectRun should not be reached before same-task implementation recovery");
+        },
+        dispatchHandoffs: async () => {
+          throw new Error("dispatchHandoffs should not be reached before same-task implementation recovery");
+        }
+      }
+    });
+
+    const nextRunState = await readJson(runResult.statePath);
+    const implementationTask = nextRunState.taskLedger.find((task) => task.id === "implement-spec-intake");
+    const reviewTask = nextRunState.taskLedger.find((task) => task.id === "review-spec-intake");
+
+    assert.equal(result.summary.rounds[0]?.recovery?.type, "task_retry");
+    assert.equal(result.summary.rounds[0]?.recovery?.sourceTaskId, "implement-spec-intake");
+    assert.deepEqual(result.summary.rounds[0]?.recovery?.targetTaskIds, ["implement-spec-intake"]);
+    assert.equal(implementationTask?.status, "ready");
+    assert.equal(reviewTask?.status, "pending");
+    assert.ok(
+      (implementationTask?.notes ?? []).some((note) => /autonomous-task-retry:task dispatch contract was incomplete during autonomous loop/i.test(note)),
+      "implementation task should record a same-task autonomous retry note for dispatch-level incomplete results"
+    );
+  });
+
   await runTest("autonomous loop uses the reviewer replan budget instead of the implementation budget", async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-autonomous-replan-"));
     const runResult = await runProject(validSpecPath, tempDir, "autonomous-replan-run");

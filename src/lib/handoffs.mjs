@@ -10,6 +10,8 @@ import {
 } from "./runtime-registry.mjs";
 import { toPowerShellSingleQuotedLiteral } from "./powershell.mjs";
 
+const UTF8_BOM = "\uFEFF";
+
 function relativeLabel(baseDir, targetPath) {
   return path.relative(baseDir, targetPath) || ".";
 }
@@ -24,6 +26,12 @@ function toShellSingleQuotedLiteral(value) {
 
 function hashTextSha256(value) {
   return createHash("sha256").update(String(value), "utf8").digest("hex");
+}
+
+function persistTextForPlatform(value, launcherMetadata, platform = process.platform) {
+  const normalizedValue = typeof value === "string" ? value : String(value ?? "");
+  const powerShellReadable = platform === "win32" && launcherMetadata?.extension === ".ps1";
+  return powerShellReadable && !normalizedValue.startsWith(UTF8_BOM) ? `${UTF8_BOM}${normalizedValue}` : normalizedValue;
 }
 
 function buildIdempotencyKey({ runId, taskId, handoffId, runtimeId, promptHash }) {
@@ -655,8 +663,10 @@ export function buildHandoffDescriptor({
     resultPath,
     runState
   });
+  const launcherMetadata = getLauncherMetadata(platform);
   const persistedPromptText = `${promptText}\n`;
-  const promptHash = hashTextSha256(persistedPromptText);
+  const persistedPromptFileText = persistTextForPlatform(persistedPromptText, launcherMetadata, platform);
+  const promptHash = hashTextSha256(persistedPromptFileText);
   const execution = {
     ...executionProfile.execution,
     idempotencyKey: buildIdempotencyKey({
@@ -668,7 +678,7 @@ export function buildHandoffDescriptor({
     })
   };
   const launcher = {
-    ...getLauncherMetadata(platform),
+    ...launcherMetadata,
     metadata: compactObject({
       runtimeId: selected.runtimeId,
       fixedModelId: deterministicControls.fixedModelId,
@@ -680,7 +690,7 @@ export function buildHandoffDescriptor({
       promptHashAlgorithm: "sha256",
       promptHash,
       promptEncoding: "utf8",
-      promptByteLength: Buffer.byteLength(persistedPromptText, "utf8"),
+      promptByteLength: Buffer.byteLength(persistedPromptFileText, "utf8"),
       timeoutMs: execution.timeoutMs,
       retryBudget: execution.retryBudget,
       circuitBreakerLimit: execution.circuitBreakerLimit,
@@ -793,7 +803,7 @@ export function buildHandoffDescriptor({
       hashAlgorithm: "sha256",
       hash: promptHash,
       encoding: "utf8",
-      byteLength: Buffer.byteLength(persistedPromptText, "utf8")
+      byteLength: Buffer.byteLength(persistedPromptFileText, "utf8")
     },
     execution,
     launcher,

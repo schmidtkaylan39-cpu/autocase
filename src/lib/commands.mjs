@@ -32,6 +32,7 @@ import { summarizeSpec, validateProjectSpec } from "./spec.mjs";
 import { buildExecutionPlan, renderPlanMarkdown } from "./workflow.mjs";
 
 const packageRootDirectory = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+const UTF8_BOM = "\uFEFF";
 
 async function fileExists(targetPath) {
   try {
@@ -58,6 +59,13 @@ async function writeTextFileIfMissing(targetPath, value) {
 
   await writeFile(targetPath, value, "utf8");
   return true;
+}
+
+async function writeTextFileWithOptionalBom(targetPath, value, options = {}) {
+  const { bom = false } = options;
+  const normalizedValue = typeof value === "string" ? value : String(value ?? "");
+  const fileContents = bom && !normalizedValue.startsWith(UTF8_BOM) ? `${UTF8_BOM}${normalizedValue}` : normalizedValue;
+  await writeFile(targetPath, fileContents, "utf8");
 }
 
 function inferWorkspaceRootFromSpecPath(specPath) {
@@ -745,15 +753,20 @@ export async function createRunHandoffs(
     const handoffJsonPath = path.join(resolvedOutputDir, `${task.id}.handoff.json`);
     const handoffMarkdownPath = path.join(resolvedOutputDir, `${task.id}.handoff.md`);
     const launcherPath = path.join(resolvedOutputDir, `${task.id}.launch${launcherMetadata.extension}`);
+    const powerShellReadable = process.platform === "win32" && launcherMetadata.extension === ".ps1";
 
-    await writeFile(promptPath, `${descriptor.promptText}\n`, "utf8");
+    await writeTextFileWithOptionalBom(promptPath, `${descriptor.promptText}\n`, {
+      bom: powerShellReadable
+    });
     await writeJson(handoffJsonPath, descriptor);
     await writeFile(
       handoffMarkdownPath,
       `${renderHandoffMarkdown(descriptor, resolvedOutputDir)}\n`,
       "utf8"
     );
-    await writeFile(launcherPath, `${descriptor.launcherScript}\n`, "utf8");
+    await writeTextFileWithOptionalBom(launcherPath, `${descriptor.launcherScript}\n`, {
+      bom: powerShellReadable
+    });
 
     descriptors.push({
       runId: runState.runId,

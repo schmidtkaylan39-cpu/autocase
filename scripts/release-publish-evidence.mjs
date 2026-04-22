@@ -237,6 +237,10 @@ export function summarizeValidationResults(validationResults, validationResultsP
     return {
       sourceArtifactPath: validationResultsPath,
       sourceArtifactTrackedInRepo: isRepoTrackedArtifactPath(validationResultsPath),
+      profile: null,
+      readyForHuman: null,
+      blockedBy: [],
+      criticalGates: [],
       allPassed: null,
       resultCount: 0,
       commands: []
@@ -246,6 +250,19 @@ export function summarizeValidationResults(validationResults, validationResultsP
   return {
     sourceArtifactPath: validationResultsPath,
     sourceArtifactTrackedInRepo: isRepoTrackedArtifactPath(validationResultsPath),
+    profile: typeof validationResults.profile === "string" ? validationResults.profile : null,
+    readyForHuman: typeof validationResults.readyForHuman === "boolean" ? validationResults.readyForHuman : null,
+    blockedBy: Array.isArray(validationResults.blockedBy)
+      ? validationResults.blockedBy.filter((reason) => typeof reason === "string" && reason.length > 0)
+      : [],
+    criticalGates: Array.isArray(validationResults.criticalGates)
+      ? validationResults.criticalGates.map((gate) => ({
+          id: typeof gate?.id === "string" ? gate.id : null,
+          command: typeof gate?.command === "string" ? gate.command : null,
+          category: typeof gate?.category === "string" ? gate.category : null,
+          status: typeof gate?.status === "string" ? gate.status : null
+        }))
+      : [],
     allPassed: validationResults.results.every((result) => result.status === "passed"),
     resultCount: validationResults.results.length,
     commands: validationResults.results.map((result) => ({
@@ -266,7 +283,9 @@ function buildLocalChecks(validationSummary) {
   }
 
   if (validationSummary?.sourceArtifactPath) {
-    localChecks.push("npm run selfcheck");
+    localChecks.push(
+      validationSummary?.profile === "release-ready" ? "npm run selfcheck:release-ready" : "npm run selfcheck"
+    );
   }
 
   return [...new Set(localChecks)];

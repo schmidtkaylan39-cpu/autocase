@@ -23,6 +23,11 @@ function hashTextSha256(value) {
   return createHash("sha256").update(String(value), "utf8").digest("hex");
 }
 
+function persistPromptTextForDescriptor(descriptor) {
+  const persistedPromptText = `${descriptor.promptText}\n`;
+  return descriptor.launcher?.language === "powershell" ? `\uFEFF${persistedPromptText}` : persistedPromptText;
+}
+
 function createDescriptorFixture({
   role,
   taskId,
@@ -230,15 +235,15 @@ async function main() {
       assert.ok(descriptor.promptText.includes("- maxTokens: 12000"));
       assert.ok(descriptor.promptText.includes("- topP: 1"));
       assert.ok(descriptor.promptText.includes("# Execution Guardrails"));
-      assert.ok(descriptor.promptText.includes("- retryBudget: 1"));
-      assert.ok(descriptor.promptText.includes("- circuitBreakerLimit: 1"));
+      assert.ok(descriptor.promptText.includes("- retryBudget: 2"));
+      assert.ok(descriptor.promptText.includes("- circuitBreakerLimit: 2"));
       assert.ok(descriptor.promptText.includes("# Workspace Root Path\nC:/workspace/demo"));
       assert.equal(descriptor.prompt.hashAlgorithm, "sha256");
-      assert.equal(descriptor.prompt.hash, hashTextSha256(`${descriptor.promptText}\n`));
+      assert.equal(descriptor.prompt.hash, hashTextSha256(persistPromptTextForDescriptor(descriptor)));
       assert.equal(descriptor.prompt.encoding, "utf8");
       assert.equal(descriptor.execution.timeoutMs, 300000);
-      assert.equal(descriptor.execution.retryBudget, 1);
-      assert.equal(descriptor.execution.circuitBreakerLimit, 1);
+      assert.equal(descriptor.execution.retryBudget, 2);
+      assert.equal(descriptor.execution.circuitBreakerLimit, 2);
       assert.match(descriptor.execution.idempotencyKey, /^[a-f0-9]{64}$/);
       assert.equal(descriptor.launcher.metadata.fixedModelId, "gpt-5.4");
       assert.equal(descriptor.launcher.metadata.fixedModel, "gpt-5.4");

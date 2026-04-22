@@ -265,6 +265,95 @@ function buildStatusPillCompletionVerification(statusPillText) {
   };
 }
 
+function extractLatestLogEntryText(logBoxText) {
+  const entries = String(logBoxText ?? "")
+    .split(/\r?\n\r?\n---\r?\n\r?\n/g)
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+
+  return entries.at(-1) ?? "";
+}
+
+function buildHumanStatusCardVerification({ uiState, statusAfter }) {
+  const humanStatusText = normalizeInlineText(uiState?.humanStatusText);
+  const humanStatusHint = normalizeInlineText(uiState?.humanStatusHint);
+  const readiness = statusAfter?.overview?.humanReadiness ?? null;
+  const checks = [
+    {
+      id: "human-status-card-rendered",
+      passed: humanStatusText.length > 0,
+      message: "The panel renders a plain-language human status card."
+    }
+  ];
+
+  if (readiness) {
+    checks.push({
+      id: "human-status-card-state",
+      passed: readiness.readyForHuman
+        ? humanStatusText.includes("目前判定：已達 ready for human")
+        : humanStatusText.includes("目前判定：未達 ready for human"),
+      message: "The human status card matches the backend ready-for-human state."
+    });
+
+    if (Array.isArray(readiness.blockers) && readiness.blockers.length > 0) {
+      checks.push({
+        id: "human-status-card-blockers",
+        passed:
+          /目前阻塞原因|release-ready|人工處理|自動重試|關鍵驗證/i.test(humanStatusText) ||
+          /release-ready|人工處理|自動重試|關鍵驗證/i.test(humanStatusHint),
+        message: "The human status card surfaces blocker context when the backend reports blockers."
+      });
+    }
+  }
+
+  return {
+    passed: checks.every((check) => check.passed),
+    normalizedHumanStatusText: humanStatusText,
+    normalizedHumanStatusHint: humanStatusHint,
+    checks
+  };
+}
+
+function buildStrictCompletionSurfaceVerification({ uiState, statusAfter }) {
+  const latestRunSummary = statusAfter?.overview?.latestRun?.summary ?? null;
+  const blockedTasks = Number(latestRunSummary?.blockedTasks ?? 0);
+  const failedTasks = Number(latestRunSummary?.failedTasks ?? 0);
+  const waitingRetryTasks = Number(latestRunSummary?.waitingRetryTasks ?? 0);
+  const statusPillClassName = normalizeInlineText(uiState?.statusPillClassName).toLowerCase();
+  const latestLogEntryText = normalizeInlineText(
+    uiState?.latestLogEntryText ?? extractLatestLogEntryText(uiState?.logBoxText)
+  ).toLowerCase();
+
+  const checks = [
+    {
+      id: "completed-zero-blocker-counters",
+      passed: blockedTasks === 0 && failedTasks === 0 && waitingRetryTasks === 0,
+      message: "A completed backend run must not still report blocked, failed, or waiting-retry tasks."
+    },
+    {
+      id: "completed-status-pill-tone",
+      passed: !statusPillClassName.includes("warn") && !statusPillClassName.includes("error"),
+      message: "A completed backend run must not leave the status pill in warn/error styling."
+    },
+    {
+      id: "completed-latest-log-entry",
+      passed:
+        latestLogEntryText.length > 0 &&
+        !/needs_attention|needs attention|attention required|waiting_retry|waiting to retry|等待重試|需要人工處理|retry|in_progress|in progress|進行中/.test(
+          latestLogEntryText
+        ),
+      message: "The latest visible panel log entry must not contradict backend completion."
+    }
+  ];
+
+  return {
+    passed: checks.every((check) => check.passed),
+    normalizedStatusPillClassName: statusPillClassName,
+    normalizedLatestLogEntryText: latestLogEntryText,
+    checks
+  };
+}
+
 function buildMaxRoundsPreparationEvidence({
   pageDefaultMaxRounds,
   preparedMaxRounds,
@@ -326,6 +415,29 @@ function buildPageReadinessEvidence({
 
 function serializeForExpression(value) {
   return JSON.stringify(value);
+}
+
+export function buildUiStateCaptureExpression() {
+  return `(() => ({
+    statusPillText: document.getElementById("statusPill")?.textContent ?? "",
+    statusPillClassName: document.getElementById("statusPill")?.className ?? "",
+    logBoxText: document.getElementById("logBox")?.textContent ?? "",
+    latestLogEntryText: (() => {
+      const logText = document.getElementById("logBox")?.textContent ?? "";
+      const entries = logText
+        .split(${serializeForExpression("\n\n---\n\n")})
+        .map((entry) => entry.trim())
+        .filter((entry) => entry.length > 0);
+      return entries.at(-1) ?? "";
+    })(),
+    humanStatusText: document.getElementById("humanStatusSummary")?.textContent ?? "",
+    humanStatusHint: document.getElementById("humanStatusHint")?.textContent ?? "",
+    confirmationInputValue: document.getElementById("confirmationInput")?.value ?? "",
+    promptMessages: Array.isArray(window.__panelBrowserSmokePromptMessages)
+      ? window.__panelBrowserSmokePromptMessages.slice()
+      : [],
+    quickStartDisabled: Boolean(document.getElementById("quickStartBtn")?.disabled)
+  }))()`;
 }
 
 function isMainModule() {
@@ -397,7 +509,7 @@ async function seedWorkspace(workspaceRoot) {
   );
 }
 
-async function detectBrowser(browserPath) {
+export async function detectBrowser(browserPath) {
   const candidatesTried = [];
 
   if (nonEmptyText(browserPath)) {
@@ -517,7 +629,7 @@ async function waitForChildExit(childProcess, timeoutMs) {
   });
 }
 
-async function stopChildProcess(childProcess) {
+export async function stopChildProcess(childProcess) {
   if (!childProcess || childProcess.exitCode !== null || childProcess.signalCode !== null) {
     return;
   }
@@ -532,7 +644,7 @@ async function stopChildProcess(childProcess) {
   await waitForChildExit(childProcess, 2_000);
 }
 
-async function launchBrowser({
+export async function launchBrowser({
   browserPath,
   panelUrl,
   headless,
@@ -592,7 +704,7 @@ async function launchBrowser({
   };
 }
 
-async function fetchJson(url, init) {
+export async function fetchJson(url, init) {
   const response = await fetch(url, init);
   const text = await response.text();
   const payload = text.length > 0 ? JSON.parse(text) : {};
@@ -604,7 +716,7 @@ async function fetchJson(url, init) {
   return payload;
 }
 
-async function waitForPageTarget(debugBaseUrl, panelUrl, timeoutMs) {
+export async function waitForPageTarget(debugBaseUrl, panelUrl, timeoutMs) {
   return pollUntil("panel page target", timeoutMs, async () => {
     const targets = await fetchJson(`${debugBaseUrl}/json/list`);
     const matchingTarget =
@@ -631,7 +743,7 @@ function decodeWebSocketMessage(data) {
   return String(data);
 }
 
-class CdpSession {
+export class CdpSession {
   constructor(socket, websocketUrl) {
     this.socket = socket;
     this.websocketUrl = websocketUrl;
@@ -755,7 +867,7 @@ class CdpSession {
   }
 }
 
-async function evaluateExpression(session, expression) {
+export async function evaluateExpression(session, expression) {
   const evaluation = await session.send("Runtime.evaluate", {
     expression,
     returnByValue: true,
@@ -774,7 +886,7 @@ async function evaluateExpression(session, expression) {
   return evaluation.result?.value;
 }
 
-async function waitForExpression(session, expression, timeoutMs, description) {
+export async function waitForExpression(session, expression, timeoutMs, description) {
   return pollUntil(description, timeoutMs, async () => {
     const result = await evaluateExpression(session, `(() => Boolean(${expression}))()`);
     return result === true;
@@ -850,30 +962,52 @@ async function waitForRunSummary(panelUrl, runId, timeoutMs, intervalMs, predica
 
 async function waitForUiState(session, runId, timeoutMs) {
   return pollUntil("panel UI update", timeoutMs, async () => {
-    const uiState = await evaluateExpression(
-      session,
-      `(() => ({
-        statusPillText: document.getElementById("statusPill")?.textContent ?? "",
-        logBoxText: document.getElementById("logBox")?.textContent ?? "",
-        promptMessages: Array.isArray(window.__panelBrowserSmokePromptMessages)
-          ? window.__panelBrowserSmokePromptMessages.slice()
-          : [],
-        quickStartDisabled: Boolean(document.getElementById("quickStartBtn")?.disabled)
-      }))()`
-    );
+    const uiState = await evaluateExpression(session, buildUiStateCaptureExpression());
 
     const logText = String(uiState?.logBoxText ?? "");
-    const promptMessages = Array.isArray(uiState?.promptMessages) ? uiState.promptMessages : [];
-
-    if (promptMessages.length === 0) {
-      return null;
-    }
 
     if (!logText.includes(runId)) {
       return null;
     }
 
     if (uiState.quickStartDisabled) {
+      return null;
+    }
+
+    return uiState;
+  });
+}
+
+async function waitForAnalysisUiState(session, timeoutMs) {
+  return pollUntil("panel analysis UI update", timeoutMs, async () => {
+    const uiState = await evaluateExpression(
+      session,
+      `(() => ({
+        statusPillText: document.getElementById("statusPill")?.textContent ?? "",
+        statusPillClassName: document.getElementById("statusPill")?.className ?? "",
+        logBoxText: document.getElementById("logBox")?.textContent ?? "",
+        humanStatusText: document.getElementById("humanStatusSummary")?.textContent ?? "",
+        humanStatusHint: document.getElementById("humanStatusHint")?.textContent ?? "",
+        previewSummaryText: document.getElementById("previewSummary")?.textContent ?? "",
+        startCheckSummaryText: document.getElementById("startCheckSummary")?.textContent ?? "",
+        startCheckHidden: Boolean(document.getElementById("startCheckCard")?.hidden),
+        previewButtonDisabled: Boolean(document.getElementById("previewIntakeBtn")?.disabled)
+      }))()`
+    );
+
+    const previewSummaryText = normalizeInlineText(uiState?.previewSummaryText);
+    const startCheckSummaryText = normalizeInlineText(uiState?.startCheckSummaryText);
+
+    if (
+      previewSummaryText.length === 0 ||
+      /尚未分析/.test(previewSummaryText) ||
+      startCheckSummaryText.length === 0 ||
+      /尚未分析/.test(startCheckSummaryText)
+    ) {
+      return null;
+    }
+
+    if (uiState.previewButtonDisabled) {
       return null;
     }
 
@@ -898,6 +1032,8 @@ function buildBrowserRunConsistencyVerification({
   const runStateStatus = runState?.status ?? null;
   const autonomousSummaryRunId = autonomousSummary?.runId ?? null;
   const autonomousSummaryStatus = readAutonomousSummaryTerminalStatus(autonomousSummary);
+  const statusAfterSummary = statusAfter?.overview?.latestRun?.summary ?? null;
+  const autonomousRunSummary = autonomousSummary?.runSummary ?? null;
   const checks = [
     {
       id: "status-after-run-id",
@@ -931,6 +1067,23 @@ function buildBrowserRunConsistencyVerification({
         message: "/api/status, run-state.json, and autonomous-summary.json agree on terminal status."
       }
     );
+
+    const counterKeys = ["blockedTasks", "failedTasks", "waitingRetryTasks"];
+    const comparableCounterKeys = counterKeys.filter((key) => {
+      const statusValue = statusAfterSummary?.[key];
+      const autonomousValue = autonomousRunSummary?.[key];
+      return Number.isFinite(Number(statusValue)) && Number.isFinite(Number(autonomousValue));
+    });
+
+    if (comparableCounterKeys.length > 0) {
+      checks.push({
+        id: "terminal-counter-agreement",
+        passed: comparableCounterKeys.every(
+          (key) => Number(statusAfterSummary?.[key] ?? 0) === Number(autonomousRunSummary?.[key] ?? 0)
+        ),
+        message: "/api/status and autonomous-summary.json agree on blocker/retry counters."
+      });
+    }
   }
 
   return {
@@ -938,16 +1091,22 @@ function buildBrowserRunConsistencyVerification({
     observed: {
       statusAfterRunId,
       statusAfterStatus,
+      statusAfterBlockedTasks: statusAfterSummary?.blockedTasks ?? null,
+      statusAfterFailedTasks: statusAfterSummary?.failedTasks ?? null,
+      statusAfterWaitingRetryTasks: statusAfterSummary?.waitingRetryTasks ?? null,
       runStateRunId,
       runStateStatus,
       autonomousSummaryRunId,
-      autonomousSummaryStatus
+      autonomousSummaryStatus,
+      autonomousBlockedTasks: autonomousRunSummary?.blockedTasks ?? null,
+      autonomousFailedTasks: autonomousRunSummary?.failedTasks ?? null,
+      autonomousWaitingRetryTasks: autonomousRunSummary?.waitingRetryTasks ?? null
     },
     checks
   };
 }
 
-async function collectPageReadiness(session) {
+export async function collectPageReadiness(session) {
   return evaluateExpression(
     session,
     `(() => ({
@@ -961,9 +1120,10 @@ async function collectPageReadiness(session) {
   );
 }
 
-function buildVerification({
+export function buildVerification({
   browserPath,
   browserWebSocketUrl,
+  analysisOnly = false,
   requireCompleted,
   preparedFields,
   runState,
@@ -979,7 +1139,12 @@ function buildVerification({
   const extractedPromptToken = promptMessages.length > 0
     ? extractConfirmationTokenFromPrompt(promptMessages[0])
     : "";
+  const confirmationInputValue = String(uiState?.confirmationInputValue ?? "").trim();
   const logText = String(uiState?.logBoxText ?? "");
+  const humanStatusVerification = buildHumanStatusCardVerification({
+    uiState,
+    statusAfter
+  });
   const checks = [
     {
       id: "browser-detected",
@@ -990,41 +1155,73 @@ function buildVerification({
       id: "cdp-connected",
       passed: nonEmptyText(browserWebSocketUrl),
       message: "The browser exposed a DevTools websocket endpoint."
-    },
-    {
-      id: "prompt-handled",
-      passed: promptMessages.length > 0 && nonEmptyText(extractedPromptToken),
-      message: "The browser smoke handled the panel confirmation prompt in-page."
-    },
-    {
-      id: "ui-log-updated",
-      passed: logText.includes(runId),
-      message: "The panel log updated with the quick-start run id."
-    },
-    {
-      id: "run-state-created",
-      passed: runState?.runId === runId,
-      message: "The quick-start click created the expected run-state.json file."
-    },
-    {
-      id: "spec-snapshot-created",
-      passed: specSnapshotExists,
-      message: "The quick-start flow created a spec.snapshot.json file."
-    },
-    {
-      id: "panel-status-updated",
-      passed: statusAfter?.overview?.latestRun?.summary?.runId === runId,
-      message: "The panel status endpoint reports the new run after the browser click."
     }
   ];
 
+  if (analysisOnly) {
+    const previewSummaryText = normalizeInlineText(uiState?.previewSummaryText);
+    const startCheckSummaryText = normalizeInlineText(uiState?.startCheckSummaryText);
+    checks.push(
+      {
+        id: "preview-summary-rendered",
+        passed: previewSummaryText.length > 0 && !/尚未分析/.test(previewSummaryText),
+        message: "The panel renders an analyzed preview summary after clicking 分析起點/終點."
+      },
+      {
+        id: "start-check-rendered",
+        passed:
+          startCheckSummaryText.length > 0 &&
+          !/尚未分析/.test(startCheckSummaryText) &&
+          uiState?.startCheckHidden === false,
+        message: "The panel renders the start-check card after analysis."
+      }
+    );
+  } else {
+    checks.push(
+      {
+        id: "prompt-handled",
+        passed:
+          (promptMessages.length > 0 && nonEmptyText(extractedPromptToken)) ||
+          nonEmptyText(confirmationInputValue),
+        message:
+          "The browser smoke observed the panel confirmation step either through an in-page prompt or an auto-filled confirmation field."
+      },
+      {
+        id: "ui-log-updated",
+        passed: logText.includes(runId),
+        message: "The panel log updated with the quick-start run id."
+      },
+      {
+        id: "run-state-created",
+        passed: runState?.runId === runId,
+        message: "The quick-start click created the expected run-state.json file."
+      },
+      {
+        id: "spec-snapshot-created",
+        passed: specSnapshotExists,
+        message: "The quick-start flow created a spec.snapshot.json file."
+      },
+      {
+        id: "panel-status-updated",
+        passed: statusAfter?.overview?.latestRun?.summary?.runId === runId,
+        message: "The panel status endpoint reports the new run after the browser click."
+      }
+    );
+  }
+
   const finalRunStatus = statusAfter?.overview?.latestRun?.summary?.status ?? null;
   const statusPillVerification = buildStatusPillCompletionVerification(uiState?.statusPillText);
+  const strictCompletionSurfaceVerification = buildStrictCompletionSurfaceVerification({
+    uiState,
+    statusAfter
+  });
   const maxRoundsPreparation = buildMaxRoundsPreparationEvidence({
     pageDefaultMaxRounds: preparedFields?.pageDefaultMaxRounds,
     preparedMaxRounds: preparedFields?.maxRounds,
     requestedMaxRounds: preparedFields?.requestedMaxRounds
   });
+
+  checks.push(...humanStatusVerification.checks);
 
   if (requireCompleted) {
     checks.push(
@@ -1040,6 +1237,7 @@ function buildVerification({
           "After backend completion, the rendered status pill shows a completed state instead of an in-progress, retry, or attention-needed state."
       }
     );
+    checks.push(...strictCompletionSurfaceVerification.checks);
 
     if (maxRoundsPreparation.requestedMaxRounds !== null) {
       checks.push({
@@ -1085,7 +1283,10 @@ function buildVerification({
   return {
     passed: checks.every((check) => check.passed),
     extractedPromptToken,
+    confirmationInputValue,
     statusPillVerification,
+    humanStatusVerification,
+    strictCompletionSurfaceVerification,
     maxRoundsPreparation,
     checks
   };
@@ -1096,6 +1297,7 @@ async function runPanelBrowserSmoke(options) {
   if (options.requireCompleted && options.maxRounds === 0) {
     throw new Error("Strict completed mode requires --max-rounds greater than 0.");
   }
+  const analysisOnly = !options.requireCompleted && options.maxRounds === 0;
   const startedAt = new Date();
   const evidenceRoot = path.join(options.outputRoot, `panel-browser-smoke-${timestampLabel()}`);
   const workspaceRoot = path.join(evidenceRoot, "workspace");
@@ -1247,45 +1449,81 @@ async function runPanelBrowserSmoke(options) {
     const beforeClickScreenshot = await cdpSession.send("Page.captureScreenshot", { format: "png" });
     await writeBase64(path.join(evidenceRoot, "before-click.png"), beforeClickScreenshot.data);
 
-    await clickSelector(cdpSession, "#quickStartBtn");
+    let statusAfter = null;
+    let uiState = null;
+    let runState = null;
+    let specSnapshotExists = false;
+    let autonomousSummary = null;
+    let consistencyVerification = null;
+    let artifactVerification = null;
+    const autonomousSummaryPath = path.join(runDirectory, "autonomous-summary.json");
 
-    await waitForFile(runStatePath, options.watchdogMs);
-    let statusAfter = await waitForPanelStatus(panel.url, runId, options.watchdogMs);
+    if (analysisOnly) {
+      await evaluateExpression(
+        cdpSession,
+        `(() => {
+          if (typeof previewIntake === "function") {
+            return previewIntake().then(() => "previewIntake");
+          }
 
-    if (options.requireCompleted) {
-      const terminalResult = await waitForRunSummary(
-        panel.url,
-        runId,
-        options.watchdogMs,
-        options.pollIntervalMs,
-        (runSummary) => ["completed", "attention_required", "failed"].includes(runSummary.status)
+          const button = document.getElementById("previewIntakeBtn");
+
+          if (!button) {
+            throw new Error("Missing previewIntakeBtn");
+          }
+
+          if (button.disabled) {
+            throw new Error("previewIntakeBtn is disabled");
+          }
+
+          button.click();
+          return "button-click";
+        })()`
       );
-      statusAfter = terminalResult.statusPayload;
-      statusPolls = terminalResult.pollSnapshots;
+      uiState = await waitForAnalysisUiState(cdpSession, options.watchdogMs);
+      statusAfter = await fetchJson(`${panel.url}/api/status`);
+    } else {
+      await clickSelector(cdpSession, "#quickStartBtn");
+
+      await waitForFile(runStatePath, options.watchdogMs);
+      statusAfter = await waitForPanelStatus(panel.url, runId, options.watchdogMs);
+
+      if (options.requireCompleted) {
+        const terminalResult = await waitForRunSummary(
+          panel.url,
+          runId,
+          options.watchdogMs,
+          options.pollIntervalMs,
+          (runSummary) => ["completed", "attention_required", "failed"].includes(runSummary.status)
+        );
+        statusAfter = terminalResult.statusPayload;
+        statusPolls = terminalResult.pollSnapshots;
+      }
+
+      uiState = await waitForUiState(cdpSession, runId, options.watchdogMs);
+      runState = JSON.parse(await readFile(runStatePath, "utf8"));
+      specSnapshotExists = await pathExists(specSnapshotPath);
+      autonomousSummary = await readFile(autonomousSummaryPath, "utf8")
+        .then((contents) => JSON.parse(contents))
+        .catch(() => null);
+      consistencyVerification = buildBrowserRunConsistencyVerification({
+        runId,
+        statusAfter,
+        runState,
+        autonomousSummary,
+        requireCompleted: options.requireCompleted
+      });
+      artifactVerification = options.requireCompleted
+        ? await verifyGeneratedSummaryArtifact(workspaceRoot, {
+            immutableInputSnapshots
+          })
+        : null;
     }
 
-    const uiState = await waitForUiState(cdpSession, runId, options.watchdogMs);
-    const runState = JSON.parse(await readFile(runStatePath, "utf8"));
-    const specSnapshotExists = await pathExists(specSnapshotPath);
-    const autonomousSummaryPath = path.join(runDirectory, "autonomous-summary.json");
-    const autonomousSummary = await readFile(autonomousSummaryPath, "utf8")
-      .then((contents) => JSON.parse(contents))
-      .catch(() => null);
-    const consistencyVerification = buildBrowserRunConsistencyVerification({
-      runId,
-      statusAfter,
-      runState,
-      autonomousSummary,
-      requireCompleted: options.requireCompleted
-    });
-    const artifactVerification = options.requireCompleted
-      ? await verifyGeneratedSummaryArtifact(workspaceRoot, {
-          immutableInputSnapshots
-        })
-      : null;
     const verification = buildVerification({
       browserPath: browserInfo.browserPath,
       browserWebSocketUrl: browser.devTools.browserWebSocketUrl,
+      analysisOnly,
       requireCompleted: options.requireCompleted,
       preparedFields,
       runState,

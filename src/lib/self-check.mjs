@@ -4,62 +4,154 @@ import path from "node:path";
 
 import { writeJson } from "./fs-utils.mjs";
 
-export const defaultSelfCheckCommandSpecs = [
+const operatorPolicy = {
+  humanUiVerifiedRequiredBeforeHandoff: true,
+  readyForHumanProfile: "release-ready",
+  releaseReadyProfileRequiredForReadyForHuman: true,
+  minimumHumanUiSmokeCommand: "npm run acceptance:panel:browser:analyze"
+};
+
+function cloneCommandSpec(spec) {
+  return {
+    ...spec,
+    evidence: Array.isArray(spec.evidence) ? [...spec.evidence] : []
+  };
+}
+
+const repoHealthCommandSpecs = [
   {
     id: "validate-workflows",
     command: "npm run validate:workflows",
     args: ["run", "validate:workflows"],
+    category: "repo-health",
     evidence: []
   },
   {
     id: "build",
     command: "npm run build",
     args: ["run", "build"],
+    category: "repo-health",
     evidence: []
   },
   {
     id: "pack-check",
     command: "npm run pack:check",
     args: ["run", "pack:check"],
+    category: "repo-health",
     evidence: []
   },
   {
     id: "lint",
     command: "npm run lint",
     args: ["run", "lint"],
+    category: "repo-health",
     evidence: []
   },
   {
     id: "typecheck",
     command: "npm run typecheck",
     args: ["run", "typecheck"],
+    category: "repo-health",
     evidence: []
   },
   {
     id: "test",
     command: "npm test",
     args: ["test"],
+    category: "repo-health",
     evidence: []
   },
   {
     id: "test-integration",
     command: "npm run test:integration",
     args: ["run", "test:integration"],
+    category: "repo-health",
     evidence: []
   },
   {
     id: "test-e2e",
     command: "npm run test:e2e",
     args: ["run", "test:e2e"],
+    category: "repo-health",
     evidence: []
   },
   {
     id: "doctor",
     command: "npm run doctor",
     args: ["run", "doctor"],
+    category: "repo-health",
     evidence: ["reports/runtime-doctor.json", "reports/runtime-doctor.md"]
   }
 ];
+
+const releaseReadyOnlyCommandSpecs = [
+  {
+    id: "acceptance-panel",
+    command: "npm run acceptance:panel",
+    args: ["run", "acceptance:panel"],
+    category: "human-ui",
+    evidence: []
+  },
+  {
+    id: "acceptance-panel-browser-micro",
+    command: "npm run acceptance:panel:browser:micro",
+    args: ["run", "acceptance:panel:browser:micro"],
+    category: "human-ui",
+    evidence: []
+  },
+  {
+    id: "acceptance-panel-browser-analyze",
+    command: "npm run acceptance:panel:browser:analyze",
+    args: ["run", "acceptance:panel:browser:analyze"],
+    category: "human-ui",
+    evidence: []
+  },
+  {
+    id: "acceptance-panel-browser-full",
+    command: "npm run acceptance:panel:browser:full",
+    args: ["run", "acceptance:panel:browser:full"],
+    category: "human-ui",
+    evidence: []
+  }
+];
+
+export const defaultSelfCheckCommandSpecs = repoHealthCommandSpecs.map(cloneCommandSpec);
+export const releaseReadySelfCheckCommandSpecs = [
+  ...repoHealthCommandSpecs.map(cloneCommandSpec),
+  ...releaseReadyOnlyCommandSpecs.map(cloneCommandSpec)
+];
+
+const selfCheckProfiles = {
+  repo: {
+    name: "repo",
+    summary: "Repo-level validation only; human UI readiness still requires the release-ready gate.",
+    commandSpecs: defaultSelfCheckCommandSpecs
+  },
+  "release-ready": {
+    name: "release-ready",
+    summary: "Repo-level validation plus panel/browser live smoke required before human handoff.",
+    commandSpecs: releaseReadySelfCheckCommandSpecs
+  }
+};
+
+export function resolveSelfCheckProfile(profileName = "repo", options = {}) {
+  const normalizedProfileName = typeof profileName === "string" ? profileName.trim() : "";
+  const baseProfile = selfCheckProfiles[normalizedProfileName];
+
+  if (!baseProfile) {
+    throw new Error(`Unsupported self-check profile: ${profileName}`);
+  }
+
+  const commandSpecs = Array.isArray(options.commandSpecs)
+    ? options.commandSpecs.map(cloneCommandSpec)
+    : baseProfile.commandSpecs.map(cloneCommandSpec);
+
+  return {
+    name: baseProfile.name,
+    summary: baseProfile.summary,
+    commandSpecs
+  };
+}
 
 export function deriveEvidenceStrength(evidence) {
   return Array.isArray(evidence) && evidence.length > 0 ? "artifact" : "record-only";
@@ -102,13 +194,64 @@ export function createValidationRerunGuidance(workingDirectory) {
   };
 }
 
-export function createInitialValidationArtifact(repoRoot) {
-  return {
+function buildCriticalGates(profile, results) {
+  const resultByCommand = new Map(
+    Array.isArray(results) ? results.map((result) => [result.command, result]) : []
+  );
+
+  return profile.commandSpecs.map((spec) => ({
+    id: spec.id,
+    command: spec.command,
+    category: spec.category ?? "repo-health",
+    status: resultByCommand.get(spec.command)?.status ?? "pending"
+  }));
+}
+
+function deriveBlockedBy(profile, criticalGates) {
+  const failed = criticalGates
+    .filter((gate) => gate.status === "failed")
+    .map((gate) => `Critical gate failed: ${gate.command}`);
+  const skipped = criticalGates
+    .filter((gate) => gate.status === "skipped")
+    .map((gate) => `Critical gate skipped: ${gate.command}`);
+  const pending = criticalGates
+    .filter((gate) => gate.status !== "passed" && gate.status !== "failed" && gate.status !== "skipped")
+    .map((gate) => `Critical gate pending: ${gate.command}`);
+
+  const blockedBy = [...failed, ...skipped, ...pending];
+
+  if (profile.name !== "release-ready") {
+    blockedBy.push(
+      'Validation ran with the "repo" profile only. Run `npm run selfcheck:release-ready` before human handoff or "可實戰" claims.'
+    );
+  }
+
+  return blockedBy;
+}
+
+export function refreshValidationArtifact(artifact, profile) {
+  const criticalGates = buildCriticalGates(profile, artifact.results);
+  const blockedBy = deriveBlockedBy(profile, criticalGates);
+
+  artifact.profile = profile.name;
+  artifact.profileSummary = profile.summary;
+  artifact.operatorPolicy = { ...operatorPolicy };
+  artifact.criticalGates = criticalGates;
+  artifact.readyForHuman = profile.name === "release-ready" && blockedBy.length === 0;
+  artifact.blockedBy = blockedBy;
+
+  return artifact;
+}
+
+export function createInitialValidationArtifact(repoRoot, profile = resolveSelfCheckProfile("repo")) {
+  const artifact = {
     generatedAt: new Date().toISOString(),
     cwd: repoRoot,
     rerunGuidance: createValidationRerunGuidance(repoRoot),
     results: []
   };
+
+  return refreshValidationArtifact(artifact, profile);
 }
 
 function normalizeReportedPath(filePath) {
@@ -402,19 +545,21 @@ export async function runSelfCheckSuite({
   reportsDirectory,
   validationResultsPath,
   npmInvocation,
-  commandSpecs = defaultSelfCheckCommandSpecs,
+  profileName = "repo",
+  commandSpecs = null,
   spawnImpl = spawn,
   stdout = process.stdout,
   stderr = process.stderr
 }) {
+  const profile = resolveSelfCheckProfile(profileName, { commandSpecs });
   const validationEvidenceDirectory = path.join(reportsDirectory, "validation-evidence");
-  const artifact = createInitialValidationArtifact(repoRoot);
+  const artifact = createInitialValidationArtifact(repoRoot, profile);
   await removePreviousValidationEvidence(validationEvidenceDirectory);
   await writeValidationArtifact(artifact, validationResultsPath);
 
   let failureSeen = false;
 
-  for (const spec of commandSpecs) {
+  for (const spec of profile.commandSpecs) {
     const result = failureSeen
       ? await createSkippedSelfCheckResult({
           spec,
@@ -434,6 +579,7 @@ export async function runSelfCheckSuite({
 
     artifact.results.push(result);
     artifact.generatedAt = new Date().toISOString();
+    refreshValidationArtifact(artifact, profile);
     await writeValidationArtifact(artifact, validationResultsPath);
 
     if (result.status === "failed") {

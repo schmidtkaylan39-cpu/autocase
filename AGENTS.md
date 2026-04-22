@@ -21,6 +21,8 @@ Read it before making broad changes.
 - If blocked, immediately escalate to GPT-5.4 for support; only ask the human after that escalation path is exhausted.
 - Do not mix unrelated task lines in the same dirty `main` workspace. For parallel work or long-running validation, follow `docs/workspace-isolation-sop.zh-TW.md`.
 - Keep changes minimal and targeted; avoid unrelated refactors or broad cleanup.
+- For panel or human-UI work, do not ask a human to validate the UI until the agent has completed a minimal live panel smoke.
+- Minimum live panel smoke means: launch the live panel, run one real quick-start flow, and confirm that status or operation-log updates are visible.
 
 ## Repository Commands (Source of Truth)
 
@@ -68,6 +70,8 @@ Use objective evidence: build, lint, typecheck, test, integration, e2e, or other
 If a gate was not run, say so explicitly.
 When full validation is not possible, explain the remaining risk and why it remains.
 Capture validation results in a structured form when the round is intended for handoff or release review.
+Do not claim `ready for human`, `human-ready`, `可實戰`, or equivalent wording unless the `release-ready` gate passed.
+If only lighter checks passed, say exactly what passed, such as `panel smoke passed` or `runtime ready for spot-check use`.
 
 ## Round Outputs
 
