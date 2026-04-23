@@ -50,7 +50,7 @@ export const defaultFactoryConfig = {
     implementation: 3,
     review: 2,
     verification: 2,
-    replanning: 1,
+    replanning: 2,
     hybridSurface: {
       maxAttempts: 3,
       retryDelayMinutes: 3,

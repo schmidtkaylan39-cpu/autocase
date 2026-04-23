@@ -55,11 +55,11 @@ const defaultTimeoutMsByRuntime = {
 };
 
 const defaultRetryBudgetByRole = {
-  planner: 1,
+  planner: 2,
   reviewer: 2,
   executor: 3,
   verifier: 2,
-  orchestrator: 1
+  orchestrator: 2
 };
 
 const defaultMaxOutputTokensByRole = {

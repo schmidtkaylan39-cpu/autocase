@@ -23,6 +23,11 @@ function hashTextSha256(value) {
   return createHash("sha256").update(String(value), "utf8").digest("hex");
 }
 
+function persistPromptTextForDescriptor(descriptor) {
+  const persistedPromptText = `${descriptor.promptText}\n`;
+  return descriptor.launcher?.language === "powershell" ? `\uFEFF${persistedPromptText}` : persistedPromptText;
+}
+
 function createDescriptorFixture({
   role,
   taskId,
@@ -230,15 +235,15 @@ async function main() {
       assert.ok(descriptor.promptText.includes("- maxTokens: 12000"));
       assert.ok(descriptor.promptText.includes("- topP: 1"));
       assert.ok(descriptor.promptText.includes("# Execution Guardrails"));
-      assert.ok(descriptor.promptText.includes("- retryBudget: 1"));
-      assert.ok(descriptor.promptText.includes("- circuitBreakerLimit: 1"));
+      assert.ok(descriptor.promptText.includes("- retryBudget: 2"));
+      assert.ok(descriptor.promptText.includes("- circuitBreakerLimit: 2"));
       assert.ok(descriptor.promptText.includes("# Workspace Root Path\nC:/workspace/demo"));
       assert.equal(descriptor.prompt.hashAlgorithm, "sha256");
-      assert.equal(descriptor.prompt.hash, hashTextSha256(`${descriptor.promptText}\n`));
+      assert.equal(descriptor.prompt.hash, hashTextSha256(persistPromptTextForDescriptor(descriptor)));
       assert.equal(descriptor.prompt.encoding, "utf8");
       assert.equal(descriptor.execution.timeoutMs, 300000);
-      assert.equal(descriptor.execution.retryBudget, 1);
-      assert.equal(descriptor.execution.circuitBreakerLimit, 1);
+      assert.equal(descriptor.execution.retryBudget, 2);
+      assert.equal(descriptor.execution.circuitBreakerLimit, 2);
       assert.match(descriptor.execution.idempotencyKey, /^[a-f0-9]{64}$/);
       assert.equal(descriptor.launcher.metadata.fixedModelId, "gpt-5.4");
       assert.equal(descriptor.launcher.metadata.fixedModel, "gpt-5.4");
@@ -272,7 +277,7 @@ async function main() {
     );
   });
 
-  await runTest("buildHandoffDescriptor automatically fails planner retries over to codex after transient gpt-runner failures", async () => {
+  await runTest("buildHandoffDescriptor fails planner retries over to codex after transient gpt-runner failures", async () => {
     const descriptor = createDescriptorFixture({
       role: "planner",
       taskId: "planning-brief",
@@ -309,9 +314,10 @@ async function main() {
       descriptor.launcherScript,
       /\$prompt \| & codex -a never exec --skip-git-repo-check -C \. -s workspace-write -/i
     );
+    assert.doesNotMatch(descriptor.launcherScript, /\$prompt \| & codex -m /i);
   });
 
-  await runTest("buildHandoffDescriptor also fails planner retries over to codex when the transient GPT-runner signal only survives in notes", async () => {
+  await runTest("buildHandoffDescriptor also fails planner retries over to codex when the transient signal only survives in notes", async () => {
     const descriptor = createDescriptorFixture({
       role: "planner",
       taskId: "planning-brief",
@@ -346,6 +352,52 @@ async function main() {
     assert.equal(descriptor.runtime.selectionStatus, "ready");
     assert.match(descriptor.runtime.selectionReason, /selected automatically after a transient GPT Runner upstream failure/i);
     assert.equal(descriptor.launcher.metadata.runtimeId, "codex");
+    assert.match(
+      descriptor.launcherScript,
+      /\$prompt \| & codex -a never exec --skip-git-repo-check -C \. -s workspace-write -/i
+    );
+    assert.doesNotMatch(descriptor.launcherScript, /\$prompt \| & codex -m /i);
+  });
+
+  await runTest("buildHandoffDescriptor preserves escalated reviewer model while reviewer retries fail over to codex", async () => {
+    const descriptor = createDescriptorFixture({
+      role: "reviewer",
+      taskId: "review-feature",
+      runState: {
+        status: "attention_required"
+      },
+      taskOverrides: {
+        retryCount: 1,
+        lastRetryReason:
+          "Transient GPT Runner upstream failure; automatically retrying the same task. Observed transient provider or transport symptoms in launcher output."
+      },
+      doctorReport: {
+        checks: [
+          {
+            id: "gpt-runner",
+            installed: true,
+            ok: true,
+            source: "C:/tools/codex.cmd"
+          },
+          {
+            id: "codex",
+            installed: true,
+            ok: true,
+            source: "C:/tools/codex.cmd"
+          }
+        ]
+      },
+      platform: "win32"
+    });
+
+    assert.equal(descriptor.runtime.id, "codex");
+    assert.equal(descriptor.model.preferredModel, "gpt-5.4-pro");
+    assert.match(descriptor.runtime.selectionReason, /selected automatically after a transient GPT Runner upstream failure/i);
+    assert.match(
+      descriptor.launcherScript,
+      /\$prompt \| & codex -a never exec --skip-git-repo-check -C \. -s workspace-write -/i
+    );
+    assert.doesNotMatch(descriptor.launcherScript, /\$prompt \| & codex -m /i);
   });
 
   await runTest("manual planner or reviewer surfaces are skipped by dispatch execute when explicitly forced", async () => {

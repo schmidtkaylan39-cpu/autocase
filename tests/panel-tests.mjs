@@ -245,16 +245,52 @@ async function main() {
       assert.match(pageHtml, /id="workspaceInput"/);
       assert.match(pageHtml, /id="requestInput"/);
       assert.match(pageHtml, /Start: Local workspace contains sales\.json and artifacts\/reports is writable\./);
-      assert.match(pageHtml, /End point: Create artifacts\/reports\/summary\.md from local sales\.json without changing sales\.json\./);
+      assert.match(pageHtml, /End point: Create artifacts\/reports\/summary\.md from local sales\.json\./);
       assert.match(pageHtml, /Success criteria:/);
       assert.match(pageHtml, /Input source: sales\.json\./);
       assert.match(pageHtml, /Out of scope: do not modify sales\.json; do not send email; do not call external APIs\./);
+      assert.match(pageHtml, /終點只要寫交付結果或輸出檔名；像「不要改原檔」這種限制，寫在「非範圍」就好。/);
       assert.match(pageHtml, /id="runIdInput"/);
       assert.match(pageHtml, /id="maxRoundsInput" value="20"/);
       assert.match(pageHtml, /id="confirmationInput"/);
+      assert.match(pageHtml, /id="assistantCard"/);
+      assert.match(pageHtml, /id="assistantStepBadge"/);
+      assert.match(pageHtml, /id="assistantQuestion"/);
+      assert.match(pageHtml, /id="assistantHint"/);
+      assert.match(pageHtml, /id="assistantAnswer"/);
+      assert.match(pageHtml, /id="assistantMirror"/);
+      assert.match(pageHtml, /id="assistantSummary"/);
+      assert.match(pageHtml, /id="assistantReflectBtn"/);
+      assert.match(pageHtml, /id="assistantRewriteBtn"/);
+      assert.match(pageHtml, /id="assistantLoadBtn"/);
+      assert.match(pageHtml, /id="assistantBackBtn"/);
+      assert.match(pageHtml, /id="assistantNextBtn"/);
+      assert.match(pageHtml, /id="assistantApplyBtn"/);
+      assert.match(pageHtml, /id="assistantApplyRunBtn"/);
+      assert.match(pageHtml, /id="assistantResetBtn"/);
+      assert.match(pageHtml, /id="startCheckCard"/);
+      assert.match(pageHtml, /id="startCheckHint"/);
+      assert.match(pageHtml, /id="startCheckSummary"/);
+      assert.match(pageHtml, /id="previewCard"/);
+      assert.match(pageHtml, /id="previewHint"/);
+      assert.match(pageHtml, /id="previewSummary"/);
+      assert.match(pageHtml, /id="humanStatusCard"/);
+      assert.match(pageHtml, /id="humanStatusHint"/);
+      assert.match(pageHtml, /id="humanStatusSummary"/);
+      assert.match(pageHtml, /id="resultCard"/);
+      assert.match(pageHtml, /id="resultHint"/);
+      assert.match(pageHtml, /id="resultSummary"/);
+      assert.match(pageHtml, /id="toastStack"/);
+      assert.match(pageHtml, /id="progressHeadline"/);
+      assert.match(pageHtml, /id="progressPercent"/);
+      assert.match(pageHtml, /id="progressTrack"/);
+      assert.match(pageHtml, /id="progressBar"/);
+      assert.match(pageHtml, /id="progressCaption"/);
       assert.match(pageHtml, /id="applyWorkspaceBtn"/);
       assert.match(pageHtml, /id="previewIntakeBtn"/);
       assert.match(pageHtml, /id="quickStartBtn"/);
+      assert.match(pageHtml, /id="abandonTaskBtn"/);
+      assert.match(pageHtml, /id="primaryActions"/);
       assert.match(pageHtml, /id="resumeNowBtn"/);
       assert.match(pageHtml, /id="refreshStatusBtn"/);
       assert.match(pageHtml, /id="viewGptPromptBtn"/);
@@ -265,11 +301,75 @@ async function main() {
       assert.match(pageHtml, /id="autonomousBtn"/);
       assert.match(pageHtml, /id="doctorBtn"/);
       assert.match(pageHtml, /<details>/);
+      assert.match(pageHtml, /class="assistant-details"/);
+      assert.match(pageHtml, /id="assistantMoreActions"/);
+      assert.match(pageHtml, /id="advancedActions"/);
+      assert.match(pageHtml, /id="startCheckCard" hidden/);
+      assert.match(pageHtml, /id="resultCard" hidden/);
       assert.match(pageHtml, /Step 1\/2: analyze start\/end in plain language/);
       assert.match(pageHtml, /Step 2\/2: execute after human confirmation/);
       assert.match(pageHtml, /Quick start paused: clarify task details first/);
       assert.match(pageHtml, /Quick start paused: waiting for human confirmation/);
       assert.match(pageHtml, /Quick start failed/);
+      assert.match(pageHtml, /一鍵開始：正在分析需求/);
+      assert.match(pageHtml, /一鍵開始：已送出執行/);
+      assert.match(pageHtml, /function renderPreviewSummary\(preview, title = "分析完成"\)/);
+      assert.match(pageHtml, /confirmationInput\.value = confirmationToken/);
+      assert.match(pageHtml, /previewCard\.scrollIntoView/);
+      assert.match(pageHtml, /function startProgressRefresh\(intervalMs = 3000\)/);
+      assert.match(pageHtml, /function stopProgressRefresh\(\)/);
+      assert.match(pageHtml, /function showToast\(kind, title, message, options = \{\}\)/);
+      assert.match(pageHtml, /function setTransientProgress\(headline, caption, options = \{\}\)/);
+      assert.match(pageHtml, /function summarizeInteractionActor\(overview = latestOverview\)/);
+      assert.match(pageHtml, /function renderHumanConfirmationChecklist\(preview\)/);
+      assert.match(pageHtml, /function renderFlowSteps\(activeStep = 1\)/);
+      assert.match(pageHtml, /function buildNewTaskDraftOverview\(overview = latestOverview\)/);
+      assert.match(pageHtml, /function clearDraftTaskMode\(\)/);
+      assert.match(pageHtml, /function deriveDisplayedOverview\(overview\)/);
+      assert.match(pageHtml, /function prepareForNewTaskDraft\(\)/);
+      assert.match(pageHtml, /function summarizeRunProgress\(overview\)/);
+      assert.match(pageHtml, /function summarizeOverviewStatus\(overview\)/);
+      assert.match(pageHtml, /function summarizeOverviewProgressKey\(overview\)/);
+      assert.match(pageHtml, /function shouldAutoRefreshOverview\(overview = latestOverview\)/);
+      assert.match(pageHtml, /function syncLiveStatusRefresh\(overview = latestOverview\)/);
+      assert.match(pageHtml, /function maybeNotifyOverviewChange\(overview\)/);
+      assert.match(pageHtml, /function appendLogEntry\(title, value, options = \{\}\)/);
+      assert.match(pageHtml, /function syncOperationLogWithOverview\(overview\)/);
+      assert.match(pageHtml, /function previewProtectsOriginalInput\(preview\)/);
+      assert.match(pageHtml, /function renderStartCheckCard\(preview = latestPreview\)/);
+      assert.match(pageHtml, /function renderHumanStatusCard\(overview = latestOverview\)/);
+      assert.match(pageHtml, /function buildAssistantReflection\(stepKey, answer\)/);
+      assert.match(pageHtml, /function rewriteAssistantAnswerForStep\(stepKey, answer\)/);
+      assert.match(pageHtml, /function renderAssistantMirror\(message, title = "我理解的是…對嗎？"\)/);
+      assert.match(pageHtml, /function renderResultCard\(overview = latestOverview\)/);
+      assert.match(pageHtml, /function parseAssistantStateFromRequest\(requestText\)/);
+      assert.match(pageHtml, /function buildAssistantRequestText\(\)/);
+      assert.match(pageHtml, /function assistantHasMinimumFields\(\)/);
+      assert.match(pageHtml, /function renderAssistantSummary\(\)/);
+      assert.match(pageHtml, /function renderAssistantWizard\(\)/);
+      assert.match(pageHtml, /function persistAssistantAnswer\(\)/);
+      assert.match(pageHtml, /function loadAssistantFromRequestInput\(options = \{\}\)/);
+      assert.match(pageHtml, /function resetAssistantWizard\(\)/);
+      assert.match(pageHtml, /function applyAssistantToRequestInput\(\)/);
+      assert.match(pageHtml, /let lastLoggedProgressKey = null/);
+      assert.match(pageHtml, /const browserTimeZone = Intl\.DateTimeFormat\(\)\.resolvedOptions\(\)\.timeZone \|\| "local"/);
+      assert.match(pageHtml, /toast\.dataset\.toastKey = dedupeKey/);
+      assert.match(pageHtml, /actor-banner/);
+      assert.match(pageHtml, /confirm-checklist/);
+      assert.match(pageHtml, /flow-grid/);
+      assert.match(pageHtml, /wizard-shell/);
+      assert.match(pageHtml, /wizard-step/);
+      assert.match(pageHtml, /wizard-summary/);
+      assert.match(pageHtml, /目前互動對象/);
+      assert.match(pageHtml, /lastObservedStatusKey === null/);
+      assert.match(pageHtml, /statusSummary\.key === lastObservedStatusKey/);
+      assert.match(pageHtml, /showToast\(statusSummary\.kind, statusSummary\.title, statusSummary\.message/);
+      assert.match(pageHtml, /appendLogEntry\(\(interactionActor\.actor \|\| "系統"\) \+ " 狀態更新"/);
+      assert.match(pageHtml, /syncOperationLogWithOverview\(overview\)/);
+      assert.match(pageHtml, /右側目前狀態會自動刷新/);
+      assert.match(pageHtml, /currentTaskNote: sanitizeTaskNote\(latestRun\.activity\?\.currentTask\?\.latestNote\)/);
+      assert.match(pageHtml, /pendingTasks: summary\.pendingTasks \?\? 0/);
+      assert.match(pageHtml, /timeZone: browserTimeZone/);
       assert.match(pageHtml, /window\.prompt\(/);
       assert.match(pageHtml, /confirmationInput\?\.value\?\.trim\(\)/);
       assert.match(pageHtml, /const successCriteriaSummary = Array\.isArray\(preview\.endPoint\?\.successTargets\)/);
@@ -277,10 +377,291 @@ async function main() {
       assert.match(pageHtml, /\\nSuccess criteria: /);
       assert.match(pageHtml, /\\nOut of scope: /);
       assert.match(pageHtml, /document\.getElementById\("quickStartBtn"\)\.addEventListener\("click", runQuickStartSafe\)/);
-      assert.match(pageHtml, /runAction\("intake-preview", \{ request: requestInput\.value \}/);
+      assert.match(pageHtml, /document\.getElementById\("previewIntakeBtn"\)\.addEventListener\("click", previewIntake\)/);
+      assert.match(pageHtml, /assistantAnswer\.addEventListener\("input", \(\) =>/);
+      assert.match(pageHtml, /assistantReflectBtn\.addEventListener\("click", \(\) =>/);
+      assert.match(pageHtml, /assistantRewriteBtn\.addEventListener\("click", \(\) =>/);
+      assert.match(pageHtml, /assistantLoadBtn\.addEventListener\("click", \(\) =>/);
+      assert.match(pageHtml, /abandonTaskBtn\.addEventListener\("click", \(\) =>/);
+      assert.match(pageHtml, /assistantBackBtn\.addEventListener\("click", \(\) =>/);
+      assert.match(pageHtml, /assistantNextBtn\.addEventListener\("click", \(\) =>/);
+      assert.match(pageHtml, /assistantApplyBtn\.addEventListener\("click", \(\) =>/);
+      assert.match(pageHtml, /assistantApplyRunBtn\.addEventListener\("click", async \(\) =>/);
+      assert.match(pageHtml, /assistantResetBtn\.addEventListener\("click", \(\) =>/);
+      assert.match(pageHtml, /renderPreviewSummary\(preview, [\s\S]*?renderStartCheckCard\(preview\);/);
+      assert.match(pageHtml, /applyAssistantToRequestInput\(\);[\s\S]*await runQuickStartSafe\(\);/);
+      assert.match(pageHtml, /assistantReflectBtn[\s\S]*?rewriteAssistantAnswerForStep\(step\.key, currentValue\)/);
+      assert.match(pageHtml, /assistantReflectBtn[\s\S]*?buildAssistantReflection\(step\.key, currentValue\)/);
+      assert.match(pageHtml, /assistantRewriteBtn[\s\S]*?rewriteAssistantAnswerForStep\(step\.key, assistantAnswer\?\.value \?\? ""\)/);
+      assert.match(pageHtml, /prepareForNewTaskDraft\(\);/);
+      assert.match(pageHtml, /loadAssistantFromRequestInput\(\{ silent: true \}\);/);
       assert.match(pageHtml, /invokeAction\(\s*"quick-start-safe"/);
-      assert.match(pageHtml, /scheduleAutoResume\(overviewPayload\.overview\)/);
+      assert.match(pageHtml, /startProgressRefresh\(\)/);
+      assert.match(pageHtml, /stopProgressRefresh\(\)/);
+      assert.match(pageHtml, /const displayedOverview = deriveDisplayedOverview\(overviewPayload\.overview\);/);
+      assert.match(pageHtml, /function renderStatus\(overview\) \{[\s\S]*?latestOverview = overview;[\s\S]*?renderResultCard\(overview\);/);
+      assert.match(pageHtml, /renderHumanStatusCard\(overview\);/);
+      assert.match(pageHtml, /showToast\("info", "正在分析需求"/);
+      assert.match(pageHtml, /showToast\("info", "已送出執行"/);
+      assert.match(pageHtml, /setTransientProgress\("GPT 正在思考"/);
+      assert.match(pageHtml, /setTransientProgress\("系統正在執行"/);
+      assert.match(pageHtml, /scheduleAutoResume\(displayedOverview\)/);
+      assert.match(pageHtml, /syncLiveStatusRefresh\(displayedOverview\)/);
+      assert.match(pageHtml, /maybeNotifyOverviewChange\(overview\)/);
       assert.match(pageHtml, /refreshStatus\(\)\.catch/);
+
+      const primaryActions = pageHtml.match(/id="primaryActions"[\s\S]*?<button /g);
+      assert.ok(primaryActions);
+      const primarySection = pageHtml.match(/<div class="actions primary-actions" id="primaryActions">([\s\S]*?)<\/div>/);
+      assert.ok(primarySection);
+      const primaryButtonCount = (primarySection[1].match(/<button /g) ?? []).length;
+      assert.ok(primaryButtonCount <= 4);
+    } finally {
+      await panel.close();
+    }
+  });
+
+  await runTest("panel status API exposes active task progress for the latest run", async () => {
+    const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "ai-factory-panel-progress-"));
+    const runDirectory = path.join(workspaceRoot, "runs", "progress-run");
+    const runStatePath = path.join(runDirectory, "run-state.json");
+    await mkdir(runDirectory, { recursive: true });
+    await writeFile(
+      runStatePath,
+      `${JSON.stringify(
+        {
+          version: 1,
+          runId: "progress-run",
+          projectName: "Progress test",
+          workspacePath: workspaceRoot,
+          createdAt: "2026-04-22T05:00:00.000Z",
+          updatedAt: "2026-04-22T05:01:00.000Z",
+          status: "in_progress",
+          roles: {},
+          retryPolicy: {},
+          runtimeRouting: {},
+          modelPolicy: {},
+          mandatoryGates: [],
+          intake: null,
+          stopConditions: [],
+          definitionOfDone: [],
+          taskLedger: [
+            {
+              id: "planning-brief",
+              phaseId: "planning",
+              role: "planner",
+              owner: "GPT Runner",
+              title: "Clarify the brief and execution sequence",
+              description: "Turn the request into an executable plan.",
+              status: "completed",
+              dependsOn: [],
+              acceptanceCriteria: [],
+              notes: ["2026-04-22T05:00:30.000Z dispatch:completed"]
+            },
+            {
+              id: "implement-feature",
+              phaseId: "implementation",
+              role: "executor",
+              owner: "Codex",
+              title: "Implement the requested summary output",
+              description: "Create the requested output artifact.",
+              status: "in_progress",
+              dependsOn: ["planning-brief"],
+              acceptanceCriteria: [],
+              notes: ["2026-04-22T05:01:00.000Z dispatch:claimed 123"]
+            },
+            {
+              id: "review-feature",
+              phaseId: "review",
+              role: "reviewer",
+              owner: "Independent reviewer",
+              title: "Review the requested summary output",
+              description: "Review the delivery for quality issues.",
+              status: "pending",
+              dependsOn: ["implement-feature"],
+              acceptanceCriteria: []
+            }
+          ],
+          nextActions: []
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+
+    const panel = await startPanelServer({
+      workspaceDir: workspaceRoot,
+      port: 0
+    });
+
+    try {
+      const status = await getJson(`${panel.url}/api/status`);
+      assert.equal(status.overview.latestRun?.summary?.runId, "progress-run");
+      assert.equal(status.overview.latestRun?.activity?.currentTask?.id, "implement-feature");
+      assert.equal(status.overview.latestRun?.activity?.currentTask?.role, "executor");
+      assert.equal(status.overview.latestRun?.activity?.nextTask?.id, "review-feature");
+      assert.equal(status.overview.latestRun?.activity?.lastCompletedTask?.id, "planning-brief");
+      assert.match(status.overview.latestRun?.activity?.currentTask?.latestNote ?? "", /dispatch:claimed 123/);
+    } finally {
+      await panel.close();
+    }
+  });
+
+  await runTest("panel status API exposes human readiness summary from validation results", async () => {
+    const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "ai-factory-panel-human-readiness-"));
+    const reportsDirectory = path.join(workspaceRoot, "reports");
+    await mkdir(reportsDirectory, { recursive: true });
+    await writeFile(
+      path.join(reportsDirectory, "validation-results.json"),
+      `${JSON.stringify(
+        {
+          profile: "repo",
+          readyForHuman: false,
+          blockedBy: [
+            'Validation ran with the "repo" profile only. Run `npm run selfcheck:release-ready` before human handoff or "可實戰" claims.'
+          ],
+          criticalGates: []
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+
+    const panel = await startPanelServer({
+      workspaceDir: workspaceRoot,
+      port: 0
+    });
+
+    try {
+      const status = await getJson(`${panel.url}/api/status`);
+      const validationSummary = status.overview.validationSummary;
+      const humanReadiness = status.overview.humanReadiness;
+
+      assert.equal(validationSummary?.profile, "repo");
+      assert.equal(validationSummary?.readyForHuman, false);
+      assert.equal(humanReadiness?.readyForHuman, false);
+      assert.equal(humanReadiness?.state, "not-validated");
+      assert.match(humanReadiness?.title ?? "", /尚未完成 release-ready 驗證/);
+      assert.match((humanReadiness?.blockers ?? []).join("\n"), /repo 級驗證.*release-ready/);
+      assert.match(humanReadiness?.recommendedAction ?? "", /npm run selfcheck:release-ready/);
+    } finally {
+      await panel.close();
+    }
+  });
+
+  await runTest("panel status API exposes latestRun.quickStartResultCard when evidence exists", async () => {
+    const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "ai-factory-panel-result-card-"));
+    const inputPath = path.join(workspaceRoot, "data", "rick.json");
+    const outputPath = path.join(workspaceRoot, "artifacts", "generated", "rick-summary.md");
+    const runDirectory = path.join(workspaceRoot, "runs", "result-card-run");
+    const runStatePath = path.join(runDirectory, "run-state.json");
+    const evidencePath = path.join(runDirectory, "quick-start-run-evidence.json");
+    const inputContent = JSON.stringify(
+      [
+        { month: "2026-01", profit: 1200, win: true },
+        { month: "2026-02", profit: -300, win: false }
+      ],
+      null,
+      2
+    );
+    const outputContent = [
+      "# rick summary",
+      "整體勝率：50%",
+      "每月獲利：2026-01 = 1200；2026-02 = -300",
+      "每一筆資料都已列出"
+    ].join("\n");
+
+    await mkdir(path.dirname(inputPath), { recursive: true });
+    await mkdir(path.dirname(outputPath), { recursive: true });
+    await mkdir(runDirectory, { recursive: true });
+    await writeFile(inputPath, inputContent, "utf8");
+    await writeFile(outputPath, outputContent, "utf8");
+
+    const inputStats = await stat(inputPath);
+    const inputSha256 = createHash("sha256").update(inputContent, "utf8").digest("hex");
+
+    await writeFile(
+      runStatePath,
+      `${JSON.stringify(
+        {
+          version: 1,
+          runId: "result-card-run",
+          projectName: "Result card test",
+          workspacePath: workspaceRoot,
+          createdAt: "2026-04-22T06:00:00.000Z",
+          updatedAt: "2026-04-22T06:05:00.000Z",
+          status: "completed",
+          roles: {},
+          retryPolicy: {},
+          runtimeRouting: {},
+          modelPolicy: {},
+          mandatoryGates: [],
+          intake: null,
+          stopConditions: [],
+          definitionOfDone: [],
+          taskLedger: [
+            {
+              id: "delivery-package",
+              phaseId: "delivery",
+              role: "orchestrator",
+              owner: "Codex",
+              title: "Assemble the delivery package",
+              description: "Collect the requested artifacts for handoff.",
+              status: "completed",
+              dependsOn: [],
+              acceptanceCriteria: []
+            }
+          ],
+          nextActions: []
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+    await writeFile(
+      evidencePath,
+      `${JSON.stringify(
+        {
+          requestedNoInputModification: true,
+          requestedInputLabels: ["rick.json"],
+          outputPath,
+          inputFiles: [
+            {
+              path: inputPath,
+              exists: true,
+              sha256: inputSha256,
+              size: inputStats.size,
+              modifiedAt: inputStats.mtime.toISOString()
+            }
+          ]
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+
+    const panel = await startPanelServer({
+      workspaceDir: workspaceRoot,
+      port: 0
+    });
+
+    try {
+      const status = await getJson(`${panel.url}/api/status`);
+      const resultCard = status.overview.latestRun?.quickStartResultCard;
+
+      assert.equal(status.overview.latestRun?.summary?.runId, "result-card-run");
+      assert.equal(resultCard?.requestedNoInputModification, true);
+      assert.equal(resultCard?.didModifyInputFiles, false);
+      assert.deepEqual(resultCard?.modifiedInputFiles, []);
+      assert.equal(resultCard?.inputFiles?.[0]?.workspacePath, "data/rick.json");
+      assert.equal(resultCard?.outputFile?.workspacePath, "artifacts/generated/rick-summary.md");
+      assert.ok(Array.isArray(resultCard?.outputFile?.highlights));
+      assert.equal(resultCard?.outputFile?.highlights?.includes("整體勝率：50%"), true);
+      assert.equal(resultCard?.outputFile?.highlights?.includes("每一筆資料都已列出"), true);
     } finally {
       await panel.close();
     }
@@ -538,7 +919,7 @@ async function main() {
       assert.match(pageHtml, /id="resumeNowBtn"/);
       assert.match(pageHtml, /Resume now/);
       assert.match(pageHtml, /Next retry at/);
-      assert.match(pageHtml, /scheduleAutoResume\(overviewPayload\.overview\)/);
+      assert.match(pageHtml, /scheduleAutoResume\(displayedOverview\)/);
       assert.match(pageHtml, /Auto resume after waiting_retry/);
     } finally {
       await panel.close();

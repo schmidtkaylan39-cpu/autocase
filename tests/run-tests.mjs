@@ -416,6 +416,39 @@ async function main() {
     assert.match(promptText, /"handoffId"/);
   });
 
+  await runTest("windows handoff prompt and launcher preserve unicode workspace paths for PowerShell", async () => {
+    if (process.platform !== "win32") {
+      return;
+    }
+
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "ai-factory-unicode-workspace-"));
+    const workspace = path.join(tempRoot, "精舍", "workspace");
+    const specPath = path.join(workspace, "specs", "project-spec.json");
+    const doctorReportPath = path.join(workspace, "reports", "runtime-doctor.json");
+
+    await mkdir(path.join(workspace, "specs"), { recursive: true });
+    await mkdir(path.join(workspace, "reports"), { recursive: true });
+    await writeFile(specPath, await readFile(validSpecPath, "utf8"), "utf8");
+    await writeFakeDoctorReport(doctorReportPath, {
+      "gpt-runner": { ok: true }
+    });
+
+    const runResult = await runProject(specPath, path.join(workspace, "runs"), "unicode-handoff-run");
+    const handoffResult = await createRunHandoffs(runResult.statePath, undefined, doctorReportPath);
+    const promptPath = path.join(handoffResult.outputDir, "planning-brief.prompt.md");
+    const launcherPath = path.join(handoffResult.outputDir, "planning-brief.launch.ps1");
+    const promptBuffer = await readFile(promptPath);
+    const launcherBuffer = await readFile(launcherPath);
+    const promptText = promptBuffer.toString("utf8");
+    const launcherText = launcherBuffer.toString("utf8");
+
+    assert.deepEqual([...promptBuffer.subarray(0, 3)], [0xef, 0xbb, 0xbf]);
+    assert.deepEqual([...launcherBuffer.subarray(0, 3)], [0xef, 0xbb, 0xbf]);
+    assert.ok(promptText.includes(`- workspaceRoot: ${workspace}`));
+    assert.ok(promptText.includes(`# Workspace Root Path\n${workspace}`));
+    assert.match(launcherText, new RegExp(workspace.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  });
+
   await runTest("manual planner handoff surfaces include the workspace root in prompts, briefs, and launchers", async () => {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), "ai-factory-manual-workspace-"));
     const workspace = path.join(tempRoot, "workspace");
@@ -780,8 +813,15 @@ async function main() {
 
     const retryDescriptorArtifact = JSON.parse(await readFile(retryDescriptor.handoffJsonPath, "utf8"));
     assert.equal(retryDescriptor.runtime.id, "codex");
-    assert.match(retryDescriptor.runtime.selectionReason, /transient GPT Runner upstream failure/i);
-    assert.match(retryDescriptorArtifact.launcherScript, /codex -a never exec --skip-git-repo-check -C \. -s workspace-write -/i);
+    assert.match(
+      retryDescriptor.runtime.selectionReason,
+      /selected automatically after a transient GPT Runner upstream failure/i
+    );
+    assert.match(
+      retryDescriptorArtifact.launcherScript,
+      /codex -a never exec --skip-git-repo-check -C \. -s workspace-write -/i
+    );
+    assert.doesNotMatch(retryDescriptorArtifact.launcherScript, /codex -m 'gpt-5\.4-pro'/i);
   });
 
   await runTest("manual or hybrid result artifacts require an active handoff", async () => {
