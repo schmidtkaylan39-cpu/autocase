@@ -2282,14 +2282,14 @@ async function main() {
     const previousWatchdogTimeout = process.env.AI_FACTORY_AUTONOMOUS_WATCHDOG_TIMEOUT_MS;
     let tickCalls = 0;
 
-    process.env.AI_FACTORY_AUTONOMOUS_WATCHDOG_TIMEOUT_MS = "10";
+    process.env.AI_FACTORY_AUTONOMOUS_WATCHDOG_TIMEOUT_MS = "50";
 
     try {
       const result = await runAutonomousLoop(runResult.statePath, {
         maxRounds: 5,
         operations: {
           runRuntimeDoctor: async () => {
-            await new Promise((resolve) => setTimeout(resolve, 30));
+            await new Promise((resolve) => setTimeout(resolve, 200));
             await writeJson(doctorReportPath, { checks: [] });
             return { jsonPath: doctorReportPath };
           },
@@ -2351,7 +2351,7 @@ async function main() {
           },
           tickProjectRun: async () => {
             tickCalls += 1;
-            await new Promise((resolve) => setTimeout(resolve, 30));
+            await new Promise((resolve) => setTimeout(resolve, 800));
             const currentRunState = refreshRunState(await readJson(runResult.statePath));
             const completedRunState = refreshRunState({
               ...currentRunState,
