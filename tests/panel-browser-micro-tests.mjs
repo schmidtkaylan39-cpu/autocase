@@ -36,7 +36,10 @@ async function main() {
       assert.equal(summary.harnessPassed, true);
       assert.equal(summary.feasibleNow, true);
       assert.equal(summary.pageReadiness?.callApiType, "function");
+      assert.equal(summary.pageReadiness?.hasHorizontalOverflow, false);
+      assert.equal(summary.uiState?.hasHorizontalOverflow, false);
       assert.equal(summary.helperState?.renderHumanStatusCardType, "function");
+      assert.match(String(summary.uiState?.assistantMirrorText ?? ""), /我幫你整理成這樣|我理解的是/);
       assert.match(String(summary.uiState?.humanStatusText ?? ""), /面板操作/);
       assert.match(String(summary.uiState?.latestLogEntryText ?? ""), /Quick start completed/);
       assert.equal(

@@ -122,9 +122,21 @@ function buildChecks({ pageReadiness, helperState, uiState }) {
       message: "The live panel page finished booting and exposed its page-side API."
     },
     {
+      id: "page-no-horizontal-overflow",
+      passed:
+        pageReadiness?.hasHorizontalOverflow === false &&
+        uiState?.hasHorizontalOverflow === false,
+      message: "The live panel stays within the viewport without horizontal overflow."
+    },
+    {
       id: "human-status-helper-live",
       passed: helperState?.renderHumanStatusCardType === "function",
       message: "The live page exposes renderHumanStatusCard as an active helper."
+    },
+    {
+      id: "assistant-reflection-visible",
+      passed: String(uiState?.assistantMirrorText ?? "").trim().length > 0,
+      message: "The assistant reflect action leaves visible feedback in the UI."
     },
     {
       id: "human-status-card-rendered",
@@ -243,6 +255,28 @@ export async function runPanelBrowserMicroCheck(options = {}) {
       }))()`
     );
     summary.helperState = helperState;
+
+    await evaluateExpression(
+      cdpSession,
+      `(() => {
+        const details = document.querySelector(".assistant-details");
+        const answer = document.getElementById("assistantAnswer");
+        const reflectBtn = document.getElementById("assistantReflectBtn");
+
+        if (details) {
+          details.open = true;
+        }
+
+        if (!answer || !reflectBtn) {
+          throw new Error("Assistant controls are missing.");
+        }
+
+        answer.value = "Local workspace contains a demo output folder.";
+        answer.dispatchEvent(new Event("input", { bubbles: true }));
+        reflectBtn.click();
+        return document.getElementById("assistantMirror")?.textContent ?? "";
+      })()`
+    );
 
     await evaluateExpression(
       cdpSession,
