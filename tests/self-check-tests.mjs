@@ -122,7 +122,20 @@ async function main() {
     });
 
     assert.equal(artifact.results.length, 3);
+    assert.equal(artifact.profile, "repo");
+    assert.equal(artifact.readyForHuman, false);
+    assert.ok(
+      artifact.blockedBy.some((reason) => reason.includes('Validation ran with the "repo" profile only'))
+    );
     assert.deepEqual(artifact.rerunGuidance, createValidationRerunGuidance(repoRoot));
+    assert.deepEqual(
+      artifact.criticalGates.map((gate) => ({ id: gate.id, status: gate.status })),
+      [
+        { id: "build", status: "passed" },
+        { id: "doctor", status: "failed" },
+        { id: "test", status: "skipped" }
+      ]
+    );
     assert.equal(artifact.results[0].evidenceStrength, "artifact");
     assert.equal(artifact.results[0].evidenceSummary, "Includes a retained self-check command log.");
     assert.deepEqual(artifact.results[0].evidence, ["reports/validation-evidence/build.log"]);
@@ -160,6 +173,8 @@ async function main() {
     assert.match(doctorLog, /doctor failed/);
     assert.match(skippedLog, /Skipped by self-check/);
     assert.equal(writtenArtifact.results[2].status, "skipped");
+    assert.equal(writtenArtifact.profile, "repo");
+    assert.equal(writtenArtifact.readyForHuman, false);
     assert.deepEqual(writtenArtifact.rerunGuidance, createValidationRerunGuidance(repoRoot));
     await assert.rejects(() => stat(path.join(reportsDirectory, "validation-evidence", "stale.log")));
   });
@@ -212,6 +227,7 @@ async function main() {
     });
 
     assert.equal(artifact.results[0].status, "failed");
+    assert.equal(artifact.readyForHuman, false);
     assert.match(
       artifact.results[0].error ?? "",
       /Missing referenced validation evidence: reports\/runtime-doctor\.json/
@@ -231,12 +247,18 @@ async function main() {
     assert.deepEqual(writtenArtifact.results[1].evidence, ["reports/validation-evidence/test.log"]);
     assert.equal(writtenArtifact.results[0].status, "failed");
     assert.equal(writtenArtifact.results[1].status, "skipped");
+    assert.equal(writtenArtifact.readyForHuman, false);
   });
 
   await runTest("validation artifact helpers describe evidence clearly", async () => {
     const artifact = createInitialValidationArtifact("C:/workspace/demo");
 
     assert.equal(artifact.cwd, "C:/workspace/demo");
+    assert.equal(artifact.profile, "repo");
+    assert.equal(artifact.readyForHuman, false);
+    assert.ok(
+      artifact.blockedBy.some((reason) => reason.includes("selfcheck:release-ready"))
+    );
     assert.deepEqual(artifact.rerunGuidance, createValidationRerunGuidance("C:/workspace/demo"));
     assert.deepEqual(artifact.results, []);
     assert.equal(deriveEvidenceStrength([]), "record-only");
@@ -260,6 +282,86 @@ async function main() {
         includesCommandLog: true
       }),
       "Includes a retained self-check skip log explaining why this command did not run."
+    );
+  });
+
+  await runTest("release-ready profile marks human readiness only after all critical gates pass", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "ai-factory-self-check-release-ready-"));
+    const reportsDirectory = path.join(repoRoot, "reports");
+    const validationResultsPath = path.join(reportsDirectory, "validation-results.json");
+
+    await mkdir(reportsDirectory, { recursive: true });
+    await writeFile(path.join(reportsDirectory, "runtime-doctor.json"), "{}\n", "utf8");
+    await writeFile(path.join(reportsDirectory, "runtime-doctor.md"), "# doctor\n", "utf8");
+
+    const artifact = await runSelfCheckSuite({
+      repoRoot,
+      reportsDirectory,
+      validationResultsPath,
+      profileName: "release-ready",
+      npmInvocation: {
+        command: "fake-npm",
+        prefixArgs: []
+      },
+      commandSpecs: [
+        {
+          id: "doctor",
+          command: "npm run doctor",
+          args: ["run", "doctor"],
+          category: "repo-health",
+          evidence: ["reports/runtime-doctor.json", "reports/runtime-doctor.md"]
+        },
+        {
+          id: "acceptance-panel",
+          command: "npm run acceptance:panel",
+          args: ["run", "acceptance:panel"],
+          category: "human-ui",
+          evidence: []
+        },
+        {
+          id: "acceptance-panel-browser-micro",
+          command: "npm run acceptance:panel:browser:micro",
+          args: ["run", "acceptance:panel:browser:micro"],
+          category: "human-ui",
+          evidence: []
+        },
+        {
+          id: "acceptance-panel-browser-analyze",
+          command: "npm run acceptance:panel:browser:analyze",
+          args: ["run", "acceptance:panel:browser:analyze"],
+          category: "human-ui",
+          evidence: []
+        }
+      ],
+      spawnImpl: createFakeSpawn([
+        { stdout: "doctor ok\n", code: 0 },
+        { stdout: "panel ok\n", code: 0 },
+        { stdout: "browser micro ok\n", code: 0 },
+        { stdout: "browser ok\n", code: 0 }
+      ]),
+      stdout: /** @type {any} */ ({
+        write() {
+          return true;
+        }
+      }),
+      stderr: /** @type {any} */ ({
+        write() {
+          return true;
+        }
+      })
+    });
+
+    assert.equal(artifact.profile, "release-ready");
+    assert.equal(artifact.readyForHuman, true);
+    assert.deepEqual(artifact.blockedBy, []);
+    assert.deepEqual(
+      artifact.criticalGates.map((gate) => ({ id: gate.id, status: gate.status })),
+      [
+        { id: "doctor", status: "passed" },
+        { id: "acceptance-panel", status: "passed" },
+        { id: "acceptance-panel-browser-micro", status: "passed" },
+        { id: "acceptance-panel-browser-analyze", status: "passed" }
+      ]
     );
   });
 

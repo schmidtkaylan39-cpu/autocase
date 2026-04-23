@@ -11,6 +11,7 @@ Chinese quick guide:
 
 - `docs/usage-guide.zh-TW.md`
 - `docs/panel-quickstart.zh-TW.md`
+- `docs/panel-human-sop.zh-TW.md`
 
 ## Harness Baseline
 

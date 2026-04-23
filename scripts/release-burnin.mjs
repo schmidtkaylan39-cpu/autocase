@@ -43,6 +43,9 @@ const stepPresets = {
     { name: "test:e2e", args: ["run", "test:e2e"] },
     { name: "doctor", args: ["run", "doctor"] }
   ],
+  "release-ready": [
+    { name: "selfcheck:release-ready", args: ["run", "selfcheck:release-ready"] }
+  ],
   example: [
     { name: "validate:example", args: ["run", "validate:example"] },
     { name: "plan:example", args: ["run", "plan:example"] },
@@ -93,7 +96,7 @@ function printHelp() {
     "Usage: node scripts/release-burnin.mjs [options]",
     "",
     "Options:",
-    "  --preset <name>      Step preset: quality or example (default: quality)",
+    "  --preset <name>      Step preset: quality, release-ready, or example (default: quality)",
     "  --rounds <n>          Number of full validation rounds (default: 1)",
     "  --keep-going          Continue remaining steps/rounds after failures",
     "  --summary-file <path> Write JSON summary to a file",
@@ -102,7 +105,7 @@ function printHelp() {
     "  --help                Show this help message",
     "",
     "Environment variables:",
-    "  BURNIN_PRESET=quality|example",
+    "  BURNIN_PRESET=quality|release-ready|example",
     "  BURNIN_ROUNDS=<n>",
     "  BURNIN_KEEP_GOING=true|false",
     "  BURNIN_SUMMARY_FILE=<path>",

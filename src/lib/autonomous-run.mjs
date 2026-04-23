@@ -220,6 +220,17 @@ function appendAutonomousNote(task, note) {
   };
 }
 
+function latestTaskNote(task) {
+  const notes = safeArray(task?.notes);
+  return notes.length > 0 ? notes[notes.length - 1] : null;
+}
+
+function shouldRetrySameTaskAfterDispatchFailure(task) {
+  return /dispatch:(failed|incomplete|prompt-hash-mismatch|retry-budget-exhausted|circuit-open|invalid-automation-decision)/i.test(
+    String(latestTaskNote(task) ?? "")
+  );
+}
+
 function escapeForRegex(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -842,6 +853,18 @@ function maybeRecoverRunState(runState) {
     }
 
     if (task.role === "reviewer" || task.role === "verifier" || task.role === "executor") {
+      if (shouldRetrySameTaskAfterDispatchFailure(task)) {
+        const reason =
+          task.status === "failed"
+            ? "task dispatch failed during autonomous loop"
+            : "task dispatch contract was incomplete during autonomous loop";
+        const recovery = reopenSingleTask(runState, task.id, reason);
+
+        if (recovery.changed) {
+          return recovery;
+        }
+      }
+
       const reason = task.status === "failed" ? "task failed during autonomous loop" : "task blocked during autonomous loop";
       const recovery = reopenFeatureChain(runState, task.id, reason);
 
