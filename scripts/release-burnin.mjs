@@ -97,13 +97,16 @@ function printHelp() {
     "  --rounds <n>          Number of full validation rounds (default: 1)",
     "  --keep-going          Continue remaining steps/rounds after failures",
     "  --summary-file <path> Write JSON summary to a file",
+    "  --doctor-output-dir <path>",
+    "                       Override the doctor output directory for the quality preset",
     "  --help                Show this help message",
     "",
     "Environment variables:",
     "  BURNIN_PRESET=quality|example",
     "  BURNIN_ROUNDS=<n>",
     "  BURNIN_KEEP_GOING=true|false",
-    "  BURNIN_SUMMARY_FILE=<path>"
+    "  BURNIN_SUMMARY_FILE=<path>",
+    "  BURNIN_DOCTOR_OUTPUT_DIR=<path>"
   ].join("\n"));
 }
 
@@ -126,7 +129,8 @@ function parseArgs(argv) {
     preset: parsePreset(process.env.BURNIN_PRESET ?? "quality", "BURNIN_PRESET"),
     rounds: parseInteger(process.env.BURNIN_ROUNDS ?? "1", "BURNIN_ROUNDS"),
     keepGoing: toBoolean(process.env.BURNIN_KEEP_GOING),
-    summaryFile: process.env.BURNIN_SUMMARY_FILE ?? null
+    summaryFile: process.env.BURNIN_SUMMARY_FILE ?? null,
+    doctorOutputDir: process.env.BURNIN_DOCTOR_OUTPUT_DIR ?? null
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -175,10 +179,41 @@ function parseArgs(argv) {
       continue;
     }
 
+    if (token === "--doctor-output-dir") {
+      const value = argv[index + 1];
+      if (!value) {
+        throw new Error("Missing value for --doctor-output-dir");
+      }
+
+      config.doctorOutputDir = value;
+      index += 1;
+      continue;
+    }
+
     throw new Error(`Unknown option: ${token}`);
   }
 
   return config;
+}
+
+function buildSelectedSteps(config) {
+  const selectedSteps = stepPresets[config.preset].map((step) => ({
+    ...step,
+    args: [...step.args]
+  }));
+
+  if (config.preset !== "quality" || !config.doctorOutputDir) {
+    return selectedSteps;
+  }
+
+  return selectedSteps.map((step) =>
+    step.name === "doctor"
+      ? {
+          ...step,
+          args: [...step.args, "--", config.doctorOutputDir]
+        }
+      : step
+  );
 }
 
 async function runStep(step, round) {
@@ -239,7 +274,7 @@ async function writeSummary(summaryFile, payload) {
 
 async function main() {
   const config = parseArgs(process.argv.slice(2));
-  const selectedSteps = stepPresets[config.preset];
+  const selectedSteps = buildSelectedSteps(config);
   const startedMs = Date.now();
   const startedAt = new Date().toISOString();
   const rounds = [];

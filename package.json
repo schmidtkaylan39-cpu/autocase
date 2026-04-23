@@ -38,6 +38,7 @@
     "acceptance:panel:browser:full": "node scripts/panel-browser-smoke.mjs --require-completed --max-rounds 20 --watchdog-ms 2700000 --poll-interval-ms 15000",
     "burnin": "node scripts/release-burnin.mjs --rounds 3 --summary-file reports/release-burnin-summary.json",
     "burnin:example": "node scripts/release-burnin.mjs --preset example --rounds 3 --summary-file reports/example-smoke-burnin-summary.json",
+    "soak:overnight": "node scripts/overnight-soak-lane.mjs",
     "validate:example": "node src/index.mjs validate examples/project-spec.valid.json",
     "plan:example": "node src/index.mjs plan examples/project-spec.valid.json",
     "run:example": "node src/index.mjs run examples/project-spec.valid.json runs example-run",
