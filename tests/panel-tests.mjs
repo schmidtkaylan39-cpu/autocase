@@ -71,6 +71,62 @@ async function postActionExpectError(baseUrl, action, payload = {}) {
   return body.error ?? `Request failed: ${response.status}`;
 }
 
+async function createPanelRunFixture(workspaceRoot, runId) {
+  const runDirectory = path.join(workspaceRoot, "runs", runId);
+  const runStatePath = path.join(runDirectory, "run-state.json");
+  const handoffDirectory = path.join(runDirectory, "handoffs");
+  const runStateFixture = {
+    version: 1,
+    runId,
+    projectName: "Panel Fixture Run",
+    workspacePath: workspaceRoot,
+    createdAt: "2026-04-20T18:30:00.000Z",
+    updatedAt: "2026-04-20T18:31:00.000Z",
+    status: "in_progress",
+    summary: {
+      totalTasks: 1,
+      readyTasks: 1,
+      pendingTasks: 0,
+      waitingRetryTasks: 0,
+      completedTasks: 0,
+      blockedTasks: 0,
+      failedTasks: 0
+    },
+    roles: {},
+    retryPolicy: {},
+    runtimeRouting: {},
+    modelPolicy: {},
+    mandatoryGates: [],
+    intake: null,
+    stopConditions: [],
+    definitionOfDone: [],
+    taskLedger: [
+      {
+        id: "planning-brief",
+        phaseId: "planning",
+        role: "planner",
+        owner: "Codex",
+        title: "Clarify the brief and execution sequence",
+        description: "Prepare the next dispatch package.",
+        status: "ready",
+        attempts: 0,
+        dependsOn: [],
+        acceptanceCriteria: []
+      }
+    ],
+    nextActions: []
+  };
+
+  await mkdir(handoffDirectory, { recursive: true });
+  await writeFile(runStatePath, `${JSON.stringify(runStateFixture, null, 2)}\n`, "utf8");
+
+  return {
+    runDirectory,
+    runStatePath,
+    handoffDirectory
+  };
+}
+
 async function main() {
   await runTest("normalizePanelPort keeps defaults and validates range", async () => {
     assert.equal(normalizePanelPort(undefined), 4310);
@@ -381,6 +437,14 @@ async function main() {
           createdAt: "2026-04-22T05:00:00.000Z",
           updatedAt: "2026-04-22T05:01:00.000Z",
           status: "in_progress",
+          roles: {},
+          retryPolicy: {},
+          runtimeRouting: {},
+          modelPolicy: {},
+          mandatoryGates: [],
+          intake: null,
+          stopConditions: [],
+          definitionOfDone: [],
           taskLedger: [
             {
               id: "planning-brief",
@@ -388,8 +452,10 @@ async function main() {
               role: "planner",
               owner: "GPT Runner",
               title: "Clarify the brief and execution sequence",
+              description: "Turn the request into an executable plan.",
               status: "completed",
               dependsOn: [],
+              acceptanceCriteria: [],
               notes: ["2026-04-22T05:00:30.000Z dispatch:completed"]
             },
             {
@@ -398,8 +464,10 @@ async function main() {
               role: "executor",
               owner: "Codex",
               title: "Implement the requested summary output",
+              description: "Create the requested output artifact.",
               status: "in_progress",
               dependsOn: ["planning-brief"],
+              acceptanceCriteria: [],
               notes: ["2026-04-22T05:01:00.000Z dispatch:claimed 123"]
             },
             {
@@ -408,8 +476,10 @@ async function main() {
               role: "reviewer",
               owner: "Independent reviewer",
               title: "Review the requested summary output",
+              description: "Review the delivery for quality issues.",
               status: "pending",
-              dependsOn: ["implement-feature"]
+              dependsOn: ["implement-feature"],
+              acceptanceCriteria: []
             }
           ],
           nextActions: []
@@ -523,7 +593,27 @@ async function main() {
           createdAt: "2026-04-22T06:00:00.000Z",
           updatedAt: "2026-04-22T06:05:00.000Z",
           status: "completed",
-          taskLedger: [],
+          roles: {},
+          retryPolicy: {},
+          runtimeRouting: {},
+          modelPolicy: {},
+          mandatoryGates: [],
+          intake: null,
+          stopConditions: [],
+          definitionOfDone: [],
+          taskLedger: [
+            {
+              id: "delivery-package",
+              phaseId: "delivery",
+              role: "orchestrator",
+              owner: "Codex",
+              title: "Assemble the delivery package",
+              description: "Collect the requested artifacts for handoff.",
+              status: "completed",
+              dependsOn: [],
+              acceptanceCriteria: []
+            }
+          ],
           nextActions: []
         },
         null,
@@ -572,6 +662,50 @@ async function main() {
       assert.ok(Array.isArray(resultCard?.outputFile?.highlights));
       assert.equal(resultCard?.outputFile?.highlights?.includes("整體勝率：50%"), true);
       assert.equal(resultCard?.outputFile?.highlights?.includes("每一筆資料都已列出"), true);
+    } finally {
+      await panel.close();
+    }
+  });
+
+  await runTest("panel gpt-evidence rejects malformed dispatch-results artifacts", async () => {
+    const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "ai-factory-panel-gpt-invalid-json-"));
+    const { runStatePath, handoffDirectory } = await createPanelRunFixture(workspaceRoot, "panel-gpt-invalid-json");
+    const panel = await startPanelServer({
+      workspaceDir: workspaceRoot,
+      port: 0
+    });
+
+    await writeFile(path.join(handoffDirectory, "dispatch-results.json"), '{"summary":{},"results":[', "utf8");
+
+    try {
+      const errorMessage = await postActionExpectError(panel.url, "gpt-evidence", {
+        runStatePath
+      });
+      assert.match(errorMessage, /dispatch-results artifact is invalid|malformed JSON|partial write/i);
+    } finally {
+      await panel.close();
+    }
+  });
+
+  await runTest("panel gpt-evidence rejects dispatch-results artifacts missing required results arrays", async () => {
+    const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "ai-factory-panel-gpt-missing-results-"));
+    const { runStatePath, handoffDirectory } = await createPanelRunFixture(workspaceRoot, "panel-gpt-missing-results");
+    const panel = await startPanelServer({
+      workspaceDir: workspaceRoot,
+      port: 0
+    });
+
+    await writeFile(
+      path.join(handoffDirectory, "dispatch-results.json"),
+      `${JSON.stringify({ summary: {} }, null, 2)}\n`,
+      "utf8"
+    );
+
+    try {
+      const errorMessage = await postActionExpectError(panel.url, "gpt-evidence", {
+        runStatePath
+      });
+      assert.match(errorMessage, /dispatch-results artifact is invalid|dispatch-results\.results/i);
     } finally {
       await panel.close();
     }
@@ -787,6 +921,133 @@ async function main() {
       assert.match(pageHtml, /Next retry at/);
       assert.match(pageHtml, /scheduleAutoResume\(displayedOverview\)/);
       assert.match(pageHtml, /Auto resume after waiting_retry/);
+    } finally {
+      await panel.close();
+    }
+  });
+
+  await runTest("panel status exposes autonomous debug snapshot metadata when present", async () => {
+    const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "ai-factory-panel-debug-snapshot-"));
+    const runId = "debug-snapshot-run";
+    const runDirectory = path.join(workspaceRoot, "runs", runId);
+    const runStatePath = path.join(runDirectory, "run-state.json");
+    const debugDirectory = path.join(runDirectory, "artifacts", "autonomous-debug");
+    const runStateFixture = {
+      version: 1,
+      runId,
+      projectName: "Debug Snapshot Demo",
+      workspacePath: workspaceRoot,
+      createdAt: "2026-04-20T18:30:00.000Z",
+      updatedAt: "2026-04-20T18:31:00.000Z",
+      status: "attention_required",
+      summary: {
+        totalTasks: 2,
+        readyTasks: 0,
+        pendingTasks: 0,
+        waitingRetryTasks: 0,
+        completedTasks: 1,
+        blockedTasks: 1,
+        failedTasks: 0
+      },
+      roles: {},
+      retryPolicy: {},
+      runtimeRouting: {},
+      modelPolicy: {},
+      mandatoryGates: [],
+      intake: null,
+      stopConditions: [],
+      definitionOfDone: [],
+      taskLedger: [
+        {
+          id: "planning-brief",
+          phaseId: "planning",
+          role: "planner",
+          owner: "Codex",
+          title: "Clarify the brief and execution sequence",
+          description: "Planning completed.",
+          status: "completed",
+          attempts: 0,
+          dependsOn: [],
+          acceptanceCriteria: []
+        },
+        {
+          id: "executor-blocked",
+          phaseId: "implementation",
+          role: "executor",
+          owner: "Codex",
+          title: "Blocked task",
+          description: "Needs manual inspection.",
+          status: "blocked",
+          attempts: 1,
+          dependsOn: ["planning-brief"],
+          acceptanceCriteria: []
+        }
+      ],
+      nextActions: []
+    };
+    const terminalSummary = {
+      generatedAt: "2026-04-20T18:40:00.000Z",
+      runId,
+      state: "blocked",
+      reasonCode: "runtime_unavailable",
+      finalRunStatus: "attention_required",
+      stopReason: "dispatch skipped all ready tasks; no automatic runtime was available",
+      blockedTaskIds: ["executor-blocked"],
+      waitingRetryTaskIds: []
+    };
+    const checkpoint = {
+      schemaVersion: 1,
+      sessionId: "session-1",
+      resumedFromSessionId: null,
+      resumeCount: 0,
+      checkpointStatus: "halted",
+      runId,
+      runStatePath,
+      startedAt: "2026-04-20T18:35:00.000Z",
+      updatedAt: "2026-04-20T18:40:00.000Z",
+      lastRoundAttempted: 1,
+      roundsCompleted: 1,
+      stopReason: terminalSummary.stopReason,
+      terminalSummary,
+      resume: {
+        canResume: true,
+        mode: "manual",
+        requiresIntervention: true,
+        reason: "Blocked or failed tasks require inspection before the next autonomous pass.",
+        nextRetryAt: null,
+        taskIds: [],
+        runStatePath,
+        command: ["node", "src/index.mjs", "autonomous", runStatePath]
+      },
+      runSummary: runStateFixture.summary,
+      progressDiagnostics: {
+        blockedTaskIds: ["executor-blocked"],
+        waitingRetryTaskIds: [],
+        skippedAutomaticTaskIds: [],
+        degradedRuntimeActive: false
+      },
+      debugEvidence: {
+        runStatePath
+      },
+      errorMessage: null
+    };
+
+    await mkdir(debugDirectory, { recursive: true });
+    await writeFile(runStatePath, `${JSON.stringify(runStateFixture, null, 2)}\n`, "utf8");
+    await writeFile(path.join(debugDirectory, "terminal-summary.json"), `${JSON.stringify(terminalSummary, null, 2)}\n`, "utf8");
+    await writeFile(path.join(debugDirectory, "checkpoint.json"), `${JSON.stringify(checkpoint, null, 2)}\n`, "utf8");
+
+    const panel = await startPanelServer({
+      workspaceDir: workspaceRoot,
+      port: 0
+    });
+
+    try {
+      const status = await getJson(`${panel.url}/api/status`);
+      assert.equal(status.overview.latestRun?.autonomousDebug?.terminalSummary?.state, "blocked");
+      assert.equal(status.overview.latestRun?.autonomousDebug?.checkpoint?.checkpointStatus, "halted");
+      assert.match(status.overview.latestRun?.autonomousDebug?.checkpointPath ?? "", /checkpoint\.json$/);
+      assert.match(status.overview.latestRun?.autonomousDebug?.terminalSummaryPath ?? "", /terminal-summary\.json$/);
     } finally {
       await panel.close();
     }

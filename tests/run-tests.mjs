@@ -324,6 +324,18 @@ async function main() {
     assert.match(report, /AI Factory Demo Run Report/);
   });
 
+  await runTest("report rejects truncated run-state artifacts instead of regenerating a fake success", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-report-corrupt-"));
+    const runResult = await runProject(validSpecPath, tempDir, "report-corrupt-run");
+
+    await writeFile(runResult.statePath, '{"runId":"report-corrupt-run"', "utf8");
+
+    await assert.rejects(
+      () => reportProjectRun(runResult.statePath),
+      /run-state artifact is invalid|malformed JSON|partial write/i
+    );
+  });
+
   await runTest("updating planning task unlocks implementation tasks", async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-task-"));
     const runResult = await runProject(validSpecPath, tempDir, "task-run");
@@ -915,6 +927,38 @@ async function main() {
     await assert.rejects(
       () => applyTaskResult(runResult.statePath, "planning-brief", planningDescriptor.resultPath),
       /(ENOENT|no such file)/i
+    );
+  });
+
+  await runTest("manual or hybrid result artifacts reject run-state files missing required identity fields", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-apply-invalid-run-state-"));
+    const runResult = await runProject(validSpecPath, tempDir, "apply-invalid-run-state-run");
+    const handoffResult = await createRunHandoffs(runResult.statePath);
+    const planningDescriptor = handoffResult.descriptors.find((descriptor) => descriptor.taskId === "planning-brief");
+
+    if (!planningDescriptor) {
+      throw new Error("Expected a planning-brief handoff descriptor.");
+    }
+
+    const corruptedRunState = JSON.parse(await readFile(runResult.statePath, "utf8"));
+    delete corruptedRunState.runId;
+    await writeJson(runResult.statePath, corruptedRunState);
+
+    await writeJson(planningDescriptor.resultPath, withArtifactIdentity({
+      status: "completed",
+      summary: "foreign artifact should not be accepted without run identity",
+      changedFiles: [],
+      verification: ["manual review"],
+      notes: ["corrupted run-state identity"]
+    }, {
+      runId: "foreign-run",
+      taskId: "planning-brief",
+      handoffId: planningDescriptor.handoffId
+    }));
+
+    await assert.rejects(
+      () => applyTaskResult(runResult.statePath, "planning-brief", planningDescriptor.resultPath),
+      /run-state artifact is invalid|run-state\.runId/i
     );
   });
 

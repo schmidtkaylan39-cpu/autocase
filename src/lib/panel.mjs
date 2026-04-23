@@ -15,6 +15,7 @@ import {
   validateSpec
 } from "./commands.mjs";
 import { runAutonomousLoop } from "./autonomous-run.mjs";
+import { readDispatchResultsArtifact, readRunStateArtifact } from "./control-plane-artifacts.mjs";
 import { dispatchHandoffs } from "./dispatch.mjs";
 import { runRuntimeDoctor } from "./doctor.mjs";
 import { readJson } from "./fs-utils.mjs";
@@ -147,7 +148,7 @@ async function collectHandoffDirectories(runStatePath) {
     path.join(runDirectory, "handoffs"),
     path.join(runDirectory, "handoffs-autonomous")
   ]);
-  const runState = await readJson(runStatePath).catch(() => null);
+  const runState = await readRunStateArtifact(runStatePath).catch(() => null);
 
   for (const task of runState?.taskLedger ?? []) {
     if (typeof task.activeHandoffOutputDir === "string" && task.activeHandoffOutputDir.trim().length > 0) {
@@ -732,6 +733,23 @@ function buildHumanReadinessStatus(validationSummary, latestRun) {
   };
 }
 
+async function loadAutonomousDebugSnapshot(runDirectory) {
+  const debugDirectory = path.join(runDirectory, "artifacts", "autonomous-debug");
+  const terminalSummaryPath = path.join(debugDirectory, "terminal-summary.json");
+  const checkpointPath = path.join(debugDirectory, "checkpoint.json");
+  const hypothesisLedgerPath = path.join(debugDirectory, "hypothesis-ledger.json");
+  const debugBundlePath = path.join(debugDirectory, "debug-bundle.json");
+
+  return {
+    terminalSummaryPath: (await pathExists(terminalSummaryPath)) ? terminalSummaryPath : null,
+    checkpointPath: (await pathExists(checkpointPath)) ? checkpointPath : null,
+    hypothesisLedgerPath: (await pathExists(hypothesisLedgerPath)) ? hypothesisLedgerPath : null,
+    debugBundlePath: (await pathExists(debugBundlePath)) ? debugBundlePath : null,
+    terminalSummary: (await pathExists(terminalSummaryPath)) ? await readJson(terminalSummaryPath).catch(() => null) : null,
+    checkpoint: (await pathExists(checkpointPath)) ? await readJson(checkpointPath).catch(() => null) : null
+  };
+}
+
 export function normalizePanelPort(portInput, fallbackPort = DEFAULT_PANEL_PORT) {
   if (portInput === undefined || portInput === null || String(portInput).trim().length === 0) {
     return fallbackPort;
@@ -763,13 +781,14 @@ async function buildWorkspaceOverview(workspaceRoot) {
   let latestRun = null;
 
   if (latestRunStatePath) {
-    const runState = await readJson(latestRunStatePath).catch(() => null);
+    const runState = await readRunStateArtifact(latestRunStatePath).catch(() => null);
 
     if (runState) {
       const runDirectory = path.dirname(latestRunStatePath);
       const reportPath = path.join(runDirectory, "report.md");
       const defaultHandoffIndexPath = await resolveDefaultHandoffIndexPath(latestRunStatePath).catch(() => null);
       const quickStartResultCard = await buildQuickStartResultCard(normalizedWorkspaceRoot, runDirectory).catch(() => null);
+      const autonomousDebug = await loadAutonomousDebugSnapshot(runDirectory);
 
       latestRun = {
         runDirectory,
@@ -779,7 +798,8 @@ async function buildWorkspaceOverview(workspaceRoot) {
         summary: summarizeRunState(runState),
         waitingRetry: summarizeWaitingRetryTasks(runState),
         activity: summarizeLatestRunActivity(runState),
-        quickStartResultCard
+        quickStartResultCard,
+        autonomousDebug
       };
     }
   }
@@ -1410,7 +1430,7 @@ async function readGptEvidenceForRun(runStatePath) {
     throw createUserError("No dispatch-results.json found for this run. Execute dispatch first.");
   }
 
-  const dispatchResults = await readJson(dispatchResultsPath);
+  const dispatchResults = await readDispatchResultsArtifact(dispatchResultsPath);
   const gptInteractions = [];
 
   for (const result of dispatchResults?.results ?? []) {

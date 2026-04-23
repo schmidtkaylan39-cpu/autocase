@@ -205,6 +205,51 @@ function buildMarkerOnlyScript(markerDirectory) {
   ].join("\n");
 }
 
+function buildLateArtifactTimeoutScript(
+  resultPath,
+  artifact,
+  {
+    futureOffsetMs = 5000,
+    hangDurationMs = 1200
+  } = {}
+) {
+  const completeArtifact = {
+    runId: "{{RUN_ID}}",
+    taskId: "{{TASK_ID}}",
+    handoffId: "{{HANDOFF_ID}}",
+    ...artifact
+  };
+  const artifactBase64 = Buffer.from(JSON.stringify(completeArtifact), "utf8").toString("base64");
+  const nodeCommand =
+    "const fs=require('node:fs');" +
+    "const path=require('node:path');" +
+    "const resultPath=process.argv[1];" +
+    "const payload=JSON.parse(Buffer.from(process.argv[2],'base64').toString('utf8'));" +
+    "const futureOffsetMs=Number(process.argv[3]);" +
+    "fs.mkdirSync(path.dirname(resultPath), { recursive: true });" +
+    "fs.writeFileSync(resultPath, JSON.stringify(payload, null, 2));" +
+    "const futureTime=new Date(Date.now() + futureOffsetMs);" +
+    "fs.utimesSync(resultPath, futureTime, futureTime);";
+
+  if (process.platform === "win32") {
+    return [
+      `$resultPath = '${escapePowerShellSingleQuoted(resultPath)}'`,
+      `$artifactBase64 = '${artifactBase64}'`,
+      `$futureOffsetMs = ${futureOffsetMs}`,
+      `node -e "${nodeCommand}" -- $resultPath $artifactBase64 $futureOffsetMs`,
+      `Start-Sleep -Milliseconds ${hangDurationMs}`
+    ].join("\n");
+  }
+
+  return [
+    `resultPath='${escapeShellSingleQuoted(resultPath)}'`,
+    `artifactBase64='${escapeShellSingleQuoted(artifactBase64)}'`,
+    `futureOffsetMs='${futureOffsetMs}'`,
+    `node -e "${nodeCommand}" -- "$resultPath" "$artifactBase64" "$futureOffsetMs"`,
+    `sleep ${(hangDurationMs / 1000).toFixed(3)}`
+  ].join("\n");
+}
+
 function buildLargeStderrArtifactScript(
   resultPath,
   artifact,
@@ -321,6 +366,26 @@ function buildPersistentTransientGptRunnerFailureScript(
     'printf "%s" "$attemptCount" > "$attemptCounterPath"',
     `printf '%s\\n' '${escapeShellSingleQuoted(transientMessage)}' >&2`,
     "exit 1"
+  ].join("\n");
+}
+
+function buildNoArtifactFailureScript({
+  stdoutLines = [],
+  stderrLines = [],
+  exitCode = 1
+} = {}) {
+  if (process.platform === "win32") {
+    return [
+      ...stdoutLines.map((line) => `[Console]::Out.WriteLine('${escapePowerShellSingleQuoted(line)}')`),
+      ...stderrLines.map((line) => `[Console]::Error.WriteLine('${escapePowerShellSingleQuoted(line)}')`),
+      `exit ${exitCode}`
+    ].join("\n");
+  }
+
+  return [
+    ...stdoutLines.map((line) => `printf '%s\\n' '${escapeShellSingleQuoted(line)}'`),
+    ...stderrLines.map((line) => `printf '%s\\n' '${escapeShellSingleQuoted(line)}' >&2`),
+    `exit ${exitCode}`
   ].join("\n");
 }
 
@@ -702,6 +767,73 @@ async function runSingleDescriptorDispatchScenario({
   };
 }
 
+/**
+ * @param {Object} options
+ * @param {string} options.tempPrefix
+ * @param {string | null} [options.launcherScript]
+ * @param {DoctorOverrides} [options.doctorOverrides]
+ * @param {((args: {
+ *   tempDir: string,
+ *   runResult: any,
+ *   handoffResult: any,
+ *   descriptor: any,
+ *   reportPath: string,
+ *   workspaceRoot: string
+ * }) => Promise<void> | void) | null} [options.beforeDispatch]
+ */
+async function runSingleVerifierDispatchScenario({
+  tempPrefix,
+  launcherScript = null,
+  doctorOverrides = { "local-ci": { ok: true } },
+  beforeDispatch = null
+}) {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), tempPrefix));
+  const { runResult, handoffResult, descriptor, reportPath, workspaceRoot } = await createVerifierDispatchReadyRun(
+    tempDir,
+    `${tempPrefix}-${Date.now()}`,
+    doctorOverrides
+  );
+
+  await limitDispatchToDescriptors(handoffResult.indexPath, handoffResult.runId, [descriptor]);
+
+  if (typeof launcherScript === "string") {
+    const resolvedLauncherScript = bindArtifactScriptIdentity(
+      launcherScript.replaceAll("{{RESULT_PATH}}", descriptor.resultPath),
+      descriptor
+    );
+    await writeFile(descriptor.launcherPath, resolvedLauncherScript, "utf8");
+  }
+
+  if (typeof beforeDispatch === "function") {
+    await beforeDispatch({
+      tempDir,
+      runResult,
+      handoffResult,
+      descriptor,
+      reportPath,
+      workspaceRoot
+    });
+  }
+
+  const dispatchResult = await dispatchHandoffs(handoffResult.indexPath, "execute");
+  const runState = JSON.parse(await readFile(runResult.statePath, "utf8"));
+  const report = await readFile(reportPath, "utf8");
+  const task = runState.taskLedger.find((item) => item.id === descriptor.taskId);
+
+  if (!task) {
+    throw new Error(`Task not found in run-state: ${descriptor.taskId}`);
+  }
+
+  return {
+    descriptor,
+    dispatchResult,
+    runState,
+    report,
+    task,
+    workspaceRoot
+  };
+}
+
 async function main() {
   await runTest("matrix: completed artifact updates run-state and unlocks review", async () => {
     const scenario = await runSingleDescriptorDispatchScenario({
@@ -908,6 +1040,117 @@ async function main() {
     assert.match(result.artifact?.summary ?? "", /local-ci completed 6 verification command/);
     assert.match(report, /\[completed\] verify-spec-intake ->/);
     assert.match(report, /\[ready\] delivery-package ->/);
+  });
+
+  await runTest("matrix: verifier/local-ci fail case fails closed when a verification command exits non-zero", async () => {
+    const scenario = await runSingleVerifierDispatchScenario({
+      tempPrefix: "ai-factory-matrix-local-ci-fail-",
+      beforeDispatch: async ({ workspaceRoot }) => {
+        const packageJsonPath = path.join(workspaceRoot, "package.json");
+        const packageJson = JSON.parse(await readFile(packageJsonPath, "utf8"));
+        packageJson.scripts.build = 'node -e "console.error(\'forced verifier failure\'); process.exit(1)"';
+        await writeFile(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`, "utf8");
+      }
+    });
+    const { descriptor, dispatchResult, report, task } = scenario;
+    const result = dispatchResult.results[0];
+
+    assert.equal(result.status, "failed");
+    assert.equal(result.artifact ?? null, null);
+    assert.match(result.error ?? "", /forced verifier failure|exit code|failed/i);
+    assert.equal(task.status, "failed");
+    assert.match(report, /\[failed\] verify-spec-intake ->/);
+    await assert.rejects(() => readFile(descriptor.resultPath, "utf8"), /ENOENT/);
+  });
+
+  await runTest("matrix: verifier/local-ci hang case times out and fails closed", async () => {
+    const scenario = await runSingleVerifierDispatchScenario({
+      tempPrefix: "ai-factory-matrix-local-ci-hang-",
+      beforeDispatch: async ({ workspaceRoot, descriptor, handoffResult }) => {
+        const packageJsonPath = path.join(workspaceRoot, "package.json");
+        const packageJson = JSON.parse(await readFile(packageJsonPath, "utf8"));
+        packageJson.scripts.build = 'node -e "setTimeout(() => {}, 1500)"';
+        await writeFile(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`, "utf8");
+        descriptor.execution = {
+          ...descriptor.execution,
+          timeoutMs: 200
+        };
+        await limitDispatchToDescriptors(handoffResult.indexPath, handoffResult.runId, [descriptor]);
+      }
+    });
+    const { descriptor, dispatchResult, report, task } = scenario;
+    const result = dispatchResult.results[0];
+
+    assert.equal(result.status, "failed");
+    assert.equal(result.artifact ?? null, null);
+    assert.match(result.error ?? "", /timed out/i);
+    assert.equal(task.status, "failed");
+    assert.match(report, /\[failed\] verify-spec-intake ->/);
+    await assert.rejects(() => readFile(descriptor.resultPath, "utf8"), /ENOENT/);
+  });
+
+  await runTest("matrix: verifier/local-ci no-artifact case blocks the task instead of drifting to success", async () => {
+    const scenario = await runSingleVerifierDispatchScenario({
+      tempPrefix: "ai-factory-matrix-local-ci-no-artifact-",
+      launcherScript:
+        process.platform === "win32"
+          ? "Write-Output 'local-ci finished without writing an artifact'\n"
+          : "printf 'local-ci finished without writing an artifact\\n'\n"
+    });
+    const { descriptor, dispatchResult, report, task } = scenario;
+    const result = dispatchResult.results[0];
+
+    assert.equal(result.status, "incomplete");
+    assert.equal(result.artifact, null);
+    assert.match(result.note ?? "", /not written/i);
+    assert.equal(task.status, "blocked");
+    assert.match(report, /\[blocked\] verify-spec-intake ->/);
+    await assert.rejects(() => readFile(descriptor.resultPath, "utf8"), /ENOENT/);
+  });
+
+  await runTest("matrix: verifier/local-ci late-artifact case rejects artifacts that land after the timeout window", async () => {
+    const scenario = await runSingleVerifierDispatchScenario({
+      tempPrefix: "ai-factory-matrix-local-ci-late-artifact-",
+      launcherScript: buildLateArtifactTimeoutScript("{{RESULT_PATH}}", {
+        status: "completed",
+        summary: "late artifact should not be accepted after timeout",
+        changedFiles: [],
+        verification: ["npm run build"],
+        notes: ["late local-ci artifact fixture"]
+      }),
+      beforeDispatch: async ({ descriptor, handoffResult }) => {
+        descriptor.execution = {
+          ...descriptor.execution,
+          timeoutMs: 200
+        };
+        await limitDispatchToDescriptors(handoffResult.indexPath, handoffResult.runId, [descriptor]);
+      }
+    });
+    const { descriptor, dispatchResult, report, task } = scenario;
+    const result = dispatchResult.results[0];
+    const persistedArtifact = JSON.parse(await readFile(descriptor.resultPath, "utf8"));
+
+    assert.equal(result.status, "failed");
+    assert.equal(result.artifact ?? null, null);
+    assert.match(result.error ?? "", /timed out/i);
+    assert.equal(task.status, "failed");
+    assert.equal(persistedArtifact.status, "completed");
+    assert.match(report, /\[failed\] verify-spec-intake ->/);
+  });
+
+  await runTest("matrix: verifier/local-ci partial artifact case blocks the task with a parse error", async () => {
+    const scenario = await runSingleVerifierDispatchScenario({
+      tempPrefix: "ai-factory-matrix-local-ci-partial-artifact-",
+      launcherScript: buildRawResultScript("{{RESULT_PATH}}", "{ \"status\": \"completed\"")
+    });
+    const { dispatchResult, report, task } = scenario;
+    const result = dispatchResult.results[0];
+
+    assert.equal(result.status, "incomplete");
+    assert.equal(result.artifact, null);
+    assert.match(result.note ?? "", /json|partial write|unexpected/i);
+    assert.equal(task.status, "blocked");
+    assert.match(report, /\[blocked\] verify-spec-intake ->/);
   });
 
   await runTest("matrix: blocked artifact is valid contract but maps to blocked task via incomplete", async () => {
@@ -1504,6 +1747,112 @@ async function main() {
     }
   });
 
+  await runTest("matrix: gpt-runner auth drift fails closed as a blocked task", async () => {
+    const scenario = await runSingleDescriptorDispatchScenario({
+      tempPrefix: "ai-factory-matrix-gpt-runner-auth-drift-",
+      runtimeId: "gpt-runner",
+      doctorOverrides: { "gpt-runner": { ok: true } },
+      launcherScript: buildNoArtifactFailureScript({
+        stderrLines: [
+          "401 Unauthorized: login expired after doctor readiness",
+          "Auth drift detected during first real task"
+        ]
+      })
+    });
+    const { descriptor, dispatchResult, report, task } = scenario;
+    const result = dispatchResult.results[0];
+
+    assert.equal(result.status, "incomplete");
+    assert.equal(dispatchResult.summary.incomplete, 1);
+    assert.equal(task.status, "blocked");
+    assert.equal(result.nextTaskStatus, "blocked");
+    assert.equal(result.artifact?.status, "blocked");
+    assert.ok(!result.artifact?.automationDecision);
+    assert.match(result.artifact?.summary ?? "", /auth drift/i);
+    assert.match(result.note ?? "", /fail-closed blocked result/i);
+    assert.match(report, new RegExp(`\\[blocked\\] ${descriptor.taskId} ->`));
+  });
+
+  await runTest("matrix: gpt-runner model denial fails closed as a blocked task", async () => {
+    const scenario = await runSingleDescriptorDispatchScenario({
+      tempPrefix: "ai-factory-matrix-gpt-runner-model-denial-",
+      runtimeId: "gpt-runner",
+      doctorOverrides: { "gpt-runner": { ok: true } },
+      launcherScript: buildNoArtifactFailureScript({
+        stderrLines: [
+          "model access denied for gpt-5.4-pro",
+          "requested model is not available for this account"
+        ]
+      })
+    });
+    const { descriptor, dispatchResult, report, task } = scenario;
+    const result = dispatchResult.results[0];
+
+    assert.equal(result.status, "incomplete");
+    assert.equal(dispatchResult.summary.incomplete, 1);
+    assert.equal(task.status, "blocked");
+    assert.equal(result.nextTaskStatus, "blocked");
+    assert.equal(result.artifact?.status, "blocked");
+    assert.ok(!result.artifact?.automationDecision);
+    assert.match(result.artifact?.summary ?? "", /model denial|model access/i);
+    assert.match(result.note ?? "", /fail-closed blocked result/i);
+    assert.match(report, new RegExp(`\\[blocked\\] ${descriptor.taskId} ->`));
+  });
+
+  await runTest("matrix: gpt-runner 429 retry-after becomes a timed automatic retry", async () => {
+    const scenario = await runSingleDescriptorDispatchScenario({
+      tempPrefix: "ai-factory-matrix-gpt-runner-rate-limit-",
+      runtimeId: "gpt-runner",
+      doctorOverrides: { "gpt-runner": { ok: true } },
+      launcherScript: buildNoArtifactFailureScript({
+        stderrLines: [
+          "429 Too Many Requests from upstream provider",
+          "Retry-After: 120"
+        ]
+      })
+    });
+    const { descriptor, dispatchResult, report, task } = scenario;
+    const result = dispatchResult.results[0];
+
+    assert.equal(result.status, "continued");
+    assert.equal(dispatchResult.summary.continued, 1);
+    assert.equal(task.status, "waiting_retry");
+    assert.equal(result.nextTaskStatus, "waiting_retry");
+    assert.equal(result.artifact?.status, "blocked");
+    assert.equal(result.artifact?.automationDecision?.action, "retry_task");
+    assert.equal(result.artifact?.automationDecision?.delayMinutes, 2);
+    assert.match(result.artifact?.summary ?? "", /429 \/ Retry-After/i);
+    assert.match(result.note ?? "", /fail-closed blocked result/i);
+    assert.match(report, new RegExp(`\\[waiting_retry\\] ${descriptor.taskId} ->`));
+  });
+
+  await runTest("matrix: gpt-runner provider timeout becomes a timed automatic retry", async () => {
+    const scenario = await runSingleDescriptorDispatchScenario({
+      tempPrefix: "ai-factory-matrix-gpt-runner-provider-timeout-",
+      runtimeId: "gpt-runner",
+      doctorOverrides: { "gpt-runner": { ok: true } },
+      launcherScript: buildNoArtifactFailureScript({
+        stderrLines: [
+          "provider timeout while waiting on /responses endpoint",
+          "deadline exceeded"
+        ]
+      })
+    });
+    const { descriptor, dispatchResult, report, task } = scenario;
+    const result = dispatchResult.results[0];
+
+    assert.equal(result.status, "continued");
+    assert.equal(dispatchResult.summary.continued, 1);
+    assert.equal(task.status, "waiting_retry");
+    assert.equal(result.nextTaskStatus, "waiting_retry");
+    assert.equal(result.artifact?.status, "blocked");
+    assert.equal(result.artifact?.automationDecision?.action, "retry_task");
+    assert.equal(result.artifact?.automationDecision?.delayMinutes, 1);
+    assert.match(result.artifact?.summary ?? "", /provider timeout/i);
+    assert.match(result.note ?? "", /fail-closed blocked result/i);
+    assert.match(report, new RegExp(`\\[waiting_retry\\] ${descriptor.taskId} ->`));
+  });
+
   await runTest("matrix: launcher permission denials become timed automatic retry decisions", async () => {
     if (process.platform !== "win32") {
       return;
@@ -1655,6 +2004,81 @@ async function main() {
     assert.match(result.note ?? "", /retry budget exhausted/i);
     assert.equal(markerFiles.length, 0);
     assert.equal(task?.status, "blocked");
+    assert.match(report, new RegExp(`\\[blocked\\] ${descriptor.taskId} ->`));
+  });
+
+  await runTest("matrix: retry budget guard still allows the first automatic retry attempt", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-matrix-first-retry-"));
+    const { runResult, handoffResult, descriptor } = await createPlannerDispatchReadyRun(
+      tempDir,
+      `first-retry-${Date.now()}`,
+      {
+        "gpt-runner": { ok: true },
+        codex: { ok: true }
+      }
+    );
+    const markerDirectory = path.join(tempDir, "first-retry-markers");
+    const runState = JSON.parse(await readFile(runResult.statePath, "utf8"));
+
+    await limitDispatchToDescriptors(handoffResult.indexPath, handoffResult.runId, [descriptor]);
+    await writeFile(descriptor.launcherPath, buildMarkerOnlyScript(markerDirectory), "utf8");
+    await writeJson(runResult.statePath, {
+      ...runState,
+      taskLedger: runState.taskLedger.map((task) =>
+        task.id === descriptor.taskId
+          ? {
+              ...task,
+              retryCount: descriptor.execution.retryBudget
+            }
+          : task
+      )
+    });
+
+    const dispatchResult = await dispatchHandoffs(handoffResult.indexPath, "execute");
+    const result = dispatchResult.results[0];
+    const markerFiles = await readdir(markerDirectory).catch(() => []);
+
+    assert.notEqual(result.status, "skipped");
+    assert.equal(markerFiles.length, 1);
+  });
+
+  await runTest("matrix: retry budget guard also blocks repeated automatic retry_count loops", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-matrix-retry-count-budget-"));
+    const { runResult, handoffResult, descriptor, reportPath } = await createDispatchReadyRun(
+      tempDir,
+      `retry-count-budget-${Date.now()}`,
+      { codex: { ok: true } }
+    );
+    const markerDirectory = path.join(tempDir, "retry-count-budget-markers");
+    const runState = JSON.parse(await readFile(runResult.statePath, "utf8"));
+
+    await limitDispatchToDescriptors(handoffResult.indexPath, handoffResult.runId, [descriptor]);
+    await writeFile(descriptor.launcherPath, buildMarkerOnlyScript(markerDirectory), "utf8");
+    await writeJson(runResult.statePath, {
+      ...runState,
+      taskLedger: runState.taskLedger.map((task) =>
+        task.id === descriptor.taskId
+          ? {
+              ...task,
+              retryCount: descriptor.execution.retryBudget + 1
+            }
+          : task
+      )
+    });
+
+    const dispatchResult = await dispatchHandoffs(handoffResult.indexPath, "execute");
+    const result = dispatchResult.results[0];
+    const markerFiles = await readdir(markerDirectory).catch(() => []);
+    const nextRunState = JSON.parse(await readFile(runResult.statePath, "utf8"));
+    const report = await readFile(reportPath, "utf8");
+    const task = nextRunState.taskLedger.find((item) => item.id === descriptor.taskId);
+
+    assert.equal(result.status, "skipped");
+    assert.match(result.note ?? "", /retry budget exhausted/i);
+    assert.match(result.note ?? "", /retryCount=/i);
+    assert.equal(markerFiles.length, 0);
+    assert.equal(task?.status, "blocked");
+    assert.match(task?.notes?.at(-1) ?? "", /dispatch:retry-budget-exhausted .*retryCount=/i);
     assert.match(report, new RegExp(`\\[blocked\\] ${descriptor.taskId} ->`));
   });
 
@@ -1835,6 +2259,7 @@ async function main() {
       descriptors: [
         {
           taskId: "standalone-task",
+          handoffId: "standalone-handoff",
           runtime: { id: "codex", label: "Codex", mode: "automated" },
           launcherPath,
           resultPath
@@ -1847,6 +2272,64 @@ async function main() {
     assert.equal(dispatchResult.summary.completed, 1);
     assert.equal(dispatchResult.results[0]?.status, "completed");
     assert.equal(dispatchResult.runStateSync, null);
+  });
+
+  await runTest("matrix: malformed handoff index JSON fails closed before dispatch writes success artifacts", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-matrix-index-json-"));
+    const handoffDir = path.join(tempDir, "handoffs");
+    const indexPath = path.join(handoffDir, "index.json");
+
+    await mkdir(handoffDir, { recursive: true });
+    await writeFile(indexPath, '{"runId":"broken-index","descriptors":[', "utf8");
+
+    await assert.rejects(
+      () => dispatchHandoffs(indexPath, "execute"),
+      /handoff index artifact is invalid|malformed JSON|partial write/i
+    );
+    await assert.rejects(() => readFile(path.join(handoffDir, "dispatch-results.json"), "utf8"), /ENOENT/);
+  });
+
+  await runTest("matrix: handoff index descriptors missing handoffId fail before the launcher can run", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "ai-factory-matrix-index-missing-handoff-"));
+    const handoffDir = path.join(tempDir, "handoffs");
+    const indexPath = path.join(handoffDir, "index.json");
+    const launcherPath = path.join(handoffDir, `standalone.launch${getLauncherMetadata().extension}`);
+    const resultPath = path.join(handoffDir, "results", "standalone.result.json");
+
+    await mkdir(path.join(handoffDir, "results"), { recursive: true });
+    await writeFile(
+      launcherPath,
+      bindArtifactScriptIdentity(buildResultArtifactScript(resultPath, {
+        status: "completed",
+        summary: "launcher should not execute when handoff identity is missing",
+        changedFiles: [],
+        verification: ["matrix standalone"],
+        notes: ["missing handoff id"]
+      }), {
+        runId: "standalone-dispatch-run",
+        taskId: "standalone-task"
+      }),
+      "utf8"
+    );
+    await writeJson(indexPath, {
+      generatedAt: new Date().toISOString(),
+      runId: "standalone-dispatch-run",
+      readyTaskCount: 1,
+      descriptors: [
+        {
+          taskId: "standalone-task",
+          runtime: { id: "codex", label: "Codex", mode: "automated" },
+          launcherPath,
+          resultPath
+        }
+      ]
+    });
+
+    await assert.rejects(
+      () => dispatchHandoffs(indexPath, "execute"),
+      /handoff index artifact is invalid|handoff index\.descriptors\[0\]\.handoffId/i
+    );
+    await assert.rejects(() => readFile(resultPath, "utf8"), /ENOENT/);
   });
 
   await runTest("matrix: unsupported dispatch modes fail fast", async () => {

@@ -5,6 +5,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 
 import { ensureDirectory, readJson, writeJson } from "./fs-utils.mjs";
+import { readHandoffIndexArtifact, readRunStateArtifact } from "./control-plane-artifacts.mjs";
 import { ensureRunStateIntakePlanningReady } from "./intake-state.mjs";
 import {
   buildPowerShellFileArgs,
@@ -168,6 +169,218 @@ function classifyGptRunnerTransientSignal(value) {
   );
 }
 
+function isMissingResultArtifactReason(reason) {
+  return /result artifact was not written|no such file|enoent/i.test(String(reason ?? ""));
+}
+
+function parseRetryAfterDelayMinutes(value) {
+  const text = String(value ?? "");
+  const retryAfterMatch =
+    /\bretry-after\b[^0-9]*(\d+)(?:\s*(seconds?|secs?|minutes?|mins?))?/i.exec(text) ??
+    /\bretry after\b[^0-9]*(\d+)(?:\s*(seconds?|secs?|minutes?|mins?))?/i.exec(text);
+
+  if (!retryAfterMatch) {
+    return 1;
+  }
+
+  const amount = Number.parseInt(retryAfterMatch[1], 10);
+
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return 1;
+  }
+
+  const unit = String(retryAfterMatch[2] ?? "").toLowerCase();
+
+  if (/min/.test(unit)) {
+    return Math.max(1, amount);
+  }
+
+  return Math.max(1, Math.ceil(amount / 60));
+}
+
+function classifyDoctorRuntimeDriftSignal({
+  runtimeId,
+  execution = null,
+  error = null,
+  resultArtifact = null
+}) {
+  if (runtimeId !== "gpt-runner") {
+    return null;
+  }
+
+  if (resultArtifact?.valid) {
+    return null;
+  }
+
+  if (resultArtifact && !error && !isMissingResultArtifactReason(resultArtifact.reason)) {
+    return null;
+  }
+
+  const text = dedupeText([
+    error instanceof Error ? error.message : error,
+    error?.stdout,
+    error?.stderr,
+    execution?.stdout,
+    execution?.stderr,
+    resultArtifact?.reason
+  ]);
+
+  if (!isNonEmptyString(text)) {
+    return null;
+  }
+
+  const normalizedText = text.toLowerCase();
+
+  if (
+    /\b401\b|\b403\b|unauthorized|forbidden|auth drift|authentication (failed|required)|login (expired|required)|not logged in|session expired|expired token|token expired|invalid api key/.test(
+      normalizedText
+    )
+  ) {
+    return {
+      retryable: false,
+      delayMinutes: 0,
+      summary:
+        "Doctor reported gpt-runner ready, but the first real task hit auth drift (401/403/login/session) and cannot continue automatically.",
+      verification:
+        "Observed post-doctor auth drift during first real GPT Runner execution; blocking for manual re-authentication.",
+      signalSnippet: tailTruncateExecutionOutput(text)
+    };
+  }
+
+  if (
+    /model denial|model access denied|model .*denied|access to model|model .*not allowed|model .*not available|model .*unavailable|unsupported model|unknown model|invalid model|model .*not found/.test(
+      normalizedText
+    )
+  ) {
+    return {
+      retryable: false,
+      delayMinutes: 0,
+      summary:
+        "Doctor reported gpt-runner ready, but the first real task hit model denial or unavailable model access and cannot continue automatically.",
+      verification:
+        "Observed post-doctor model denial during first real GPT Runner execution; blocking for manual model access follow-up.",
+      signalSnippet: tailTruncateExecutionOutput(text)
+    };
+  }
+
+  if (/retry-after|rate limit|too many requests|\b429\b/.test(normalizedText)) {
+    return {
+      retryable: true,
+      delayMinutes: parseRetryAfterDelayMinutes(text),
+      summary:
+        "Doctor reported gpt-runner ready, but the first real task hit upstream rate limiting (429 / Retry-After). Failing closed with an automatic retry window.",
+      verification:
+        "Observed upstream rate limiting after doctor readiness and scheduled an automatic retry.",
+      signalSnippet: tailTruncateExecutionOutput(text)
+    };
+  }
+
+  if (
+    /provider timeout|gateway timeout|\b504\b|deadline exceeded|request timed out|timed out while waiting|upstream timed out|operation timed out|timeout contacting/.test(
+      normalizedText
+    )
+  ) {
+    return {
+      retryable: true,
+      delayMinutes: 1,
+      summary:
+        "Doctor reported gpt-runner ready, but the first real task hit a provider timeout. Failing closed with an automatic retry.",
+      verification:
+        "Observed provider timeout symptoms after doctor readiness and scheduled an automatic retry.",
+      signalSnippet: tailTruncateExecutionOutput(text)
+    };
+  }
+
+  return null;
+}
+
+function buildDoctorRuntimeDriftResult(
+  descriptor,
+  runtimeId,
+  driftSignal,
+  execution = null,
+  notePrefix = null
+) {
+  const summary = dedupeText([
+    driftSignal.summary,
+    isNonEmptyString(driftSignal.signalSnippet)
+      ? `launcherSignal=${driftSignal.signalSnippet}`
+      : null
+  ]);
+  const artifact = validateResultArtifact(
+    {
+      runId: descriptor.runId,
+      taskId: descriptor.taskId,
+      handoffId: descriptor.handoffId ?? null,
+      status: "blocked",
+      summary,
+      changedFiles: [],
+      verification: [driftSignal.verification],
+      notes: [summary],
+      ...(driftSignal.retryable
+        ? {
+            automationDecision: {
+              action: "retry_task",
+              reason: summary,
+              delayMinutes: driftSignal.delayMinutes
+            }
+          }
+        : {})
+    },
+    {
+      runId: descriptor.runId,
+      taskId: descriptor.taskId,
+      handoffId: descriptor.handoffId ?? undefined
+    }
+  );
+
+  return buildDispatchResultFromArtifact(
+    descriptor,
+    runtimeId,
+    {
+      exists: true,
+      valid: true,
+      artifact,
+      reason: null
+    },
+    execution,
+    appendNoteFragment(
+      notePrefix,
+      "Converted doctor-to-runtime drift into a fail-closed blocked result."
+    )
+  );
+}
+
+function maybeBuildDoctorRuntimeDriftResult(
+  descriptor,
+  runtimeId,
+  {
+    execution = null,
+    error = null,
+    resultArtifact = null,
+    notePrefix = null
+  } = {}
+) {
+  const driftSignal = classifyDoctorRuntimeDriftSignal({
+    runtimeId,
+    execution,
+    error,
+    resultArtifact
+  });
+
+  if (!driftSignal) {
+    return null;
+  }
+
+  return buildDoctorRuntimeDriftResult(
+    descriptor,
+    runtimeId,
+    driftSignal,
+    error ? executionFromError(error) : execution,
+    notePrefix
+  );
+}
+
 function shouldRetryGptRunnerLauncher({
   runtimeId,
   attemptNumber,
@@ -206,7 +419,7 @@ function shouldRetryGptRunnerLauncher({
   const stdout = execution?.stdout ?? "";
   const stderr = execution?.stderr ?? "";
 
-  if (!/result artifact was not written|no such file|enoent/i.test(String(reason))) {
+  if (!isMissingResultArtifactReason(reason)) {
     return false;
   }
 
@@ -276,6 +489,18 @@ function countDispatchFailureNotes(task) {
   return Array.isArray(task?.notes)
     ? task.notes.filter((note) => /dispatch:(failed|incomplete|prompt-hash-mismatch|retry-budget-exhausted|circuit-open)/i.test(note)).length
     : 0;
+}
+
+function countRetryBudgetConsumption(task) {
+  const attempts = normalizePositiveInteger(task?.attempts, 0);
+  const retryCount = normalizePositiveInteger(task?.retryCount, 0);
+  const automaticRetriesConsumed = Math.max(0, retryCount - 1);
+
+  return {
+    attempts,
+    retryCount,
+    consumed: Math.max(attempts, automaticRetriesConsumed)
+  };
 }
 
 function buildLauncherExecutionError(message, code, cause) {
@@ -745,7 +970,8 @@ async function readResultArtifactForExecution(
     runId = null,
     taskId = null,
     handoffId = null,
-    minimumMtimeMs = null
+    minimumMtimeMs = null,
+    maximumMtimeMs = null
   } = {}
 ) {
   if (!resultPath || !(await fileExists(resultPath))) {
@@ -761,6 +987,8 @@ async function readResultArtifactForExecution(
     const resultStats = await stat(resultPath);
     const minimumArtifactMtimeMs =
       typeof minimumMtimeMs === "number" ? minimumMtimeMs - 1000 : null;
+    const maximumArtifactMtimeMs =
+      typeof maximumMtimeMs === "number" ? maximumMtimeMs : null;
 
     if (typeof minimumArtifactMtimeMs === "number" && resultStats.mtimeMs < minimumArtifactMtimeMs) {
       return {
@@ -768,6 +996,15 @@ async function readResultArtifactForExecution(
         valid: false,
         artifact: null,
         reason: "Result artifact predates this launcher execution."
+      };
+    }
+
+    if (typeof maximumArtifactMtimeMs === "number" && resultStats.mtimeMs > maximumArtifactMtimeMs) {
+      return {
+        exists: true,
+        valid: false,
+        artifact: null,
+        reason: "Result artifact was written after the launcher timeout window."
       };
     }
 
@@ -886,7 +1123,7 @@ function isExhaustedTransientGptRunnerFailure({
 
   const reason = resultArtifact.reason ?? "";
 
-  if (!/result artifact was not written|no such file|enoent/i.test(String(reason))) {
+  if (!isMissingResultArtifactReason(reason)) {
     return false;
   }
 
@@ -1009,7 +1246,7 @@ async function tryRecoverExistingResultArtifact(runStatePath, descriptor, runtim
   }
 
   const recoveryState = await withDispatchLock(runStatePath, async () => {
-    const runState = await readJson(runStatePath);
+    const runState = await readRunStateArtifact(runStatePath);
     const task = runState.taskLedger.find((item) => item.id === descriptor.taskId);
 
     if (!task || task.status !== "in_progress") {
@@ -1075,7 +1312,7 @@ async function prepareTaskForExecution(
   }
 
   return withDispatchLock(runStatePath, async () => {
-    const runState = await readJson(runStatePath);
+    const runState = await readRunStateArtifact(runStatePath);
     const task = runState.taskLedger.find((item) => item.id === descriptor.taskId);
 
     if (!task) {
@@ -1116,9 +1353,9 @@ async function prepareTaskForExecution(
       };
     }
 
-    const attempts = normalizePositiveInteger(task.attempts, 0);
+    const retryBudgetState = countRetryBudgetConsumption(task);
 
-    if (attempts >= executionGuardrails.retryBudget) {
+    if (retryBudgetState.consumed >= executionGuardrails.retryBudget) {
       const guardedRunState = updateTaskInRunState(
         {
           ...runState,
@@ -1128,7 +1365,8 @@ async function prepareTaskForExecution(
         },
         descriptor.taskId,
         "blocked",
-        `dispatch:retry-budget-exhausted attempts=${attempts} budget=${executionGuardrails.retryBudget}`
+        `dispatch:retry-budget-exhausted attempts=${retryBudgetState.attempts} ` +
+          `retryCount=${retryBudgetState.retryCount} budget=${executionGuardrails.retryBudget}`
       );
 
       await writeJson(runStatePath, guardedRunState);
@@ -1140,7 +1378,10 @@ async function prepareTaskForExecution(
 
       return {
         shouldExecute: false,
-        note: `Retry budget exhausted for task ${descriptor.taskId} (${attempts}/${executionGuardrails.retryBudget}).`
+        note:
+          `Retry budget exhausted for task ${descriptor.taskId} ` +
+          `(attempts=${retryBudgetState.attempts}, retryCount=${retryBudgetState.retryCount}, ` +
+          `budget=${executionGuardrails.retryBudget}).`
       };
     }
 
@@ -1202,7 +1443,7 @@ async function syncDispatchResults(runStatePath, planPath, reportPath, results) 
   }
 
   return withDispatchLock(runStatePath, async () => {
-    let runState = await readJson(runStatePath);
+    let runState = await readRunStateArtifact(runStatePath);
     const updatedTasks = [];
     const resultUpdates = [];
 
@@ -1321,7 +1562,7 @@ export async function dispatchHandoffs(indexPath, mode = "dry-run") {
   }
 
   const resolvedIndexPath = path.resolve(indexPath);
-  const handoffIndex = await readJson(resolvedIndexPath);
+  const handoffIndex = await readHandoffIndexArtifact(resolvedIndexPath);
   const outputDir = path.dirname(resolvedIndexPath);
   const runDirectory = handoffIndex.runDirectory
     ? path.resolve(handoffIndex.runDirectory)
@@ -1331,7 +1572,7 @@ export async function dispatchHandoffs(indexPath, mode = "dry-run") {
     : path.join(runDirectory, "run-state.json");
 
   if (await fileExists(runStatePath)) {
-    const runState = await readJson(runStatePath);
+    const runState = await readRunStateArtifact(runStatePath);
     const workspaceRoot =
       typeof runState?.workspacePath === "string" && runState.workspacePath.trim().length > 0
         ? path.resolve(runState.workspacePath)
@@ -1512,6 +1753,7 @@ export async function dispatchHandoffs(indexPath, mode = "dry-run") {
         for (let launcherAttempt = 1; launcherAttempt <= maxLauncherAttempts; launcherAttempt += 1) {
           await removeExistingResultArtifact(descriptor.resultPath ?? null);
           const launcherStartedAtMs = Date.now();
+          const launcherTimeoutMs = getLauncherTimeoutMs(executionGuardrails.timeoutMs);
           let execution;
           let resultArtifact;
 
@@ -1523,7 +1765,8 @@ export async function dispatchHandoffs(indexPath, mode = "dry-run") {
                 runId,
                 taskId: descriptor.taskId,
                 handoffId: descriptor.handoffId ?? null,
-                minimumMtimeMs: launcherStartedAtMs
+                minimumMtimeMs: launcherStartedAtMs,
+                maximumMtimeMs: launcherStartedAtMs + launcherTimeoutMs
               });
 
               if (resultArtifact.valid) {
@@ -1581,6 +1824,19 @@ export async function dispatchHandoffs(indexPath, mode = "dry-run") {
               break;
             }
 
+            completedResult = maybeBuildDoctorRuntimeDriftResult(
+              descriptor,
+              runtimeId,
+              {
+                error,
+                notePrefix: lockRecoveryNote
+              }
+            );
+
+            if (completedResult) {
+              break;
+            }
+
             throw error;
           }
 
@@ -1614,6 +1870,20 @@ export async function dispatchHandoffs(indexPath, mode = "dry-run") {
             })
           ) {
             completedResult = buildTransientGptRunnerRetryResult(descriptor, execution, lockRecoveryNote);
+            break;
+          }
+
+          completedResult = maybeBuildDoctorRuntimeDriftResult(
+            descriptor,
+            runtimeId,
+            {
+              execution,
+              resultArtifact,
+              notePrefix: lockRecoveryNote
+            }
+          );
+
+          if (completedResult) {
             break;
           }
 

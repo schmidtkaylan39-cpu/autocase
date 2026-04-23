@@ -428,6 +428,10 @@ function buildLocalCiLauncher(
     ...(mandatoryGates.length > 0 ? mandatoryGates : ["default npm test"]),
     ...additionalVerificationGates
   ]);
+  const guardedPowerShellCommands = effectiveCommands.flatMap((command) => [
+    command,
+    "if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }"
+  ]);
   const artifactJson = buildLocalCiResultArtifact(
     runId,
     taskId,
@@ -441,8 +445,9 @@ function buildLocalCiLauncher(
     const resultPathLiteral = toPowerShellSingleQuotedLiteral(resultPath);
     return [
       `Set-Location -LiteralPath ${workspaceLiteral}`,
+      "$ErrorActionPreference = 'Stop'",
       ...buildLauncherOutputLines(modelSelection, launcherMetadata, promptMetadata, platform),
-      ...effectiveCommands,
+      ...guardedPowerShellCommands,
       `$resultDirectory = Split-Path -Parent ${resultPathLiteral}`,
       "if (![string]::IsNullOrWhiteSpace($resultDirectory)) {",
       "  New-Item -ItemType Directory -Force -Path $resultDirectory | Out-Null",
@@ -458,6 +463,7 @@ function buildLocalCiLauncher(
   const resultPathLiteral = toShellSingleQuotedLiteral(resultPath);
   return [
     `cd ${workspaceLiteral}`,
+    "set -e",
     ...buildLauncherOutputLines(modelSelection, launcherMetadata, promptMetadata, platform),
     ...effectiveCommands,
     `mkdir -p "$(dirname -- ${resultPathLiteral})"`,

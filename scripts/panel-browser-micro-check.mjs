@@ -133,7 +133,7 @@ function buildChecks({ pageReadiness, helperState, uiState }) {
     },
     {
       id: "ui-status-pill-captured",
-      passed: String(uiState?.statusPillText ?? "").includes("已完成"),
+      passed: /需求狀態：|執行狀態：/.test(String(uiState?.statusPillText ?? "")),
       message: "The CDP capture expression reads the current status pill text."
     },
     {
