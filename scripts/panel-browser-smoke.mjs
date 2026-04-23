@@ -422,6 +422,13 @@ export function buildUiStateCaptureExpression() {
     statusPillText: document.getElementById("statusPill")?.textContent ?? "",
     statusPillClassName: document.getElementById("statusPill")?.className ?? "",
     logBoxText: document.getElementById("logBox")?.textContent ?? "",
+    viewportWidth: window.innerWidth || 0,
+    documentScrollWidth: document.documentElement?.scrollWidth ?? 0,
+    bodyScrollWidth: document.body?.scrollWidth ?? 0,
+    hasHorizontalOverflow: Math.max(
+      document.documentElement?.scrollWidth ?? 0,
+      document.body?.scrollWidth ?? 0
+    ) > ((window.innerWidth || 0) + 4),
     latestLogEntryText: (() => {
       const logText = document.getElementById("logBox")?.textContent ?? "";
       const entries = logText
@@ -432,6 +439,7 @@ export function buildUiStateCaptureExpression() {
     })(),
     humanStatusText: document.getElementById("humanStatusSummary")?.textContent ?? "",
     humanStatusHint: document.getElementById("humanStatusHint")?.textContent ?? "",
+    assistantMirrorText: document.getElementById("assistantMirror")?.textContent ?? "",
     confirmationInputValue: document.getElementById("confirmationInput")?.value ?? "",
     promptMessages: Array.isArray(window.__panelBrowserSmokePromptMessages)
       ? window.__panelBrowserSmokePromptMessages.slice()
@@ -1115,7 +1123,14 @@ export async function collectPageReadiness(session) {
       refreshStatusType: typeof refreshStatus,
       quickStartButtonText: document.getElementById("quickStartBtn")?.textContent ?? "",
       statusPillText: document.getElementById("statusPill")?.textContent ?? "",
-      logBoxText: document.getElementById("logBox")?.textContent ?? ""
+      logBoxText: document.getElementById("logBox")?.textContent ?? "",
+      viewportWidth: window.innerWidth || 0,
+      documentScrollWidth: document.documentElement?.scrollWidth ?? 0,
+      bodyScrollWidth: document.body?.scrollWidth ?? 0,
+      hasHorizontalOverflow: Math.max(
+        document.documentElement?.scrollWidth ?? 0,
+        document.body?.scrollWidth ?? 0
+      ) > ((window.innerWidth || 0) + 4)
     }))()`
   );
 }
