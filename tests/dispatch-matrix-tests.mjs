@@ -1507,7 +1507,11 @@ async function main() {
 
   await runTest("matrix: launcher timeout still applies a valid result artifact when one was written", async () => {
     const previousTimeout = process.env.AI_FACTORY_POWERSHELL_TIMEOUT_MS;
-    process.env.AI_FACTORY_POWERSHELL_TIMEOUT_MS = "1500";
+    // Give the Windows launcher extra startup/write headroom so the artifact lands
+    // well before the timeout window while we still verify the timeout recovery path.
+    const timeoutArtifactFixtureTimeoutMs = process.platform === "win32" ? 4000 : 1500;
+    const timeoutArtifactFixtureSleepMs = process.platform === "win32" ? 7000 : 3000;
+    process.env.AI_FACTORY_POWERSHELL_TIMEOUT_MS = String(timeoutArtifactFixtureTimeoutMs);
 
     try {
       const launcherScript = `${buildResultArtifactScript("{{RESULT_PATH}}", {
@@ -1516,7 +1520,9 @@ async function main() {
         changedFiles: ["src/lib/dispatch.mjs"],
         verification: ["npm test"],
         notes: ["timeout recovery path"]
-      })}${process.platform === "win32" ? "Start-Sleep -Milliseconds 3000\n" : "sleep 3\n"}`;
+      })}${process.platform === "win32"
+        ? `Start-Sleep -Milliseconds ${timeoutArtifactFixtureSleepMs}\n`
+        : `sleep ${(timeoutArtifactFixtureSleepMs / 1000).toFixed(3)}\n`}`;
       const scenario = await runSingleDescriptorDispatchScenario({
         tempPrefix: "ai-factory-matrix-timeout-artifact-",
         runtimeId: "codex",
