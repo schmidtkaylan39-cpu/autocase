@@ -9,6 +9,15 @@ import { createRunHandoffs, initProject, runProject, updateRunTask } from "../sr
 import { dispatchHandoffs } from "../src/lib/dispatch.mjs";
 import { writeJson } from "../src/lib/fs-utils.mjs";
 import { getLauncherMetadata } from "../src/lib/handoffs.mjs";
+import {
+  bindArtifactScriptIdentity,
+  buildResultArtifactScriptWithTrailingNewline as buildResultArtifactScript,
+  escapePowerShellSingleQuoted,
+  escapeShellSingleQuoted,
+  limitDispatchToDescriptors,
+  runTest,
+  writeFakeDoctorReport as writeFakeDoctorReportFixture
+} from "./helpers/dispatch-test-helpers.mjs";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const validSpecPath = path.join(projectRoot, "examples", "project-spec.valid.json");
@@ -34,88 +43,6 @@ function computeDescriptorIdempotencyKey(descriptor) {
       "utf8"
     )
     .digest("hex");
-}
-
-async function runTest(name, fn) {
-  try {
-    await fn();
-    console.log(`PASS ${name}`);
-  } catch (error) {
-    console.error(`FAIL ${name}`);
-    throw error;
-  }
-}
-
-function escapePowerShellSingleQuoted(value) {
-  return String(value).replace(/'/g, "''");
-}
-
-function toPowerShellLiteral(value) {
-  if (Array.isArray(value)) {
-    return `@(${value.map((item) => toPowerShellLiteral(item)).join(", ")})`;
-  }
-
-  if (value !== null && typeof value === "object") {
-    const entries = Object.entries(value).map(([key, item]) => `${key} = ${toPowerShellLiteral(item)}`);
-    return `@{ ${entries.join("; ")} }`;
-  }
-
-  if (typeof value === "string") {
-    return `'${escapePowerShellSingleQuoted(value)}'`;
-  }
-
-  if (typeof value === "number") {
-    return String(value);
-  }
-
-  if (typeof value === "boolean") {
-    return value ? "$true" : "$false";
-  }
-
-  if (value === null) {
-    return "$null";
-  }
-
-  throw new Error(`Unsupported PowerShell literal: ${typeof value}`);
-}
-
-function escapeShellSingleQuoted(value) {
-  return String(value).replace(/'/g, `'"'"'`);
-}
-
-function buildResultArtifactScript(resultPath, artifact) {
-  const completeArtifact = {
-    runId: "{{RUN_ID}}",
-    taskId: "{{TASK_ID}}",
-    handoffId: "{{HANDOFF_ID}}",
-    ...artifact
-  };
-
-  if (process.platform === "win32") {
-    const escapedResultPath = escapePowerShellSingleQuoted(resultPath);
-    const lines = ["$result = @{"];
-
-    for (const [key, value] of Object.entries(completeArtifact)) {
-      lines.push(`  ${key} = ${toPowerShellLiteral(value)}`);
-    }
-
-    lines.push("} | ConvertTo-Json -Depth 5");
-    lines.push(`$result | Set-Content -Path '${escapedResultPath}' -Encoding utf8`);
-
-    return `${lines.join("\n")}\n`;
-  }
-
-  return `cat > '${escapeShellSingleQuoted(resultPath)}' <<'JSON'
-${JSON.stringify(completeArtifact, null, 2)}
-JSON
-`;
-}
-
-function bindArtifactScriptIdentity(script, descriptor) {
-  return script
-    .replaceAll("{{RUN_ID}}", descriptor.runId ?? "fixture-run")
-    .replaceAll("{{TASK_ID}}", descriptor.taskId)
-    .replaceAll("{{HANDOFF_ID}}", descriptor.handoffId ?? "fixture-handoff");
 }
 
 function buildRawResultScript(resultPath, rawContent) {
@@ -406,15 +333,7 @@ function modeForRuntime(runtimeId) {
  * @param {DoctorOverrides} [overrides]
  */
 async function writeFakeDoctorReport(filePath, overrides = {}) {
-  const runtimeIds = ["openclaw", "cursor", "gpt-runner", "codex", "local-ci"];
-  const checks = runtimeIds.map((runtimeId) => ({
-    id: runtimeId,
-    installed: true,
-    ok: false,
-    ...(overrides[runtimeId] ?? {})
-  }));
-
-  await writeJson(filePath, { checks });
+  await writeFakeDoctorReportFixture(filePath, overrides, ["openclaw", "cursor", "gpt-runner", "codex", "local-ci"]);
 }
 
 async function expandHandoffDescriptor(descriptor) {
@@ -672,24 +591,6 @@ async function createFakeCodexBinary(binDir) {
   );
   await chmod(fakeCommandPath, 0o755);
   return fakeCommandPath;
-}
-
-async function limitDispatchToDescriptors(indexPath, runId, descriptors) {
-  const existingIndex = await (async () => {
-    try {
-      return JSON.parse(await readFile(indexPath, "utf8"));
-    } catch {
-      return {};
-    }
-  })();
-
-  await writeJson(indexPath, {
-    ...existingIndex,
-    generatedAt: new Date().toISOString(),
-    runId,
-    readyTaskCount: descriptors.length,
-    descriptors
-  });
 }
 
 /**
@@ -1507,7 +1408,11 @@ async function main() {
 
   await runTest("matrix: launcher timeout still applies a valid result artifact when one was written", async () => {
     const previousTimeout = process.env.AI_FACTORY_POWERSHELL_TIMEOUT_MS;
-    process.env.AI_FACTORY_POWERSHELL_TIMEOUT_MS = "1500";
+    // Give the Windows launcher extra startup/write headroom so the artifact lands
+    // well before the timeout window while we still verify the timeout recovery path.
+    const timeoutArtifactFixtureTimeoutMs = process.platform === "win32" ? 4000 : 1500;
+    const timeoutArtifactFixtureSleepMs = process.platform === "win32" ? 7000 : 3000;
+    process.env.AI_FACTORY_POWERSHELL_TIMEOUT_MS = String(timeoutArtifactFixtureTimeoutMs);
 
     try {
       const launcherScript = `${buildResultArtifactScript("{{RESULT_PATH}}", {
@@ -1516,7 +1421,9 @@ async function main() {
         changedFiles: ["src/lib/dispatch.mjs"],
         verification: ["npm test"],
         notes: ["timeout recovery path"]
-      })}${process.platform === "win32" ? "Start-Sleep -Milliseconds 3000\n" : "sleep 3\n"}`;
+      })}${process.platform === "win32"
+        ? `Start-Sleep -Milliseconds ${timeoutArtifactFixtureSleepMs}\n`
+        : `sleep ${(timeoutArtifactFixtureSleepMs / 1000).toFixed(3)}\n`}`;
       const scenario = await runSingleDescriptorDispatchScenario({
         tempPrefix: "ai-factory-matrix-timeout-artifact-",
         runtimeId: "codex",

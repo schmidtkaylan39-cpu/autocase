@@ -170,6 +170,32 @@ async function main() {
     assert.equal(summary.totals.stepsFailed, 0);
   });
 
+  await runTest("release burn-in forwards doctor output overrides for the quality preset", async () => {
+    const fixture = await createFakeNpmFixture();
+    const summaryPath = path.join(fixture.fixtureRoot, "quality-summary.json");
+    const doctorOutputDir = path.join(fixture.fixtureRoot, "doctor-output");
+    const result = await runBurnin(
+      ["--preset", "quality", "--rounds", "1", "--summary-file", summaryPath, "--doctor-output-dir", doctorOutputDir],
+      { fixture }
+    );
+
+    assert.equal(result.code, 0);
+    assert.deepEqual(
+      (await readCommandLog(fixture.logPath)).map((entry) => entry.command),
+      [
+        "run validate:workflows",
+        "run build",
+        "run pack:check",
+        "run lint",
+        "run typecheck",
+        "test",
+        "run test:integration",
+        "run test:e2e",
+        `run doctor -- ${doctorOutputDir}`
+      ]
+    );
+  });
+
   await runTest("release burn-in stops the round immediately after a failed step by default", async () => {
     const fixture = await createFakeNpmFixture();
     const result = await runBurnin(["--preset", "example"], {

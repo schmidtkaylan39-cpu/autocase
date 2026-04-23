@@ -1,86 +1,41 @@
-import { execFile } from "node:child_process";
-import { createHash } from "node:crypto";
-import { access, open, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { promisify } from "node:util";
 
 import { ensureDirectory, readJson, writeJson } from "./fs-utils.mjs";
 import { readHandoffIndexArtifact, readRunStateArtifact } from "./control-plane-artifacts.mjs";
 import { ensureRunStateIntakePlanningReady } from "./intake-state.mjs";
 import {
-  buildPowerShellFileArgs,
-  getNonWindowsLauncherShellCommand,
-  getPowerShellInvocation
-} from "./powershell.mjs";
+  appendNoteFragment,
+  sleep,
+  tryAcquireDescriptorExecutionLock,
+  withDispatchLock
+} from "./dispatch-locks.mjs";
+import {
+  classifyGptRunnerTransientSignal,
+  computeGptRunnerRetryDelayMs,
+  executionFromError,
+  getGptRunnerLauncherAttempts,
+  getLauncherTimeoutMs,
+  isExhaustedTransientGptRunnerFailure,
+  isLauncherPermissionDeniedError,
+  isLauncherTimeoutError,
+  isMissingResultArtifactReason,
+  runLauncherScript,
+  shouldRetryGptRunnerLauncher,
+  tailTruncateExecutionOutput
+} from "./dispatch-launcher.mjs";
+import {
+  dedupeText,
+  fileExists,
+  hashTextSha256,
+  isNonEmptyString,
+  normalizePositiveInteger
+} from "./dispatch-utils.mjs";
 import { validateResultArtifact } from "./result-artifact.mjs";
 import { applyTaskArtifactToRunState } from "./result-application.mjs";
 import { renderRunReport, updateTaskInRunState } from "./run-state.mjs";
 
-const execFileAsync = promisify(execFile);
-const dispatchLockSuffix = ".dispatch.lock";
-const descriptorExecutionLockSuffix = ".execute.lock";
-const dispatchLockTimeoutMs = 15000;
-const dispatchLockRetryDelayMs = 100;
-const dispatchLockStaleMs = 120000;
-const descriptorExecutionLockUninitializedMs = 5000;
-const launcherTimeoutErrorCode = "AI_FACTORY_LAUNCHER_TIMEOUT";
-const defaultLauncherMaxBufferBytes = 16 * 1024 * 1024;
-const defaultDispatchOutputTailBytes = 64 * 1024;
-const defaultGptRunnerLauncherAttempts = 3;
-const defaultGptRunnerRetryBaseDelayMs = 2000;
-const defaultGptRunnerRetryMaxDelayMs = 15000;
 const defaultLauncherPermissionRetryDelayMinutes = 1;
-
-function readPositiveIntegerEnv(name, fallbackValue) {
-  const rawValue = process.env[name];
-  const parsedValue = Number.parseInt(rawValue ?? "", 10);
-  return Number.isFinite(parsedValue) && parsedValue > 0 ? parsedValue : fallbackValue;
-}
-
-function hashTextSha256(value) {
-  return createHash("sha256").update(String(value), "utf8").digest("hex");
-}
-
-function isNonEmptyString(value) {
-  return typeof value === "string" && value.trim().length > 0;
-}
-
-function parseLockPid(lockContent) {
-  const match = /^(\d+)/.exec(String(lockContent).trim());
-
-  if (!match) {
-    return null;
-  }
-
-  const parsedPid = Number.parseInt(match[1], 10);
-  return Number.isFinite(parsedPid) && parsedPid > 0 ? parsedPid : null;
-}
-
-function isProcessAlive(pid) {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    if (
-      error instanceof Error &&
-      "code" in error &&
-      (error.code === "ESRCH" || error.code === "EINVAL")
-    ) {
-      return false;
-    }
-
-    if (error instanceof Error && "code" in error && error.code === "EPERM") {
-      return true;
-    }
-
-    return true;
-  }
-}
-
-function normalizePositiveInteger(value, fallbackValue) {
-  const numericValue = Number(value);
-  return Number.isInteger(numericValue) && numericValue > 0 ? numericValue : fallbackValue;
-}
 
 function fallbackRetryBudgetForRole(role) {
   if (role === "executor") {
@@ -92,85 +47,6 @@ function fallbackRetryBudgetForRole(role) {
   }
 
   return 1;
-}
-
-function getLauncherTimeoutMs(stepTimeoutMs = null) {
-  const explicitLauncherTimeoutMs = readPositiveIntegerEnv("AI_FACTORY_LAUNCHER_TIMEOUT_MS", 0);
-
-  if (explicitLauncherTimeoutMs > 0) {
-    return explicitLauncherTimeoutMs;
-  }
-
-  return readPositiveIntegerEnv(
-    "AI_FACTORY_POWERSHELL_TIMEOUT_MS",
-    normalizePositiveInteger(stepTimeoutMs, 300000)
-  );
-}
-
-function getLauncherMaxBufferBytes() {
-  return readPositiveIntegerEnv("AI_FACTORY_LAUNCHER_MAX_BUFFER_BYTES", defaultLauncherMaxBufferBytes);
-}
-
-function getDispatchOutputTailBytes() {
-  return readPositiveIntegerEnv("AI_FACTORY_DISPATCH_OUTPUT_TAIL_BYTES", defaultDispatchOutputTailBytes);
-}
-
-function getGptRunnerLauncherAttempts() {
-  return readPositiveIntegerEnv(
-    "AI_FACTORY_GPT_RUNNER_LAUNCHER_ATTEMPTS",
-    defaultGptRunnerLauncherAttempts
-  );
-}
-
-function getGptRunnerRetryBaseDelayMs() {
-  return readPositiveIntegerEnv(
-    "AI_FACTORY_GPT_RUNNER_RETRY_BASE_DELAY_MS",
-    defaultGptRunnerRetryBaseDelayMs
-  );
-}
-
-function getGptRunnerRetryMaxDelayMs() {
-  return readPositiveIntegerEnv(
-    "AI_FACTORY_GPT_RUNNER_RETRY_MAX_DELAY_MS",
-    defaultGptRunnerRetryMaxDelayMs
-  );
-}
-
-function computeGptRunnerRetryDelayMs(attemptIndex) {
-  const normalizedAttemptIndex = Math.max(1, normalizePositiveInteger(attemptIndex, 1));
-  const baseDelayMs = getGptRunnerRetryBaseDelayMs();
-  const maxDelayMs = Math.max(baseDelayMs, getGptRunnerRetryMaxDelayMs());
-  const jitterFactor = 0.85 + Math.random() * 0.3;
-  const delayMs = Math.round(baseDelayMs * (2 ** (normalizedAttemptIndex - 1)) * jitterFactor);
-  return Math.min(maxDelayMs, delayMs);
-}
-
-function tailTruncateExecutionOutput(value) {
-  const normalizedValue = typeof value === "string" ? value.trim() : "";
-
-  if (!normalizedValue) {
-    return "";
-  }
-
-  const maxBytes = getDispatchOutputTailBytes();
-  const encodedValue = Buffer.from(normalizedValue, "utf8");
-
-  if (encodedValue.length <= maxBytes) {
-    return normalizedValue;
-  }
-
-  return encodedValue.subarray(encodedValue.length - maxBytes).toString("utf8");
-}
-
-function classifyGptRunnerTransientSignal(value) {
-  const text = String(value ?? "").toLowerCase();
-  return /stream disconnected|reconnecting|503 service unavailable|502 bad gateway|service temporarily unavailable|connection reset|econnreset|network/i.test(
-    text
-  );
-}
-
-function isMissingResultArtifactReason(reason) {
-  return /result artifact was not written|no such file|enoent/i.test(String(reason ?? ""));
 }
 
 function parseRetryAfterDelayMinutes(value) {
@@ -381,61 +257,6 @@ function maybeBuildDoctorRuntimeDriftResult(
   );
 }
 
-function shouldRetryGptRunnerLauncher({
-  runtimeId,
-  attemptNumber,
-  maxAttempts,
-  execution = null,
-  error = null,
-  resultArtifact = null
-}) {
-  if (runtimeId !== "gpt-runner") {
-    return false;
-  }
-
-  if (attemptNumber >= maxAttempts) {
-    return false;
-  }
-
-  if (error) {
-    const code = typeof error === "object" && error !== null && "code" in error ? String(error.code) : "";
-    const message = error instanceof Error ? error.message : String(error);
-    const stdout = typeof error?.stdout === "string" ? error.stdout : "";
-    const stderr = typeof error?.stderr === "string" ? error.stderr : "";
-    return (
-      code === launcherTimeoutErrorCode ||
-      code === "ETIMEDOUT" ||
-      classifyGptRunnerTransientSignal(message) ||
-      classifyGptRunnerTransientSignal(stdout) ||
-      classifyGptRunnerTransientSignal(stderr)
-    );
-  }
-
-  if (!resultArtifact || resultArtifact.valid) {
-    return false;
-  }
-
-  const reason = resultArtifact.reason ?? "";
-  const stdout = execution?.stdout ?? "";
-  const stderr = execution?.stderr ?? "";
-
-  if (!isMissingResultArtifactReason(reason)) {
-    return false;
-  }
-
-  return classifyGptRunnerTransientSignal(`${stdout}\n${stderr}`);
-}
-
-function isLauncherPermissionDeniedError(error) {
-  const code = typeof error === "object" && error !== null && "code" in error ? String(error.code) : "";
-  const message = error instanceof Error ? error.message : String(error ?? "");
-  return (
-    code === "EPERM" ||
-    code === "EACCES" ||
-    /spawn eperm|spawn eacces|permission denied|operation not permitted/i.test(message)
-  );
-}
-
 function normalizeExecutionGuardrails(descriptor) {
   const role = descriptor.role ?? descriptor.task?.role ?? null;
   const promptHash =
@@ -503,69 +324,6 @@ function countRetryBudgetConsumption(task) {
   };
 }
 
-function buildLauncherExecutionError(message, code, cause) {
-  const error = /** @type {Error & { code?: string, stdout?: string, stderr?: string }} */ (
-    new Error(message, { cause })
-  );
-
-  error.code = code;
-  error.stdout =
-    typeof cause?.stdout === "string"
-      ? cause.stdout
-      : "";
-  error.stderr =
-    typeof cause?.stderr === "string"
-      ? cause.stderr
-      : "";
-
-  return error;
-}
-
-async function classifyLauncherCommandStartError(command, unavailableMessage, error) {
-  const code = typeof error === "object" && error !== null && "code" in error ? String(error.code) : "";
-
-  if (code !== "ENOENT" || !isNonEmptyString(command)) {
-    return buildLauncherExecutionError(unavailableMessage, "ENOENT", error);
-  }
-
-  try {
-    const commandStats = await stat(command);
-
-    if (commandStats.isDirectory()) {
-      return buildLauncherExecutionError(
-        `Launcher runtime path is not executable because it resolves to a directory: ${command}`,
-        "EPERM",
-        error
-      );
-    }
-
-    if (!commandStats.isFile()) {
-      return buildLauncherExecutionError(
-        `Launcher runtime path is not executable: ${command}`,
-        "EPERM",
-        error
-      );
-    }
-  } catch (statError) {
-    if (!(statError instanceof Error) || !("code" in statError) || statError.code !== "ENOENT") {
-      throw statError;
-    }
-  }
-
-  return buildLauncherExecutionError(unavailableMessage, "ENOENT", error);
-}
-
-function isLauncherTimeoutError(error) {
-  return Boolean(error && typeof error === "object" && "code" in error && error.code === launcherTimeoutErrorCode);
-}
-
-function executionFromError(error) {
-  return {
-    stdout: typeof error?.stdout === "string" ? error.stdout : "",
-    stderr: typeof error?.stderr === "string" ? error.stderr : ""
-  };
-}
-
 function renderDispatchReport(summary, results) {
   return [
     "# Dispatch Report",
@@ -589,115 +347,6 @@ function renderDispatchReport(summary, results) {
   ].join("\n");
 }
 
-async function runPowerShellScript(scriptPath, timeoutMs = null) {
-  if (!(await fileExists(scriptPath))) {
-    throw new Error(`Launcher script not found: ${scriptPath}`);
-  }
-
-  const runtime = getPowerShellInvocation();
-  const powerShellTimeoutMs = getLauncherTimeoutMs(timeoutMs);
-  const powerShellMaxBufferBytes = getLauncherMaxBufferBytes();
-
-  try {
-    return await execFileAsync(
-      runtime.command,
-      buildPowerShellFileArgs(scriptPath),
-      {
-        encoding: "utf8",
-        maxBuffer: powerShellMaxBufferBytes,
-        windowsHide: runtime.windowsHide,
-        timeout: powerShellTimeoutMs
-      }
-    );
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    const powerShellMissing =
-      typeof error === "object" &&
-      error !== null &&
-      "code" in error &&
-      error.code === "ENOENT";
-    const timedOut =
-      (typeof error === "object" &&
-        error !== null &&
-        (("code" in error && error.code === "ETIMEDOUT") ||
-          ("killed" in error && error.killed === true && "signal" in error && error.signal === "SIGTERM"))) ||
-      /timed out/i.test(errorMessage);
-
-    if (powerShellMissing) {
-      throw await classifyLauncherCommandStartError(
-        runtime.command,
-        `PowerShell runtime is not available: ${runtime.command}`,
-        error
-      );
-    }
-
-    if (timedOut) {
-      throw buildLauncherExecutionError(
-        `Launcher timed out after ${powerShellTimeoutMs / 1000} seconds: ${scriptPath}`,
-        launcherTimeoutErrorCode,
-        error
-      );
-    }
-
-    throw error;
-  }
-}
-
-async function runShellScript(scriptPath, timeoutMs = null) {
-  if (!(await fileExists(scriptPath))) {
-    throw new Error(`Launcher script not found: ${scriptPath}`);
-  }
-
-  const shellCommand = getNonWindowsLauncherShellCommand();
-  const shellTimeoutMs = getLauncherTimeoutMs(timeoutMs);
-  const shellMaxBufferBytes = getLauncherMaxBufferBytes();
-
-  try {
-    return await execFileAsync(shellCommand, [scriptPath], {
-      encoding: "utf8",
-      maxBuffer: shellMaxBufferBytes,
-      timeout: shellTimeoutMs
-    });
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    const shellMissing =
-      typeof error === "object" &&
-      error !== null &&
-      "code" in error &&
-      error.code === "ENOENT";
-    const timedOut =
-      (typeof error === "object" &&
-        error !== null &&
-        (("code" in error && error.code === "ETIMEDOUT") ||
-          ("killed" in error && error.killed === true && "signal" in error && error.signal === "SIGTERM"))) ||
-      /timed out/i.test(errorMessage);
-
-    if (shellMissing) {
-      throw await classifyLauncherCommandStartError(
-        shellCommand,
-        `Launcher shell is not available: ${shellCommand}`,
-        error
-      );
-    }
-
-    if (timedOut) {
-      throw buildLauncherExecutionError(
-        `Launcher timed out after ${shellTimeoutMs / 1000} seconds: ${scriptPath}`,
-        launcherTimeoutErrorCode,
-        error
-      );
-    }
-
-    throw error;
-  }
-}
-
-async function runLauncherScript(scriptPath, timeoutMs = null) {
-  return path.extname(scriptPath).toLowerCase() === ".sh"
-    ? runShellScript(scriptPath, timeoutMs)
-    : runPowerShellScript(scriptPath, timeoutMs);
-}
-
 function shouldAutoExecute(runtimeId) {
   return (
     runtimeId === "openclaw" ||
@@ -705,15 +354,6 @@ function shouldAutoExecute(runtimeId) {
     runtimeId === "local-ci" ||
     runtimeId === "codex"
   );
-}
-
-async function fileExists(targetPath) {
-  try {
-    await access(targetPath);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 async function hydrateDescriptor(indexDescriptor) {
@@ -794,173 +434,6 @@ async function validatePromptIntegrity(descriptor, executionGuardrails) {
     throw new Error(
       `Prompt hash mismatch for ${promptPath}: expected ${executionGuardrails.promptHash}, received ${actualPromptHash}.`
     );
-  }
-}
-
-function sleep(durationMs) {
-  return new Promise((resolve) => {
-    setTimeout(resolve, durationMs);
-  });
-}
-
-async function acquireDispatchLock(lockPath) {
-  const deadline = Date.now() + dispatchLockTimeoutMs;
-
-  while (true) {
-    try {
-      const lockHandle = await open(lockPath, "wx");
-      await lockHandle.writeFile(`${process.pid} ${new Date().toISOString()}\n`, "utf8");
-
-      return async () => {
-        await lockHandle.close().catch(() => undefined);
-        await rm(lockPath, { force: true }).catch(() => undefined);
-      };
-    } catch (error) {
-      if (!(error instanceof Error) || !("code" in error) || error.code !== "EEXIST") {
-        throw error;
-      }
-
-      try {
-        const existingLockStats = await stat(lockPath);
-
-        if (Date.now() - existingLockStats.mtimeMs > dispatchLockStaleMs) {
-          await rm(lockPath, { force: true });
-          continue;
-        }
-      } catch (statError) {
-        if (!(statError instanceof Error) || !("code" in statError) || statError.code !== "ENOENT") {
-          throw statError;
-        }
-
-        continue;
-      }
-
-      if (Date.now() >= deadline) {
-        throw new Error(`Timed out waiting for dispatch run-state lock: ${lockPath}`, {
-          cause: error
-        });
-      }
-
-      await sleep(dispatchLockRetryDelayMs);
-    }
-  }
-}
-
-async function withDispatchLock(runStatePath, action) {
-  const releaseLock = await acquireDispatchLock(`${runStatePath}${dispatchLockSuffix}`);
-
-  try {
-    return await action();
-  } finally {
-    await releaseLock();
-  }
-}
-
-function resolveDescriptorExecutionLockPath(descriptor) {
-  const lockTarget = descriptor.resultPath ?? descriptor.launcherPath;
-  return `${path.resolve(lockTarget)}${descriptorExecutionLockSuffix}`;
-}
-
-function appendNoteFragment(baseNote, nextNote) {
-  if (!isNonEmptyString(baseNote)) {
-    return isNonEmptyString(nextNote) ? nextNote.trim() : null;
-  }
-
-  if (!isNonEmptyString(nextNote)) {
-    return baseNote.trim();
-  }
-
-  return `${baseNote.trim()} ${nextNote.trim()}`.trim();
-}
-
-async function recoverDescriptorExecutionLock(lockPath, descriptor) {
-  let lockContent;
-  let lockStats;
-
-  try {
-    [lockContent, lockStats] = await Promise.all([
-      readFile(lockPath, "utf8").catch(() => ""),
-      stat(lockPath)
-    ]);
-  } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
-      return {
-        recovered: true,
-        note: null
-      };
-    }
-
-    throw error;
-  }
-
-  const lockPid = parseLockPid(lockContent);
-  const lockAgeMs = Date.now() - lockStats.mtimeMs;
-
-  if (lockPid !== null && !isProcessAlive(lockPid)) {
-    await rm(lockPath, { force: true });
-    return {
-      recovered: true,
-      note:
-        `Recovered stale orphaned execution lock for task ${descriptor.taskId} ` +
-        `(dead pid ${lockPid}).`
-    };
-  }
-
-  if ((lockStats.size === 0 || lockPid === null) && lockAgeMs > descriptorExecutionLockUninitializedMs) {
-    await rm(lockPath, { force: true });
-    return {
-      recovered: true,
-      note:
-        `Recovered uninitialized execution lock for task ${descriptor.taskId} ` +
-        `(age ${lockAgeMs}ms).`
-    };
-  }
-
-  if (lockAgeMs > dispatchLockStaleMs) {
-    await rm(lockPath, { force: true });
-    return {
-      recovered: true,
-      note:
-        `Recovered aged execution lock for task ${descriptor.taskId} ` +
-        `(pid ${lockPid}, age ${lockAgeMs}ms).`
-    };
-  }
-
-  return {
-    recovered: false,
-    note: null
-  };
-}
-
-async function tryAcquireDescriptorExecutionLock(descriptor, recoveredNote = null) {
-  const lockPath = resolveDescriptorExecutionLockPath(descriptor);
-
-  try {
-    const lockHandle = await open(lockPath, "wx");
-    await lockHandle.writeFile(`${process.pid} ${new Date().toISOString()}\n`, "utf8");
-
-    return {
-      recoveredNote,
-      release: async () => {
-        await lockHandle.close().catch(() => undefined);
-        await rm(lockPath, { force: true }).catch(() => undefined);
-      }
-    };
-  } catch (error) {
-    if (!(error instanceof Error) || !("code" in error) || error.code !== "EEXIST") {
-      throw error;
-    }
-
-    const recovery = await recoverDescriptorExecutionLock(lockPath, descriptor);
-
-    if (recovery.recovered) {
-      return tryAcquireDescriptorExecutionLock(
-        descriptor,
-        appendNoteFragment(recoveredNote, recovery.note)
-      );
-    }
-
-    return null;
   }
 }
 
@@ -1091,45 +564,6 @@ function buildDispatchResultFromArtifact(descriptor, runtimeId, resultArtifact, 
   };
 }
 
-function isExhaustedTransientGptRunnerFailure({
-  runtimeId,
-  attemptNumber,
-  maxAttempts,
-  error = null,
-  execution = null,
-  resultArtifact = null
-}) {
-  if (runtimeId !== "gpt-runner" || attemptNumber < maxAttempts) {
-    return false;
-  }
-
-  if (error) {
-    const code = typeof error === "object" && error !== null && "code" in error ? String(error.code) : "";
-    const message = error instanceof Error ? error.message : String(error);
-    const stdout = typeof error?.stdout === "string" ? error.stdout : "";
-    const stderr = typeof error?.stderr === "string" ? error.stderr : "";
-    return (
-      code === launcherTimeoutErrorCode ||
-      code === "ETIMEDOUT" ||
-      classifyGptRunnerTransientSignal(message) ||
-      classifyGptRunnerTransientSignal(stdout) ||
-      classifyGptRunnerTransientSignal(stderr)
-    );
-  }
-
-  if (!resultArtifact || resultArtifact.valid) {
-    return false;
-  }
-
-  const reason = resultArtifact.reason ?? "";
-
-  if (!isMissingResultArtifactReason(reason)) {
-    return false;
-  }
-
-  return classifyGptRunnerTransientSignal(`${execution?.stdout ?? ""}\n${execution?.stderr ?? ""}`);
-}
-
 function buildTransientGptRunnerRetryResult(descriptor, execution = null, notePrefix = null) {
   const stdout = tailTruncateExecutionOutput(execution?.stdout);
   const stderr = tailTruncateExecutionOutput(execution?.stderr);
@@ -1234,10 +668,6 @@ function buildLauncherPermissionRetryResult(
       "Converted launcher process permission denial into an automatic retry."
     )
   );
-}
-
-function dedupeText(items) {
-  return [...new Set((items ?? []).filter(isNonEmptyString).map((item) => item.trim()))].join(" ");
 }
 
 async function tryRecoverExistingResultArtifact(runStatePath, descriptor, runtimeId, runId, notePrefix) {
