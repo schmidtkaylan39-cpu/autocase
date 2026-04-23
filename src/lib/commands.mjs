@@ -1,11 +1,17 @@
-import { randomUUID } from "node:crypto";
-import { access, readFile, writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 
 import { ensureDirectory, readJson, writeJson } from "./fs-utils.mjs";
 import { readRunStateArtifact } from "./control-plane-artifacts.mjs";
-import { buildHandoffDescriptor, getLauncherMetadata, renderHandoffMarkdown } from "./handoffs.mjs";
+import {
+  inferWorkspaceRootFromRunState,
+  inferWorkspaceRootFromSpecPath,
+  loadFactoryConfig,
+  packageRootDirectory,
+  resolveWorkspaceRelativePath,
+  writeJsonIfMissing,
+  writeTextFileIfMissing
+} from "./command-support.mjs";
 import { clarifyIntakeRequest } from "./intake-clarifier.mjs";
 import {
   createBlockedConfirmationSpec,
@@ -16,7 +22,7 @@ import {
   loadIntakeArtifacts,
   writeIntakeArtifacts
 } from "./intake-state.mjs";
-import { mergeFactoryConfig, roleDirectoryFromConfig, defaultFactoryConfig } from "./roles.mjs";
+import { roleDirectoryFromConfig, defaultFactoryConfig } from "./roles.mjs";
 import {
   createArtifactPaths,
   createRunState,
@@ -31,95 +37,9 @@ import { applyTaskArtifactToRunState } from "./result-application.mjs";
 import { sampleProjectSpec } from "./sample-spec.mjs";
 import { summarizeSpec, validateProjectSpec } from "./spec.mjs";
 import { buildExecutionPlan, renderPlanMarkdown } from "./workflow.mjs";
+import { createRunHandoffs as createRunHandoffsImpl } from "./run-handoffs.mjs";
 
-const packageRootDirectory = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
-const UTF8_BOM = "\uFEFF";
-
-async function fileExists(targetPath) {
-  try {
-    await access(targetPath);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function writeJsonIfMissing(targetPath, value) {
-  if (await fileExists(targetPath)) {
-    return false;
-  }
-
-  await writeJson(targetPath, value);
-  return true;
-}
-
-async function writeTextFileIfMissing(targetPath, value) {
-  if (await fileExists(targetPath)) {
-    return false;
-  }
-
-  await writeFile(targetPath, value, "utf8");
-  return true;
-}
-
-async function writeTextFileWithOptionalBom(targetPath, value, options = {}) {
-  const { bom = false } = options;
-  const normalizedValue = typeof value === "string" ? value : String(value ?? "");
-  const fileContents = bom && !normalizedValue.startsWith(UTF8_BOM) ? `${UTF8_BOM}${normalizedValue}` : normalizedValue;
-  await writeFile(targetPath, fileContents, "utf8");
-}
-
-function inferWorkspaceRootFromSpecPath(specPath) {
-  const resolvedSpecPath = path.resolve(specPath);
-  const specDirectory = path.dirname(resolvedSpecPath);
-  const containerDirectoryName = path.basename(specDirectory).toLowerCase();
-
-  if (containerDirectoryName === "specs" || containerDirectoryName === "examples") {
-    return path.dirname(specDirectory);
-  }
-
-  return specDirectory;
-}
-
-function resolveWorkspaceRelativePath(workspaceRoot, targetPath) {
-  return path.isAbsolute(targetPath) ? targetPath : path.resolve(workspaceRoot, targetPath);
-}
-
-function resolveRunRelativePath(runDirectory, targetPath, fallbackPath) {
-  const effectivePath = targetPath ?? fallbackPath;
-  return path.isAbsolute(effectivePath) ? path.resolve(effectivePath) : path.resolve(runDirectory, effectivePath);
-}
-
-function normalizePathSegmentForComparison(value) {
-  return process.platform === "win32" ? String(value).toLowerCase() : String(value);
-}
-
-function assertCanonicalHandoffOutputDir(runDirectory, resolvedOutputDir) {
-  const relativeFromRun = path.relative(runDirectory, resolvedOutputDir);
-
-  if (
-    relativeFromRun.length === 0 ||
-    relativeFromRun === "." ||
-    relativeFromRun.startsWith("..") ||
-    path.isAbsolute(relativeFromRun)
-  ) {
-    return;
-  }
-
-  const segments = relativeFromRun.split(/[\\/]+/).filter(Boolean);
-  const runId = path.basename(runDirectory);
-
-  if (
-    segments.length >= 2 &&
-    normalizePathSegmentForComparison(segments[0]) === "runs" &&
-    normalizePathSegmentForComparison(segments[1]) === normalizePathSegmentForComparison(runId)
-  ) {
-    throw new Error(
-      `Refusing to generate handoffs inside a nested run directory: ${resolvedOutputDir}. ` +
-        'Pass an absolute output directory or a run-relative leaf such as "handoffs-failover".'
-    );
-  }
-}
+export { createRunHandoffs } from "./run-handoffs.mjs";
 
 function summarizeIntake(spec) {
   return {
@@ -131,39 +51,6 @@ function summarizeIntake(spec) {
     canFullyAutomate: spec.automationAssessment?.canFullyAutomate ?? false,
     estimatedAutomatablePercent: spec.automationAssessment?.estimatedAutomatablePercent ?? 0,
     recommendedNextStep: spec.recommendedNextStep
-  };
-}
-
-function inferWorkspaceRootFromRunState(runState, resolvedRunStatePath) {
-  if (typeof runState?.workspacePath === "string" && runState.workspacePath.trim().length > 0) {
-    return path.resolve(runState.workspacePath);
-  }
-
-  const runDirectory = path.dirname(resolvedRunStatePath);
-  const runsDirectory = path.dirname(runDirectory);
-
-  if (path.basename(runsDirectory).toLowerCase() === "runs") {
-    return path.dirname(runsDirectory);
-  }
-
-  return runsDirectory;
-}
-
-async function loadFactoryConfig(configPath = "config/factory.config.json", workspaceRoot = process.cwd()) {
-  const resolvedConfigPath = resolveWorkspaceRelativePath(workspaceRoot, configPath);
-
-  try {
-    await access(resolvedConfigPath);
-  } catch {
-    return {
-      resolvedConfigPath: null,
-      config: mergeFactoryConfig()
-    };
-  }
-
-  return {
-    resolvedConfigPath,
-    config: mergeFactoryConfig(await readJson(resolvedConfigPath))
   };
 }
 
@@ -192,28 +79,6 @@ function classifyHybridIssue(reason = "") {
 
 function addMinutes(timestamp, minutes) {
   return new Date(timestamp.getTime() + minutes * 60 * 1000).toISOString();
-}
-
-async function loadDoctorReport(
-  doctorReportPath = "reports/runtime-doctor.json",
-  workspaceRoot = process.cwd()
-) {
-  const resolvedDoctorReportPath = resolveWorkspaceRelativePath(workspaceRoot, doctorReportPath);
-
-  try {
-    await access(resolvedDoctorReportPath);
-    return {
-      resolvedDoctorReportPath,
-      report: await readJson(resolvedDoctorReportPath)
-    };
-  } catch {
-    return {
-      resolvedDoctorReportPath: null,
-      report: {
-        checks: []
-      }
-    };
-  }
 }
 
 export async function initProject(targetDir = ".") {
@@ -618,7 +483,7 @@ export async function tickProjectRun(
   await writeJson(resolvedRunStatePath, refreshedRunState);
   await writeFile(reportPath, `${renderRunReport(refreshedRunState, plan)}\n`, "utf8");
 
-  const handoffResult = await createRunHandoffs(
+  const handoffResult = await createRunHandoffsImpl(
     resolvedRunStatePath,
     outputDir,
     resolveWorkspaceRelativePath(workspaceRoot, doctorReportPath)
@@ -704,137 +569,4 @@ export async function applyTaskResult(runStatePath, taskId, resultPath) {
     updatedTasks: application.updatedTasks,
     appliedDecision: application.appliedDecision
   };
-}
-
-export async function createRunHandoffs(
-  runStatePath,
-  outputDir,
-  doctorReportPath = "reports/runtime-doctor.json"
-) {
-  const resolvedRunStatePath = path.resolve(runStatePath);
-  const runDirectory = path.dirname(resolvedRunStatePath);
-  const resolvedOutputDir = resolveRunRelativePath(runDirectory, outputDir, path.join(runDirectory, "handoffs"));
-  assertCanonicalHandoffOutputDir(runDirectory, resolvedOutputDir);
-  const runState = refreshRunState(await readRunStateArtifact(resolvedRunStatePath));
-  const workspaceRoot = inferWorkspaceRootFromRunState(runState, resolvedRunStatePath);
-  await ensureRunStateIntakePlanningReady(runState, workspaceRoot, null, "handoff generation");
-  const plan = await readJson(path.join(runDirectory, "execution-plan.json"));
-  const spec = await readJson(path.join(runDirectory, "spec.snapshot.json"));
-  const { report: doctorReport } = await loadDoctorReport(doctorReportPath, workspaceRoot);
-  const resultsDirectory = path.join(resolvedOutputDir, "results");
-  const launcherMetadata = getLauncherMetadata();
-
-  await ensureDirectory(resolvedOutputDir);
-  await ensureDirectory(resultsDirectory);
-
-  const readyTasks = runState.taskLedger.filter((task) => task.status === "ready");
-  const descriptors = [];
-  const activeHandoffsByTaskId = new Map();
-
-  for (const task of readyTasks) {
-    const handoffId = randomUUID();
-    const rolePromptTemplate = await readRolePrompt(task.role);
-    const promptPath = path.join(resolvedOutputDir, `${task.id}.prompt.md`);
-    const briefPath = path.join(runDirectory, "task-briefs", `${task.id}.md`);
-    const resultPath = path.join(resultsDirectory, `${task.id}.${handoffId}.result.json`);
-    const descriptor = buildHandoffDescriptor({
-      workspacePath: runState.workspacePath ?? process.cwd(),
-      spec,
-      runState,
-      plan,
-      task,
-      handoffId,
-      rolePromptTemplate,
-      promptPath,
-      briefPath,
-      resultPath,
-      doctorReport
-    });
-
-    const handoffJsonPath = path.join(resolvedOutputDir, `${task.id}.handoff.json`);
-    const handoffMarkdownPath = path.join(resolvedOutputDir, `${task.id}.handoff.md`);
-    const launcherPath = path.join(resolvedOutputDir, `${task.id}.launch${launcherMetadata.extension}`);
-    const powerShellReadable = process.platform === "win32" && launcherMetadata.extension === ".ps1";
-
-    await writeTextFileWithOptionalBom(promptPath, `${descriptor.promptText}\n`, {
-      bom: powerShellReadable
-    });
-    await writeJson(handoffJsonPath, descriptor);
-    await writeFile(
-      handoffMarkdownPath,
-      `${renderHandoffMarkdown(descriptor, resolvedOutputDir)}\n`,
-      "utf8"
-    );
-    await writeTextFileWithOptionalBom(launcherPath, `${descriptor.launcherScript}\n`, {
-      bom: powerShellReadable
-    });
-
-    descriptors.push({
-      runId: runState.runId,
-      taskId: task.id,
-      handoffId: descriptor.handoffId,
-      runtime: descriptor.runtime,
-      handoffJsonPath,
-      handoffMarkdownPath,
-      launcherPath,
-      promptPath,
-      resultPath
-    });
-    activeHandoffsByTaskId.set(task.id, {
-      handoffId: descriptor.handoffId,
-      resultPath,
-      outputDir: resolvedOutputDir
-    });
-  }
-
-  const nextRunState = {
-    ...runState,
-    taskLedger: runState.taskLedger.map((task) => {
-      const activeHandoff = activeHandoffsByTaskId.get(task.id);
-
-      if (!activeHandoff) {
-        return task;
-      }
-
-      return {
-        ...task,
-        activeHandoffId: activeHandoff.handoffId,
-        activeResultPath: activeHandoff.resultPath,
-        activeHandoffOutputDir: activeHandoff.outputDir
-      };
-    })
-  };
-
-  await writeJson(resolvedRunStatePath, nextRunState);
-  await writeFile(path.join(runDirectory, "report.md"), `${renderRunReport(nextRunState, plan)}\n`, "utf8");
-
-  const indexPath = path.join(resolvedOutputDir, "index.json");
-  await writeJson(indexPath, {
-    generatedAt: new Date().toISOString(),
-    runId: runState.runId,
-    runDirectory,
-    runStatePath: resolvedRunStatePath,
-    readyTaskCount: descriptors.length,
-    descriptors
-  });
-
-  return {
-    runId: runState.runId,
-    outputDir: resolvedOutputDir,
-    readyTaskCount: descriptors.length,
-    descriptors,
-    indexPath
-  };
-}
-
-async function readRolePrompt(role) {
-  const mapping = {
-    planner: "planner.md",
-    reviewer: "reviewer.md",
-    executor: "executor.md",
-    verifier: "verifier.md",
-    orchestrator: "orchestrator.md"
-  };
-  const fileName = mapping[role] ?? "planner.md";
-  return readFile(path.join(packageRootDirectory, "prompts", fileName), "utf8");
 }
