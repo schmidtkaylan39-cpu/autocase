@@ -11,6 +11,9 @@ compression rules. The latest small follow-up added the Web-to-Codex candidate
 template, Web GPT prompt template, size limit, S/M/L task modes, PR task-mode
 enforcement, S/M/L examples, diff-based mode validation, and explicit task
 state plus model/effort declarations for Web GPT and Codex.
+Final follow-up added PR template fixture coverage, a filled PR body dry-run
+example, a fix for high-risk wording false positives from PR boilerplate, a
+clean draft PR from `origin/main`, and `main` branch protection.
 
 ## Workspace / Repo State
 
@@ -97,6 +100,31 @@ state plus model/effort declarations for Web GPT and Codex.
     examples instead of blank fields.
   - Web GPT prompt now forbids prefaces, summaries, checklist recaps, apologies,
     and extra commentary outside the candidate packet.
+- Added `templates/examples/pr-readiness-filled-body.example.md` as a complete
+  local dry-run PR body.
+- Added PR readiness tests that read `.github/pull_request_template.md`
+  directly and verify the filled PR body example.
+- Fixed PR readiness high-risk wording detection so required PR boilerplate
+  such as `Release Evidence` does not force S/M PRs to upgrade to L. The
+  high-risk text scan now focuses on task-relevant summary/objective,
+  acceptance, stop-rule, and handoff text.
+- Created clean worktree `C:\awp` from `origin/main`, copied only the AI
+  workflow baseline files, validated there, committed
+  `b84c8f7` (`chore: add AI workflow readiness baseline`), pushed branch
+  `codex/ai-workflow-baseline-pr`, and opened draft PR #13:
+  `https://github.com/schmidtkaylan39-cpu/autocase/pull/13`.
+- Set `main` branch protection:
+  - strict required status checks enabled.
+  - required checks: `Quality (ubuntu-latest)`, `Quality (windows-latest)`,
+    `Example Smoke (ubuntu-latest)`, `Example Smoke (windows-latest)`, and
+    `PR Body Readiness`.
+  - admins included.
+  - force pushes disabled.
+  - branch deletion disabled.
+  - conversation resolution required.
+- Reran the initially failed GitHub Windows PR quality job. The failure was the
+  existing timeout-sensitive `verifier/local-ci late-artifact` test flaking on
+  the runner; rerun passed.
 
 ## Verification Run
 
@@ -148,6 +176,33 @@ state plus model/effort declarations for Web GPT and Codex.
   `docs/CODEX_HANDOFF_20260517_AI_WORKFLOW.md`
   - result: passed after simplifying required PR defaults and tightening Web
     GPT no-extra-commentary rules
+- `node tests/pr-readiness-check-tests.mjs`
+  - result: passed after adding PR template fixture coverage, filled PR body
+    example validation, and high-risk wording false-positive coverage
+- `npx eslint scripts/check-pr-readiness.mjs tests/pr-readiness-check-tests.mjs`
+  - result: passed after PR readiness checker/test updates
+- Sample PR body CLI dry-run:
+  `node scripts/check-pr-readiness.mjs --body-file templates/examples/pr-readiness-filled-body.example.md --changed-files <temp> --numstat <temp>`
+  - result: passed
+- Clean PR worktree `C:\awp` validation:
+  - `npm ci`: passed
+  - `node tests\pr-readiness-check-tests.mjs`: passed
+  - `npx eslint scripts\check-pr-readiness.mjs tests\pr-readiness-check-tests.mjs`: passed
+  - `npm run validate:workflows`: passed
+  - `npm run build`: passed
+  - `npm run lint`: passed
+  - `npm run typecheck`: passed
+  - `npm test`: passed
+  - `npm run pack:check`: passed
+  - `npm run test:e2e`: passed
+  - `npm run doctor`: passed; `cursor`, `gpt-runner`, `codex`, and `local-ci`
+    were ready; `openclaw` was not ready and remains optional
+- GitHub draft PR #13 checks:
+  - `PR Body Readiness`: passed
+  - `Quality (ubuntu-latest)`: passed
+  - `Quality (windows-latest)`: passed after rerun
+  - `Example Smoke (ubuntu-latest)`: passed
+  - `Example Smoke (windows-latest)`: passed
 - `npm run check:pr-readiness` with `PR_DRAFT=true`
   - result: passed; draft PRs skip enforcement
 - `npm test`
@@ -188,11 +243,14 @@ state plus model/effort declarations for Web GPT and Codex.
 
 - Review the templates in GitHub after push to confirm labels and issue forms
   render as expected.
+- Draft PR #13 is open and all required checks have passed. Next human action
+  is to review the PR and mark it ready when desired.
 - Optionally create repository labels: `ai-task` and `bug`.
-- Protect `main` with the existing CI checks plus `PR Body Readiness` when the
-  workflow is pushed and confirmed in GitHub.
-- Resolve unrelated existing panel/lint failures before treating the whole repo
-  as globally green.
+- Do not merge unrelated dirty files from the original source worktree. The PR
+  branch was intentionally created from clean `origin/main`.
+- Runtime-level model policy migration to default `gpt-5.5` is deliberately not
+  included in PR #13 because it touches runtime source and broad test contracts.
+  Treat it as a separate L-mode task if needed.
 
 ## Key Files And Artifacts
 
@@ -212,7 +270,10 @@ state plus model/effort declarations for Web GPT and Codex.
 - `templates/examples/s-mode-one-line-task.example.md`
 - `templates/examples/m-mode-web-to-codex-candidate.example.md`
 - `templates/examples/l-mode-ai-task.example.md`
+- `templates/examples/pr-readiness-filled-body.example.md`
 - `docs/model-routing.md`
+- Draft PR: `https://github.com/schmidtkaylan39-cpu/autocase/pull/13`
+- Clean PR worktree: `C:\awp`
 
 ## Risks / Do Not Do
 
