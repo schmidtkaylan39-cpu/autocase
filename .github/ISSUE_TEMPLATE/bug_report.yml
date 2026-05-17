@@ -1,0 +1,58 @@
+name: Bug report
+description: Report a reproducible defect with evidence and expected validation.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Include enough evidence for an agent to reproduce or narrow the issue.
+        Do not include secrets, tokens, cookies, credentials, or full account IDs.
+  - type: textarea
+    id: observed
+    attributes:
+      label: Observed behavior
+      description: What happened?
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What should have happened?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Commands, UI steps, fixtures, or artifacts needed to reproduce.
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Logs, artifacts, screenshots, run IDs, or file paths. Redact secrets first.
+      placeholder: |
+        - reports/...
+        - runs/.../run-state.json
+        - logs/...
+    validations:
+      required: false
+  - type: textarea
+    id: validation
+    attributes:
+      label: Validation expectation
+      description: What should pass after the fix?
+      value: |
+        - [ ] Bug reproduction no longer fails.
+        - [ ] Regression test or focused smoke added when practical.
+        - [ ] Relevant validation command passed.
+    validations:
+      required: true

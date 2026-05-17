@@ -1,0 +1,164 @@
+name: AI implementation task
+description: Turn a product or engineering request into a Codex-ready task.
+title: "[AI Task]: "
+labels:
+  - ai-task
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template when the request should become a branch, PR, and verifiable local change.
+        Keep secrets, tokens, cookies, account IDs, and credentials out of the issue.
+        Codex should ask at most three high-impact questions after reading the repo. Low-risk, reversible details should use conservative repo-native defaults and be reported as assumptions.
+  - type: dropdown
+    id: task_mode
+    attributes:
+      label: Task mode
+      description: Pick the lightest safe mode. If uncertain, choose the heavier mode.
+      options:
+        - S - small low-risk docs/copy/config, max 2 files
+        - M - standard task, max 3 files or 300 diff lines
+        - L - large or high-risk task
+    validations:
+      required: true
+  - type: dropdown
+    id: task_state
+    attributes:
+      label: Initial task state
+      description: Use draft if any required field is still uncertain.
+      options:
+        - draft
+        - candidate-ready
+        - ready
+        - blocked
+    validations:
+      required: true
+  - type: textarea
+    id: model_effort
+    attributes:
+      label: Model and effort plan
+      description: Declare the intended model/runtime and reasoning effort before implementation.
+      value: |
+        - Web GPT drafting: `gpt-5.5`, high (`高`) for M; xhigh (`超高`) for L design/risk planning; fallback `gpt-5.4`.
+        - Codex execution: `codex`, medium/high (`中`/`高`) for S/M; high/xhigh (`高`/`超高`) for L.
+        - Planner/reviewer: `gpt-5.5`, high/xhigh (`高`/`超高`) when needed; fallback `gpt-5.4`.
+    validations:
+      required: true
+  - type: textarea
+    id: objective
+    attributes:
+      label: Objective
+      description: What should be true after this task is complete?
+      placeholder: "Example: Add artifact-backed validation for..."
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context and source of truth
+      description: Link docs, artifacts, logs, screenshots, or code paths the agent must read first.
+      placeholder: |
+        - AGENTS.md
+        - docs/...
+        - reports/...
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: Name allowed areas and anything that must not be touched.
+      value: |
+        Allowed:
+        -
+
+        Out of scope:
+        -
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance checks
+      description: Concrete checks that prove the task is done.
+      value: |
+        - [ ] Relevant code/docs updated.
+        - [ ] Validation commands were run or explicitly skipped with reasons.
+        - [ ] PR includes handoff notes and remaining risk.
+    validations:
+      required: true
+  - type: textarea
+    id: definition_of_ready
+    attributes:
+      label: Definition of Ready
+      description: This must be true before Codex starts implementation.
+      value: |
+        - [ ] Objective is one clear outcome.
+        - [ ] Source-of-truth files or artifacts are named.
+        - [ ] Allowed and out-of-scope areas are named.
+        - [ ] Acceptance checks are observable.
+        - [ ] Validation commands or evidence are named.
+        - [ ] Stop rules are named.
+    validations:
+      required: true
+  - type: textarea
+    id: definition_of_done
+    attributes:
+      label: Definition of Done
+      description: This must be true before the PR is considered review-ready.
+      value: |
+        - [ ] Only intended files changed.
+        - [ ] Acceptance checks are complete.
+        - [ ] Validation evidence is listed.
+        - [ ] Skipped checks include reasons.
+        - [ ] Handoff notes cover next steps and residual risk.
+        - [ ] No secrets, tokens, cookies, credentials, or full account IDs were added.
+    validations:
+      required: true
+  - type: textarea
+    id: validation
+    attributes:
+      label: Expected validation commands
+      description: Prefer the smallest command set that proves this exact task.
+      value: |
+        - npm run validate:workflows
+        - npm run build
+        - npm run lint
+        - npm run typecheck
+        - npm test
+        - npm run test:e2e
+    validations:
+      required: false
+  - type: textarea
+    id: risks
+    attributes:
+      label: Risks and stop rules
+      description: Conditions where the agent should stop instead of guessing.
+      value: |
+        Stop if:
+        -
+
+        Watch for:
+        -
+    validations:
+      required: false
+  - type: textarea
+    id: autonomy
+    attributes:
+      label: Autonomy defaults
+      description: Rules that prevent back-and-forth question loops.
+      value: |
+        Codex should inspect the repo first and ask at most three batched questions only for high-risk, irreversible, contradictory, scope-changing, or externally blocked decisions.
+
+        Codex should not ask about discoverable repo facts, naming details, test commands, or low-risk reversible implementation choices. Use the existing repo pattern, choose the conservative default, and list assumptions in the final report.
+    validations:
+      required: true
+  - type: textarea
+    id: handoff
+    attributes:
+      label: Handoff expectations
+      description: What must be easy for the next conversation or reviewer to resume?
+      value: |
+        Include changed files, validation evidence, skipped checks, and next steps.
+    validations:
+      required: false

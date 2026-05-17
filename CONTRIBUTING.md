@@ -44,6 +44,12 @@ Before asking for merge:
 
 The repository already includes a PR template at `.github/pull_request_template.md`.
 
+For AI-assisted implementation work, start from the `AI implementation task`
+issue template and follow `docs/ai-collaboration-workflow.md`. The issue should
+name the objective, source-of-truth files or artifacts, scope, acceptance checks,
+validation commands, stop rules, and handoff expectations before implementation
+begins.
+
 ## Required Merge Checks
 
 Recommended required checks for `main` protection:
