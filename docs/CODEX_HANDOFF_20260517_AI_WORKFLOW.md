@@ -14,6 +14,8 @@ state plus model/effort declarations for Web GPT and Codex.
 Final follow-up added PR template fixture coverage, a filled PR body dry-run
 example, a fix for high-risk wording false positives from PR boilerplate, a
 clean draft PR from `origin/main`, and `main` branch protection.
+Final CI-stability follow-up made the Windows late-artifact timeout fixture
+less scheduler-sensitive without changing dispatch runtime behavior.
 
 ## Workspace / Repo State
 
@@ -33,6 +35,7 @@ clean draft PR from `origin/main`, and `main` branch protection.
   - `docs/model-routing.md`
   - `package.json`
   - `scripts/check-pr-readiness.mjs`
+  - `tests/dispatch-matrix-tests.mjs`
   - `tests/pr-readiness-check-tests.mjs`
   - `templates/one-line-task.template.md`
   - `templates/web-gpt-candidate-prompt.template.md`
@@ -125,6 +128,9 @@ clean draft PR from `origin/main`, and `main` branch protection.
 - Reran the initially failed GitHub Windows PR quality job. The failure was the
   existing timeout-sensitive `verifier/local-ci late-artifact` test flaking on
   the runner; rerun passed.
+- Stabilized the `verifier/local-ci late-artifact` dispatch matrix fixture by
+  giving Windows CI enough startup/write headroom while preserving the same
+  timeout rejection assertion. No runtime dispatch behavior was changed.
 
 ## Verification Run
 
@@ -197,12 +203,17 @@ clean draft PR from `origin/main`, and `main` branch protection.
   - `npm run test:e2e`: passed
   - `npm run doctor`: passed; `cursor`, `gpt-runner`, `codex`, and `local-ci`
     were ready; `openclaw` was not ready and remains optional
+- Final CI-stability validation in clean PR worktree `C:\awp`:
+  - `node tests\dispatch-matrix-tests.mjs`: passed
+  - `npx eslint tests\dispatch-matrix-tests.mjs scripts\check-pr-readiness.mjs tests\pr-readiness-check-tests.mjs`: passed
+  - `npm test`: passed
+  - `npm run lint`: passed
+  - `npm run typecheck`: passed
+  - `git diff --check`: passed
 - GitHub draft PR #13 checks:
-  - `PR Body Readiness`: passed
-  - `Quality (ubuntu-latest)`: passed
-  - `Quality (windows-latest)`: passed after rerun
-  - `Example Smoke (ubuntu-latest)`: passed
-  - `Example Smoke (windows-latest)`: passed
+  - previous commit reached green after rerunning the Windows PR quality flake.
+  - after the final CI-stability commit is pushed, wait for the required checks
+    to rerun and confirm green before marking the draft PR ready.
 - `npm run check:pr-readiness` with `PR_DRAFT=true`
   - result: passed; draft PRs skip enforcement
 - `npm test`
@@ -243,8 +254,9 @@ clean draft PR from `origin/main`, and `main` branch protection.
 
 - Review the templates in GitHub after push to confirm labels and issue forms
   render as expected.
-- Draft PR #13 is open and all required checks have passed. Next human action
-  is to review the PR and mark it ready when desired.
+- Draft PR #13 is open. After the final CI-stability commit is pushed and the
+  required checks are green, next human action is to review the PR and mark it
+  ready when desired.
 - Optionally create repository labels: `ai-task` and `bug`.
 - Do not merge unrelated dirty files from the original source worktree. The PR
   branch was intentionally created from clean `origin/main`.
@@ -262,6 +274,7 @@ clean draft PR from `origin/main`, and `main` branch protection.
 - `docs/ai-collaboration-workflow.md`
 - `CONTRIBUTING.md`
 - `scripts/check-pr-readiness.mjs`
+- `tests/dispatch-matrix-tests.mjs`
 - `tests/pr-readiness-check-tests.mjs`
 - `package.json`
 - `templates/one-line-task.template.md`

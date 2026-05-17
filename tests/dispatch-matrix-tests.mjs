@@ -1010,19 +1010,27 @@ async function main() {
   });
 
   await runTest("matrix: verifier/local-ci late-artifact case rejects artifacts that land after the timeout window", async () => {
+    // Windows CI can spend hundreds of milliseconds starting PowerShell + Node,
+    // so give the fixture enough room to write the artifact before timing out.
+    const lateArtifactTimeoutMs = process.platform === "win32" ? 4000 : 200;
+    const lateArtifactHangMs = process.platform === "win32" ? 7000 : 1200;
     const scenario = await runSingleVerifierDispatchScenario({
       tempPrefix: "ai-factory-matrix-local-ci-late-artifact-",
-      launcherScript: buildLateArtifactTimeoutScript("{{RESULT_PATH}}", {
-        status: "completed",
-        summary: "late artifact should not be accepted after timeout",
-        changedFiles: [],
-        verification: ["npm run build"],
-        notes: ["late local-ci artifact fixture"]
-      }),
+      launcherScript: buildLateArtifactTimeoutScript(
+        "{{RESULT_PATH}}",
+        {
+          status: "completed",
+          summary: "late artifact should not be accepted after timeout",
+          changedFiles: [],
+          verification: ["npm run build"],
+          notes: ["late local-ci artifact fixture"]
+        },
+        { hangDurationMs: lateArtifactHangMs }
+      ),
       beforeDispatch: async ({ descriptor, handoffResult }) => {
         descriptor.execution = {
           ...descriptor.execution,
-          timeoutMs: 200
+          timeoutMs: lateArtifactTimeoutMs
         };
         await limitDispatchToDescriptors(handoffResult.indexPath, handoffResult.runId, [descriptor]);
       }
