@@ -1,0 +1,42 @@
+name: PR Readiness
+
+on:
+  pull_request:
+    types:
+      - opened
+      - edited
+      - reopened
+      - ready_for_review
+      - synchronize
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  readiness:
+    name: PR Body Readiness
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: Capture PR diff facts
+        shell: bash
+        run: |
+          git diff --name-only "origin/${{ github.base_ref }}"...HEAD > "$RUNNER_TEMP/pr-files.txt"
+          git diff --numstat "origin/${{ github.base_ref }}"...HEAD > "$RUNNER_TEMP/pr-numstat.txt"
+
+      - name: Check PR body
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_DRAFT: ${{ github.event.pull_request.draft }}
+        run: npm run check:pr-readiness -- --changed-files "$RUNNER_TEMP/pr-files.txt" --numstat "$RUNNER_TEMP/pr-numstat.txt"

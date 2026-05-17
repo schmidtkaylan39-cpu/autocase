@@ -35,6 +35,7 @@
     "selfcheck:release-ready": "node scripts/self-check.mjs --profile release-ready",
     "pack:check": "node scripts/pack-check.mjs",
     "validate:workflows": "node scripts/validate-workflows.mjs",
+    "check:pr-readiness": "node scripts/check-pr-readiness.mjs",
     "acceptance:live": "node scripts/live-roundtrip-acceptance.mjs",
     "acceptance:panel": "node scripts/panel-one-click-smoke.mjs",
     "acceptance:panel:browser": "node scripts/panel-browser-smoke.mjs",

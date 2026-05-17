@@ -1,0 +1,305 @@
+# Codex Handoff Package
+
+## Current Goal
+
+Set up a stronger Codex plus GitHub operating loop so AI-assisted work starts
+from structured issues, lands in reviewable PRs, runs objective validation, and
+leaves enough handoff context for a fresh conversation. The latest round upgraded
+this from a templates-only baseline toward a 95-point workflow with readiness
+gates, autonomy defaults, PR body enforcement, and Caveman-based output
+compression rules. The latest small follow-up added the Web-to-Codex candidate
+template, Web GPT prompt template, size limit, S/M/L task modes, PR task-mode
+enforcement, S/M/L examples, diff-based mode validation, and explicit task
+state plus model/effort declarations for Web GPT and Codex.
+Final follow-up added PR template fixture coverage, a filled PR body dry-run
+example, a fix for high-risk wording false positives from PR boilerplate, a
+clean draft PR from `origin/main`, and `main` branch protection.
+Final CI-stability follow-up made the Windows late-artifact timeout fixture
+less scheduler-sensitive without changing dispatch runtime behavior.
+
+## Workspace / Repo State
+
+- cwd: `C:\Users\Administrator\.codex\worktrees\b628\New project`
+- branch: `codex/signalproof-mvp`
+- HEAD: `f5af478ff2b68723dee69ca93923474ae301a7fa`
+- dirty files from this round:
+  - `.github/ISSUE_TEMPLATE/config.yml`
+  - `.github/ISSUE_TEMPLATE/ai_task.yml`
+  - `.github/ISSUE_TEMPLATE/bug_report.yml`
+  - `.github/codex/prompts/implement-task.md`
+  - `.github/workflows/pr-readiness.yml`
+  - `.github/pull_request_template.md`
+  - `CONTRIBUTING.md`
+  - `docs/ai-collaboration-workflow.md`
+  - `docs/CODEX_HANDOFF_20260517_AI_WORKFLOW.md`
+  - `docs/model-routing.md`
+  - `package.json`
+  - `scripts/check-pr-readiness.mjs`
+  - `tests/dispatch-matrix-tests.mjs`
+  - `tests/pr-readiness-check-tests.mjs`
+  - `templates/one-line-task.template.md`
+  - `templates/web-gpt-candidate-prompt.template.md`
+  - `templates/web-to-codex-candidate.template.md`
+  - `templates/examples/s-mode-one-line-task.example.md`
+  - `templates/examples/m-mode-web-to-codex-candidate.example.md`
+  - `templates/examples/l-mode-ai-task.example.md`
+- note: the worktree already contained many unrelated dirty and untracked
+  runtime, docs, logs, scripts, tests, exports, and prompt files before this
+  round. They were not modified for this AI workflow setup.
+
+## Completed
+
+- Added GitHub issue forms for AI implementation tasks and bug reports.
+- Disabled blank issues so new work starts from structured intake.
+- Added a Codex issue-implementation prompt under `.github/codex/prompts/`.
+- Expanded the PR template with issue/objective, AI execution notes,
+  validation evidence, skipped checks, release impact, and handoff fields.
+- Added `docs/ai-collaboration-workflow.md` as the operator-facing workflow.
+- Linked the new workflow from `CONTRIBUTING.md`.
+- Added Definition of Ready and Definition of Done fields to the AI task issue
+  template.
+- Added autonomy defaults: inspect first, ask at most three high-impact batched
+  questions, and use conservative repo-native defaults for low-risk reversible
+  choices.
+- Added a PR readiness checker and `check:pr-readiness` npm script.
+- Added `.github/workflows/pr-readiness.yml` to enforce objective, acceptance,
+  validation, release-impact, and handoff evidence on ready PRs.
+- Added focused tests for the PR readiness checker.
+- Added Caveman token-saving policy: compress routine status, review, commit,
+  and handoff output while keeping requirements, acceptance, risks, security,
+  release, secrets, trading, and irreversible actions explicit.
+- Added Web-to-Codex candidate flow and template so Web GPT can draft focused
+  candidate patches while Codex remains the local integration and validation
+  authority.
+- Added copy-ready Web GPT prompt template to reduce repeated prompt writing and
+  force Web GPT output into the candidate packet format.
+- Added S/M/L task modes and a One-Line Task template so tiny low-risk work can
+  stay light while standard and high-risk work keep stronger gates.
+- Added PR readiness enforcement for `Task mode: S / M / L`.
+- Added diff-based task-mode validation so S/M PRs fail when changed file count,
+  changed line count, high-risk paths, or high-risk wording require a heavier
+  mode.
+- Added copy-ready S, M, and L examples under `templates/examples/`.
+- Added explicit task-state and model/effort policy:
+  - task packets declare mode, state, and model/effort plan.
+  - Web GPT candidate drafting prefers `gpt-5.5` and falls back to `gpt-5.4`.
+  - Codex remains the local executor and verifier-facing integration surface.
+  - medium/high/xhigh effort maps to small, standard, and high-risk work.
+- Updated PR readiness enforcement so ready PRs must use `Task state:
+  review-ready` or `complete`, must name the actual model/runtime and effort
+  used, and must state whether a fallback model was used.
+- Updated `docs/model-routing.md` so the orchestrator table matches the
+  configured default `gpt-5.5` route and documents task-level effort labels.
+- Cleaned the Web GPT copy/paste templates to use ASCII-only effort labels
+  (`medium`, `high`, `xhigh`) so PowerShell display encoding cannot corrupt
+  the text copied into Web GPT.
+- Clarified the Web-to-Codex split: Web GPT does not decide or own M-mode. It
+  only drafts a candidate. The pasted-back packet now has `Web GPT Draft
+  Metadata` plus `Codex Execution Instructions`; Codex verifies the suggested
+  task mode locally and may downgrade, upgrade, split, or reject it.
+- Simplified required human-facing defaults:
+  - PR template now defaults `Task state` to `review-ready`.
+  - PR template includes usable `Model/effort used` and `Fallback model used`
+    examples instead of blank fields.
+  - Web GPT prompt now forbids prefaces, summaries, checklist recaps, apologies,
+    and extra commentary outside the candidate packet.
+- Added `templates/examples/pr-readiness-filled-body.example.md` as a complete
+  local dry-run PR body.
+- Added PR readiness tests that read `.github/pull_request_template.md`
+  directly and verify the filled PR body example.
+- Fixed PR readiness high-risk wording detection so required PR boilerplate
+  such as `Release Evidence` does not force S/M PRs to upgrade to L. The
+  high-risk text scan now focuses on task-relevant summary/objective,
+  acceptance, stop-rule, and handoff text.
+- Created clean worktree `C:\awp` from `origin/main`, copied only the AI
+  workflow baseline files, validated there, committed
+  `b84c8f7` (`chore: add AI workflow readiness baseline`), pushed branch
+  `codex/ai-workflow-baseline-pr`, and opened draft PR #13:
+  `https://github.com/schmidtkaylan39-cpu/autocase/pull/13`.
+- Set `main` branch protection:
+  - strict required status checks enabled.
+  - required checks: `Quality (ubuntu-latest)`, `Quality (windows-latest)`,
+    `Example Smoke (ubuntu-latest)`, `Example Smoke (windows-latest)`, and
+    `PR Body Readiness`.
+  - admins included.
+  - force pushes disabled.
+  - branch deletion disabled.
+  - conversation resolution required.
+- Reran the initially failed GitHub Windows PR quality job. The failure was the
+  existing timeout-sensitive `verifier/local-ci late-artifact` test flaking on
+  the runner; rerun passed.
+- Stabilized the `verifier/local-ci late-artifact` dispatch matrix fixture by
+  giving Windows CI enough startup/write headroom while preserving the same
+  timeout rejection assertion. No runtime dispatch behavior was changed.
+
+## Verification Run
+
+- `git diff --check -- .github/ISSUE_TEMPLATE .github/codex/prompts/implement-task.md .github/pull_request_template.md docs/ai-collaboration-workflow.md CONTRIBUTING.md`
+  - result: passed
+- `npm run validate:workflows`
+  - result: passed; validated `ci.yml`, `codex-autofix.yml`, `pr-readiness.yml`,
+    and `release-readiness.yml`; rerun passed after diff-based S/M/L classifier
+    workflow update
+- Node/YAML parse check for `.github/ISSUE_TEMPLATE/*.yml`
+  - result: passed for `ai_task.yml`, `bug_report.yml`, and `config.yml`
+- `node tests/pr-readiness-check-tests.mjs`
+  - result: passed after diff-based S/M/L classifier update
+- `npx eslint scripts/check-pr-readiness.mjs tests/pr-readiness-check-tests.mjs`
+  - result: passed after diff-based S/M/L classifier update
+- `node tests/pr-readiness-check-tests.mjs`
+  - result: passed after task-state and model/effort readiness enforcement
+    update
+- `npx eslint scripts/check-pr-readiness.mjs tests/pr-readiness-check-tests.mjs`
+  - result: passed after task-state and model/effort readiness enforcement
+    update
+- `npm run validate:workflows`
+  - result: passed after task-state and model/effort documentation/checker
+    update; validated `ci.yml`, `codex-autofix.yml`, `pr-readiness.yml`, and
+    `release-readiness.yml`
+- Node/YAML parse check for `.github/ISSUE_TEMPLATE/*.yml`
+  - result: passed after adding task mode, initial task state, and model/effort
+    plan fields to `ai_task.yml`
+- `rg -n "[^\x00-\x7F]" templates/web-gpt-candidate-prompt.template.md templates/web-to-codex-candidate.template.md`
+  - result: no matches after ASCII-only Web GPT template cleanup
+- `git diff --no-index --check` against an empty temp file for
+  `templates/web-gpt-candidate-prompt.template.md` and
+  `templates/web-to-codex-candidate.template.md`
+  - result: passed after ASCII-only Web GPT template cleanup
+- `rg` check for stale Web GPT/M-mode wording in the Web GPT templates, workflow
+  doc, and Codex implementation prompt
+  - result: no stale `M-mode candidate drafting` or `Task Mode` sections remain
+    in the Web GPT templates; only `Codex task mode` remains in the pasted-back
+    Codex instruction section
+- `git diff --no-index --check` against an empty temp file for
+  `templates/web-gpt-candidate-prompt.template.md`,
+  `templates/web-to-codex-candidate.template.md`,
+  `docs/ai-collaboration-workflow.md`, and
+  `.github/codex/prompts/implement-task.md`
+  - result: passed after clarifying that only Codex owns task mode
+- `git diff --no-index --check` against an empty temp file for
+  `.github/pull_request_template.md`,
+  `templates/web-gpt-candidate-prompt.template.md`, and
+  `docs/CODEX_HANDOFF_20260517_AI_WORKFLOW.md`
+  - result: passed after simplifying required PR defaults and tightening Web
+    GPT no-extra-commentary rules
+- `node tests/pr-readiness-check-tests.mjs`
+  - result: passed after adding PR template fixture coverage, filled PR body
+    example validation, and high-risk wording false-positive coverage
+- `npx eslint scripts/check-pr-readiness.mjs tests/pr-readiness-check-tests.mjs`
+  - result: passed after PR readiness checker/test updates
+- Sample PR body CLI dry-run:
+  `node scripts/check-pr-readiness.mjs --body-file templates/examples/pr-readiness-filled-body.example.md --changed-files <temp> --numstat <temp>`
+  - result: passed
+- Clean PR worktree `C:\awp` validation:
+  - `npm ci`: passed
+  - `node tests\pr-readiness-check-tests.mjs`: passed
+  - `npx eslint scripts\check-pr-readiness.mjs tests\pr-readiness-check-tests.mjs`: passed
+  - `npm run validate:workflows`: passed
+  - `npm run build`: passed
+  - `npm run lint`: passed
+  - `npm run typecheck`: passed
+  - `npm test`: passed
+  - `npm run pack:check`: passed
+  - `npm run test:e2e`: passed
+  - `npm run doctor`: passed; `cursor`, `gpt-runner`, `codex`, and `local-ci`
+    were ready; `openclaw` was not ready and remains optional
+- Final CI-stability validation in clean PR worktree `C:\awp`:
+  - `node tests\dispatch-matrix-tests.mjs`: passed
+  - `npx eslint tests\dispatch-matrix-tests.mjs scripts\check-pr-readiness.mjs tests\pr-readiness-check-tests.mjs`: passed
+  - `npm test`: passed
+  - `npm run lint`: passed
+  - `npm run typecheck`: passed
+  - `git diff --check`: passed
+- GitHub draft PR #13 checks:
+  - previous commit reached green after rerunning the Windows PR quality flake.
+  - after the final CI-stability commit is pushed, wait for the required checks
+    to rerun and confirm green before marking the draft PR ready.
+- `npm run check:pr-readiness` with `PR_DRAFT=true`
+  - result: passed; draft PRs skip enforcement
+- `npm test`
+  - result: failed in existing `tests/panel-tests.mjs` expectation for panel
+    HTML text (`Start: Local workspace contains sales.json...`); focused
+    readiness tests had already passed. The worktree already had unrelated
+    dirty panel/runtime files before this round.
+- `npm run lint`
+  - result: failed on pre-existing unrelated lint issues, including
+    `scripts/verify-summary.mjs`, `tests/panel-one-click-smoke-tests.mjs`, and
+    untracked `tmp/caveman/**`. Targeted lint for the new checker/test passed.
+- `git diff --check -- docs/ai-collaboration-workflow.md .github/codex/prompts/implement-task.md docs/CODEX_HANDOFF_20260517_AI_WORKFLOW.md`
+  - result: passed, but plain `git diff --check` does not cover untracked files
+    until they are staged or marked intent-to-add
+- `git diff --no-index --check` against an empty temp file for
+  `docs/ai-collaboration-workflow.md`,
+  `.github/codex/prompts/implement-task.md`, and
+  `docs/CODEX_HANDOFF_20260517_AI_WORKFLOW.md`
+  - result: passed for the Caveman subplan update
+- `git diff --no-index --check` against an empty temp file for
+  `templates/one-line-task.template.md`,
+  `templates/examples/s-mode-one-line-task.example.md`,
+  `templates/examples/m-mode-web-to-codex-candidate.example.md`,
+  `templates/examples/l-mode-ai-task.example.md`,
+  `templates/web-gpt-candidate-prompt.template.md`,
+  `templates/web-to-codex-candidate.template.md`,
+  `.github/pull_request_template.md`,
+  `.github/ISSUE_TEMPLATE/ai_task.yml`,
+  `docs/model-routing.md`,
+  `scripts/check-pr-readiness.mjs`,
+  `tests/pr-readiness-check-tests.mjs`,
+  `docs/ai-collaboration-workflow.md`,
+  `.github/codex/prompts/implement-task.md`, and
+  `docs/CODEX_HANDOFF_20260517_AI_WORKFLOW.md`
+  - result: passed after task-state and model/effort enforcement update
+
+## Remaining / Next Steps
+
+- Review the templates in GitHub after push to confirm labels and issue forms
+  render as expected.
+- Draft PR #13 is open. After the final CI-stability commit is pushed and the
+  required checks are green, next human action is to review the PR and mark it
+  ready when desired.
+- Optionally create repository labels: `ai-task` and `bug`.
+- Do not merge unrelated dirty files from the original source worktree. The PR
+  branch was intentionally created from clean `origin/main`.
+- Runtime-level model policy migration to default `gpt-5.5` is deliberately not
+  included in PR #13 because it touches runtime source and broad test contracts.
+  Treat it as a separate L-mode task if needed.
+
+## Key Files And Artifacts
+
+- `.github/ISSUE_TEMPLATE/ai_task.yml`
+- `.github/ISSUE_TEMPLATE/bug_report.yml`
+- `.github/codex/prompts/implement-task.md`
+- `.github/workflows/pr-readiness.yml`
+- `.github/pull_request_template.md`
+- `docs/ai-collaboration-workflow.md`
+- `CONTRIBUTING.md`
+- `scripts/check-pr-readiness.mjs`
+- `tests/dispatch-matrix-tests.mjs`
+- `tests/pr-readiness-check-tests.mjs`
+- `package.json`
+- `templates/one-line-task.template.md`
+- `templates/web-gpt-candidate-prompt.template.md`
+- `templates/web-to-codex-candidate.template.md`
+- `templates/examples/s-mode-one-line-task.example.md`
+- `templates/examples/m-mode-web-to-codex-candidate.example.md`
+- `templates/examples/l-mode-ai-task.example.md`
+- `templates/examples/pr-readiness-filled-body.example.md`
+- `docs/model-routing.md`
+- Draft PR: `https://github.com/schmidtkaylan39-cpu/autocase/pull/13`
+- Clean PR worktree: `C:\awp`
+
+## Risks / Do Not Do
+
+- Do not reset, checkout, clean, or overwrite user changes without explicit
+  request.
+- Do not expose secrets, tokens, cookies, session credentials, or full account
+  IDs.
+- Do not assume the old conversation can be restored.
+- Use local files, git state, validation artifacts, and generated reports as
+  the source of truth.
+
+## Starter Prompt For Next Conversation
+
+Read `AGENTS.md` and `docs/CODEX_HANDOFF_20260517_AI_WORKFLOW.md` first. Confirm
+the current git state, review the listed workflow files, and continue from the
+next steps. Do not rely on restoring the old conversation.
